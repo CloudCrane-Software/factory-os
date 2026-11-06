@@ -1001,7 +1001,7 @@ jobs:
           body = {
               "model": model,
               "temperature": 0.2,
-              "max_tokens": 8192,
+              "max_tokens": 16384,
               "messages": [
                   {"role": "system", "content": prompt},
                   {"role": "user", "content": json.dumps(inputs, ensure_ascii=False)},
@@ -1058,6 +1058,9 @@ jobs:
                                     "prompt_tk": usage.get("prompt_tokens"),
                                     "completion_tk": usage.get("completion_tokens"),
                                     "finish_reason": finish_reason})
+              if finish_reason == "length":
+                  print("finish=length：输出被 max_tokens 截断（16384 档仍撞顶——候选交 08 终裁，如复现考虑提档）",
+                        file=sys.stderr)
               # 调用账本（配额计数；只记时间/用量，不记内容、不记密钥）
               now = datetime.now(timezone(timedelta(hours=8)))
               log = []
