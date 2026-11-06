@@ -35,9 +35,11 @@
 #    new-provider/step-5-preview（key 2026-12-05 20:00 过期）。GLM-5.3 与其余
 #    GLM 账户仍持至 2026-11-06 18:00、minimax 周额度 EXHAUSTED（禁用至周重置）
 #    ⇒ 施工通道集仍为 anolis-build / local-api / bot-lane（规划环自用模型走 GLM）。
-# 6. 调用预算：cron 每小时 :05 一次 ⇒ 稳态 1 次/h；单跑硬顶 2 次（首发 + 1 重试）；
-#    workflow_dispatch 手动跑同样计数（跨跑守卫见 03a/03b/03c，Actions cache
-#    best-effort——cache 可能 miss/evict，故单跑硬顶才是主闸）。
+# 6. 调用预算：cron 提频为每 10 分钟一次（job 唤醒闸先判「值不值得烧贵腿」），
+#    GLM 规划调用稳态仍 ≤2 次/h——单跑硬顶 2 次（首发 + 1 重试）+ 03b 每小时
+#    配额闸原样不动；workflow_dispatch 手动跑同样计数（跨跑守卫见 03a/03b/03c，
+#    Actions cache best-effort——cache 可能 miss/evict，故单跑硬顶才是主闸）。
+#    唤醒闸只省成本不是预算闸本体（见 9）。
 # 7. 分支保护实况（P4 落地实测）：factory-os main = 要求 PR + required check
 #    `gates` + enforce_admins ⇒ planner 直推必被 GitHub 拒。故取两段式（已落地）：
 #    manifest 先推 `planner/<wave>` 分支 → gh api 开 PR（base main）→ 轮询
@@ -47,6 +49,26 @@
 #    PR 留开、run 红，fail-loud 留运营者处置（禁假绿）。
 # 8. GITHUB_TOKEN 的 push 默认不触发其它工作流——不会形成 gates 重跑环。
 #    （planner/<wave> 分支 push 不触发；PR 开立触发 gates 一次，即 09b 轮询的那次。）
+# 9. 唤醒闸（job `wake`，2026-11-06 试点一落地；依据 30-工件/决策模型落点研究-
+#    20261106/S2-系统落点.md D1 + 试点一草案）：schedule 提频 '*/10 * * * *' 后，
+#    每次唤醒先用决策模型判「这一刻值不值得烧一次贵腿规划调用」。
+#    ① 判定面：Jev（POST https://tokenrhythm.studio/v1/systemone，model=
+#      NeoHorse-Jev-4B，questions.wake=choice{run,skip}，超时 12s，key 走 repo
+#      secret DECISION_API_KEY——明文源头 openBao kv/data/company/LLM-upstream/
+#      TokenRhythm-neohorse api_key，禁打印禁落盘）。choice==skip 且 confidence
+#      ≥0.8 才 skip；skip ⇒ plan job 整体跳过（job 级 if，16 步一字不动），
+#      不调 GLM 不建卡不 commit，wake job 写 skip 摘要后 exit 0 结束 run。
+#    ② 确定性兜底三连（缺一不可；Jev 只做成本优化不做安全闸）：
+#      · 波次清单/ 最新 manifest 提交距今 >60 分钟 ⇒ 强制 run（防饿死）；
+#      · Jev 调用失败/超时/422/非 JSON/缺席 secret ⇒ fail-open 强制 run（回到
+#        现行全跑行为）；
+#      · 板面近 10 分钟有新 issue/PR 事件 ⇒ 强制 run。
+#    ③ 信号读取（gh api 只读，全失败也 fail-open 强制 run）：open issues 数、
+#      近 10 分钟 issue/PR 事件数、manifest 距今分钟数——三者进 Jev state 文本，
+#      决策与概率写 step summary（可观测）。
+#    ④ C 边界：Jev 的 skip 只是「这一刻不规划」，不是「规划结果无效」——step 08
+#      校验、09b gates 绿判合并、2 次/h 配额闸一字不动。回退预案：删 '*/10'
+#      schedule 一条即回到现状。
 #
 # 【模型与配额实读口径（注释留证；密钥绝不硬编码）】
 #   provider_id = account:bigmodel-individual-coding-plan（智谱 individual coding plan）
@@ -69,8 +91,9 @@ name: planner
 
 on:
   schedule:
-    # 每小时 :05：错开整点峰值；01-建设方案 §四「schedule cron（每小时）」
-    - cron: '5 * * * *'
+    # 每 10 分钟轻唤醒：由 job `wake`（唤醒闸，见头注 9）先判值不值得烧贵腿；
+    # 提频换响应性，GLM 调用稳态仍被 03b 配额闸钉在 ≤2 次/h
+    - cron: '*/10 * * * *'
   workflow_dispatch:
     inputs:
       dry_run:
@@ -123,7 +146,177 @@ env:
   WAVE_OVERRIDE: ${{ inputs.wave_number || '' }}
 
 jobs:
+  # ══════════════════════════════════════════════════════════════════════════
+  # 唤醒闸（试点一 · S2-D1）：schedule 提频 '*/10' 后先判「这一刻值不值得烧贵腿」。
+  # 确定性兜底三连（Jev 只做成本优化不做安全闸）：
+  #   ① manifest 距今 >60 分钟 ⇒ 强制 run；② Jev 失败/超时/422 ⇒ fail-open 强制 run；
+  #   ③ 板面近 10 分钟有新 issue/PR 事件 ⇒ 强制 run。
+  # 仅 Jev choice==skip 且 confidence≥0.8 才 skip；skip ⇒ plan job 整体跳过，
+  # 不调 GLM 不建卡不 commit。决策与概率写 step summary（可观测）。
+  # ══════════════════════════════════════════════════════════════════════════
+  wake:
+    name: '唤醒闸 · Jev 决策 + 确定性兜底三连'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    outputs:
+      decision: ${{ steps.gate.outputs.decision }}
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      DECISION_API_KEY: ${{ secrets.DECISION_API_KEY }}   # 缺席 ⇒ 兜底② fail-open 强制 run
+    steps:
+      - name: '唤醒闸 · 聚合板面信号 → Jev 决策（choice run/skip · 兜底三连）'
+        id: gate
+        run: |
+          set -euo pipefail
+          python3 -I - <<'PY'
+          import json, os, sys, time, urllib.error, urllib.request
+          from datetime import datetime, timedelta, timezone
+
+          ORG, REPO = os.environ["ORG"], os.environ["BOARD_REPO"]
+          API = "https://api.github.com"
+          sig_errors = []      # 信号读取异常（fail-open 依据，进摘要）
+          jev_errors = []      # Jev 调用异常（兜底② fail-open 依据）
+          signals = {"checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                     "open_issues": None, "recent_events_10min": None,
+                     "manifest_age_min": None}
+
+          def gh(path):
+              req = urllib.request.Request(API + path,
+                                           headers={"Authorization": "Bearer " + os.environ["GH_TOKEN"],
+                                                    "Accept": "application/vnd.github+json",
+                                                    "X-GitHub-Api-Version": "2022-11-28"})
+              with urllib.request.urlopen(req, timeout=15) as r:
+                  return json.loads(r.read().decode("utf-8"))
+
+          # ── 信号聚合（gh api 只读，三次便宜读数）──
+          try:   # ① open issues 数（不含 PR）
+              signals["open_issues"] = gh(
+                  "/search/issues?q=repo:%s/%s+is:issue+state:open&per_page=1" % (ORG, REPO)
+              )["total_count"]
+          except Exception as e:
+              sig_errors.append("open_issues 读取失败：%s" % type(e).__name__)
+          try:   # ② 近 10 分钟 issue/PR 事件数（created/updated/commented 都会推 updated_at）
+              since = (datetime.now(timezone.utc) - timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
+              signals["recent_events_10min"] = len(gh(
+                  "/repos/%s/%s/issues?state=all&since=%s&per_page=100" % (ORG, REPO, since)))
+          except Exception as e:
+              sig_errors.append("recent_events 读取失败：%s" % type(e).__name__)
+          try:   # ③ 波次清单/ 最新 manifest 提交距今分钟数
+              c = gh("/repos/%s/%s/commits?path=%s&per_page=1" % (ORG, REPO, "波次清单"))
+              d = datetime.fromisoformat(c[0]["commit"]["committer"]["date"].replace("Z", "+00:00"))
+              age = int((datetime.now(timezone.utc) - d).total_seconds() // 60)
+              signals["manifest_age_min"] = max(age, 0)   # 钟差钳零
+              signals["manifest_last_commit_at"] = c[0]["commit"]["committer"]["date"]
+          except Exception as e:
+              sig_errors.append("manifest_age 读取失败：%s" % type(e).__name__)
+
+          # ── Jev 决策调用（超时 12s；返回 dict 或 None=失败）──
+          def ask_jev():
+              key = os.environ.get("DECISION_API_KEY") or ""
+              if not key:
+                  jev_errors.append("DECISION_API_KEY 缺席——fail-open")
+                  return None
+              state = ("factory-os planner 唤醒闸 · %s（UTC）\n"
+                       "open_issues=%s\n"
+                       "近10分钟issue/PR事件=%s\n"
+                       "波次清单 manifest 最新提交距今=%s 分钟（%s）\n"
+                       "trigger=%s · 说明：run=此刻值得烧一次 GLM 规划调用；"
+                       "skip=板面静滞且 manifest 很新（<60 分钟），跳过本轮省成本。"
+                       % (signals["checked_at"], signals["open_issues"],
+                          signals["recent_events_10min"], signals["manifest_age_min"],
+                          signals.get("manifest_last_commit_at", "<读不到>"),
+                          os.environ.get("GITHUB_EVENT_NAME", "?")))
+              body = {"model": "NeoHorse-Jev-4B", "state": state,
+                      "questions": {"wake": {
+                          "type": "choice",
+                          "criteria": {"run": "板面有动静、manifest 超 60 分钟未动、或状态可疑——值得规划一轮",
+                                       "skip": "板面完全静滞且 manifest 很新（<60 分钟）——跳过本轮"},
+                          "instructions": "这是成本优化预筛不是安全闸：不确定一律选 run（fail-open 方向）。"}}}
+              t0 = time.monotonic()
+              try:
+                  req = urllib.request.Request(
+                      "https://tokenrhythm.studio/v1/systemone",
+                      data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+                      headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"},
+                      method="POST")
+                  with urllib.request.urlopen(req, timeout=12) as r:
+                      payload = json.loads(r.read().decode("utf-8"))
+              except urllib.error.HTTPError as e:
+                  jev_errors.append("Jev HTTP %s（%sms）" % (e.code, int((time.monotonic() - t0) * 1000)))
+                  return None
+              except Exception as e:
+                  jev_errors.append("Jev 传输失败 %s（%sms）" % (type(e).__name__, int((time.monotonic() - t0) * 1000)))
+                  return None
+              ms = int((time.monotonic() - t0) * 1000)
+              ans = (payload.get("answers") or {}).get("wake") or {}
+              if ans.get("choice") not in ("run", "skip"):
+                  jev_errors.append("Jev 响应缺合法 choice（%sms）" % ms)
+                  return None
+              try:
+                  conf = float(ans.get("confidence"))
+              except (TypeError, ValueError):
+                  jev_errors.append("Jev confidence 非法（%sms）" % ms)
+                  return None
+              return {"choice": ans["choice"], "confidence": conf,
+                      "probabilities": ans.get("probabilities"), "ms": ms}
+
+          # ── 判定：确定性兜底三连 → Jev skip 需 confidence≥0.8 ──
+          def decide(sig, serr, jerr, jev):
+              """返回 (decision, family, reason)。family ∈ 兜底0|兜底1|兜底2|兜底3|jev。"""
+              age, ev = sig.get("manifest_age_min"), sig.get("recent_events_10min")
+              if serr or age is None or ev is None:      # 信号读不全 ⇒ 未知状态 ⇒ 放行（fail-open）
+                  return ("run", "兜底0", "信号读取不全 fail-open ⇒ 强制 run（%s）"
+                          % (serr[0] if serr else "signals 缺场"))
+              if age > 60:                               # 兜底①：manifest >60 分钟必跑（防饿死）
+                  return ("run", "兜底1", "manifest 距今 %d 分钟 >60 ⇒ 强制 run" % age)
+              if ev > 0:                                 # 兜底③：板面近 10 分钟有事件必跑
+                  return ("run", "兜底3", "板面近 10 分钟 %d 件 issue/PR 事件 ⇒ 强制 run" % ev)
+              if jev is None:                            # 兜底②：Jev 失败/超时/422 ⇒ fail-open
+                  return ("run", "兜底2", "Jev 不可用 fail-open ⇒ 强制 run（%s）"
+                          % (jerr[-1] if jerr else "未知"))
+              if jev["choice"] == "skip" and jev["confidence"] >= 0.8:
+                  return ("skip", "jev", "Jev skip · confidence=%.2f ≥0.8 ⇒ 跳过本轮" % jev["confidence"])
+              return ("run", "jev", "Jev %s · confidence=%.2f（skip 须 confidence≥0.8）⇒ run"
+                      % (jev["choice"], jev["confidence"]))
+
+          # 兜底①③可先于 Jev 判出 ⇒ 不必花钱问 Jev；其余才调用
+          pre = (bool(sig_errors) or signals.get("manifest_age_min") is None
+                 or signals.get("recent_events_10min") is None
+                 or signals["manifest_age_min"] > 60 or signals["recent_events_10min"] > 0)
+          jev = None
+          if not pre:
+              jev = ask_jev()
+          decision, family, reason = decide(signals, sig_errors, jev_errors, jev)
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+              f.write("decision=%s\nreason=%s\n" % (decision, reason.replace("\n", " ")))
+          line = "唤醒闸决策: decision=%s · %s · open_issues=%s · 近10min事件=%s · manifest距今=%s分钟" % (
+              decision, reason, signals["open_issues"], signals["recent_events_10min"],
+              signals["manifest_age_min"])
+          print(line)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:
+              f.write("### 唤醒闸决策\n\n| 项 | 值 |\n|---|---|\n")
+              f.write("| decision | **%s** |\n| 判定族 | %s |\n| 理由 | %s |\n" % (decision, family, reason))
+              f.write("| open_issues | %s |\n| 近10min issue/PR 事件 | %s |\n| manifest 距今 | %s 分钟 |\n"
+                      % (signals["open_issues"], signals["recent_events_10min"], signals["manifest_age_min"]))
+              if jev:
+                  f.write("| Jev | choice=%s · confidence=%.2f · probabilities=%s · %sms |\n"
+                          % (jev["choice"], jev["confidence"],
+                             json.dumps(jev.get("probabilities"), ensure_ascii=False), jev["ms"]))
+              else:
+                  f.write("| Jev | 未调用（确定性兜底先行或不可用） |\n")
+              for e in sig_errors + jev_errors:
+                  f.write("| WARN | %s |\n" % e)
+              f.write("\n> 兜底三连：① manifest>60 分钟必跑 ② Jev 失败 fail-open 必跑 ③ 近 10 分钟有事件必跑；"
+                      "仅 Jev skip 且 confidence≥0.8 才跳过。\n")
+          if decision == "skip":
+              print("唤醒闸：skip——plan job 跳过（不调 GLM 不建卡不 commit）；下次唤醒 10 分钟后")
+          sys.exit(0)
+          PY
+
   plan:
+    needs: wake
+    if: needs.wake.outputs.decision != 'skip'   # 唤醒闸 skip ⇒ 整 job 跳过（16 步零改动）
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
