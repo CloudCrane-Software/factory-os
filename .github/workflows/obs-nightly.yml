@@ -239,5 +239,5 @@ jobs:
           lines.append("<!-- fingerprint=%s run=%s -->" % (fp, run_id))
           open("/tmp/obs-comment.md", "w", encoding="utf-8").write("\n".join(lines))
           PY
-          gh api -X POST "${api}/issues/${issue}/comments" -F body @/tmp/obs-comment.md >/dev/null
+          gh api -X POST "${api}/issues/${issue}/comments" -F "body=@/tmp/obs-comment.md" >/dev/null
           echo "board_comment_landed: issue=${issue} fingerprint=${fp}"
