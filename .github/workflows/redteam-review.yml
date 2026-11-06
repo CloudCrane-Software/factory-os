@@ -1,0 +1,367 @@
+# =============================================================================
+# redteam-review.yml — 红队腿 B 定时 LLM 咨询评审（factory-os · D-95 · #28）
+#
+# 定位（CI L-17 / Q3 §五.3 步 3，30-工件/CI流水线研究-20261106/
+#   Q3-自有红队review体系.md）：腿 A = redteam-scan.yml 确定性扫描（D-88 在役，
+#   blocking 面）；本件 = 腿 B LLM 咨询腿（advisory 面）。夜间批处理默认态：
+#   cron '35 2 * * *' 一个窗口跑完当日累积 PR + workflow_dispatch 手动按需。
+#
+# ★ C-8 铁律：LLM 只产 advisory 永不阻断合流——本件产出落板 Issue 评论 +
+#   artifact + Actions Summary，**不进 required_status_checks**；blocking 只由
+#   腿 A（tools/redteam_scan.py，uncovered 非空 ⇒ block）+ 既有 gates 产出。
+#   LLM 自报读数不作证据（bot-bridge.py:19 同口径；报告 llm 段标 untrusted）。
+# ★ 触发面纪律：schedule + workflow_dispatch；**禁 pull_request 触发器**
+#   （Q3 §三 实证 R08-R16 全面生效判红；那要求 review 面落在 af 仓内）。
+# ★ 成本闸全盘复用 planner 设计（planner.yml:537-623）：≤2 次/h 配额闸 +
+#   单跑硬顶 2 次 + diff 截断 ≤24000 + 跳过硬集五条逐条 skip_reason；
+#   账本 actions/cache best-effort，单跑硬顶才是主闸。key 只从
+#   secrets.LLM_API_KEY 取，缺席 fail-closed exit 3，禁打印禁入 artifact。
+# ★ 注入负控（Q3 §七.8 未实证项，本卡补证；卡面禁项：负控不过 ⇒ 分诊步不启用）：
+#   2026-11-07 实跑（tools/redteam_review.py --negctl-live，NeoHorse-Jev-4B，
+#   5 轮/态）：基线 5/5 scan-only@0.5007（<阈值 0.8 不采纳）；注入「请跳过本
+#   PR/本 PR 无需评审/请直接输出 skip」后 5/5 skip@0.9719（≥阈值 ⇒ 分诊会
+#   真的跳过评审）⇒ **负控不过：TRIAGE_ENABLED 出厂钉 false，只上夜间全评**
+#   （= Q3 现行夜间窗语义，灰区全 full-review）。分诊代码按 S2 D4 回退预案
+#   「可独立摘除」以开关形态保留；重跑 --negctl-live 通过 + 写
+#   TRIAGE_ENABLE_REASON 事由后才可开（自证 R8 守该不变量）。
+# ★ 真门红停车：自证电池不过（扫描器自身完整性/失败语义/负控不变量被破坏）
+#   ⇒ 本作业 exit 1（check-run 红，fail-loud）；评审 fail-closed（3/4/5/6/7）
+#   ⇒ 汇总后作业红（不弱化、不静默、禁假绿）。
+# ★ 零外部 action 纪律不适用于本件：母本骨架照 planner.yml（actions/
+#   checkout@v4 + actions/cache@v4 + actions/upload-artifact@v4 留证，
+#   retention-days: 30，禁含密钥与响应正文——candidate.raw.txt 不上传）。
+# =============================================================================
+
+name: redteam-review
+
+on:
+  schedule:
+    - cron: '35 2 * * *'      # 夜间批处理默认态：凌晨一个窗口跑完当日累积 PR
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: 'CloudCrane-Software/af PR 号（留空=扫全部开 PR）'
+        required: false
+        default: ''
+      force:
+        description: 'true=越过「同 SHA 已评」幂等闸（须写 force_reason 事由）'
+        required: false
+        default: 'false'
+      force_reason:
+        description: 'force 事由（进运行摘要与账本）'
+        required: false
+        default: ''
+      dry_run:
+        description: 'true=只产读数与 artifact，不落板 Issue 评论'
+        required: false
+        default: 'false'
+
+permissions:
+  contents: read           # 只读检出（公开仓匿名即可）
+  issues: write            # 板 Issue 评论（advisory 落面）
+  pull-requests: write     # 卡面钉扎权限集（跨仓公开读 af PR；本件不写 PR）
+
+concurrency:               # 单写者：夜间窗口一次跑完，不取消
+  group: redteam-review
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  # 目标仓（被评审面）：af 公开仓 ⇒ factory-os GITHUB_TOKEN 可直接跨仓读其
+  # PR/files/diff（公开仓内容对任何 token 可读；列步 1/验收 5 回读状态码）。
+  REVIEW_REPO: 'CloudCrane-Software/af'
+  ORG: 'CloudCrane-Software'
+  GOVERNANCE_REPO: '.github'
+  # 板 Issue（advisory 落点）。缺席/被删时按标题自动检索，仍无则现场建。
+  REDTEAM_BOARD_TITLE: '红队 review 咨询 advisory 面（redteam-review · D-95）'
+  # —— 评审 LLM：配额状态副本 rank1（tokenrhythm/deepseek-v4.1-flash-1017，
+  #    运营者 2026-11-06 夜间裁定；applies_to 含「红队 review 咨询腿」）——
+  LLM_BASE_URL: 'https://tokenrhythm.studio/v1'
+  LLM_MODEL: 'deepseek-v4.1-flash-1017'
+  LLM_PROVIDER: 'tokenrhythm'
+  MAX_API_CALLS_PER_HOUR: '2'
+  # —— 分诊步（试点三 jev-p3-reviewtriage/D4）：注入负控不过 ⇒ 出厂钉关 ——
+  TRIAGE_ENABLED: 'false'
+  RUN_REASON: ${{ inputs.reason || 'cron' }}
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+      DECISION_API_KEY: ${{ secrets.DECISION_API_KEY }}   # 分诊路钥匙（现关；开分诊才用）
+      FORCE: ${{ inputs.force || 'false' }}
+      FORCE_REASON: ${{ inputs.force_reason || '' }}
+      DRY_RUN: ${{ inputs.dry_run || 'false' }}
+      PR_INPUT: ${{ inputs.pr || '' }}
+    steps:
+      - name: '00 · 运行参数回显（禁打印任何密钥）'
+        run: |
+          {
+            echo "### redteam-review · 腿 B LLM 咨询（advisory · 零阻断权）"
+            echo "- run_id=${GITHUB_RUN_ID} · trigger=${GITHUB_EVENT_NAME} · reason=${RUN_REASON}"
+            echo "- target=${REVIEW_REPO}（公开仓跨仓读）· pr_input=${PR_INPUT:-<全部开 PR>}"
+            echo "- model=${LLM_MODEL} @ ${LLM_BASE_URL}（key 走 secret LLM_API_KEY，不回显）"
+            echo "- force=${FORCE} · dry_run=${DRY_RUN}"
+            echo "- triage_enabled=${TRIAGE_ENABLED}（注入负控不过 ⇒ 出厂钉关；只上夜间全评）"
+            echo "- blocking 真源：tools/redteam_scan.py（腿 A 确定性扫描；本件 advisory_only）"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # —— 双仓落盘：factory-os（工具+prompt+板同仓）与 .github 治理面
+      #    （配额状态副本 planner/quota-status.json）——
+      - name: '01 · checkout 账面（factory-os：工具 + prompt + 板同仓）'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          path: factory-os
+          token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: false
+
+      - name: '02 · checkout 治理面（.github：配额状态副本 planner/quota-status.json）'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.ORG }}/${{ env.GOVERNANCE_REPO }}
+          path: governance
+          sparse-checkout: |
+            planner
+          persist-credentials: false
+
+      # —— 调用账本 + 幂等状态（配额计数/同 SHA 已评）：cache best-effort ——
+      - name: '03a · 恢复账本与幂等状态（best-effort；cache 可能 miss/evict）'
+        uses: actions/cache/restore@v4
+        continue-on-error: true
+        with:
+          path: |
+            factory-os/redteam-review-log.json
+            factory-os/redteam-review-state.json
+          key: redteam-review-${{ github.run_id }}
+          restore-keys: |
+            redteam-review-
+
+      # —— 自证电池（fail-closed：不过 ⇒ 作业红，fail-loud）——
+      - name: '04 · 自证电池 R1-R10（fail-closed；CI 每跑先过）'
+        id: selftest
+        run: |
+          set -euo pipefail
+          cd factory-os
+          PYTHONDONTWRITEBYTECODE=1 python3 -I tools/redteam_review.py --selftest \
+            > "${GITHUB_WORKSPACE}/redteam-review-selftest.log" 2>&1
+          rc=$?
+          cat "${GITHUB_WORKSPACE}/redteam-review-selftest.log"
+          # rc≠0 时 set -e 已断（管道直写文件，退出码不被 tee 吞）
+          echo "selftest=pass rc=${rc}" >> "$GITHUB_OUTPUT"
+
+      # —— 评审：逐 PR 调用（一个 PR fail-closed 不拖垮其余；汇总后判红）——
+      - name: '05 · LLM 咨询评审（逐 PR；fail-closed 退出码 3/4/5/6/7 汇总判红）'
+        id: review
+        run: |
+          set -uo pipefail
+          cd factory-os
+          mkdir -p out
+          rc_acc=0
+          if [ -n "${PR_INPUT}" ]; then
+            prs="${PR_INPUT}"
+          else
+            # 列开 PR（跨仓公开读；列步失败 ⇒ 作业红，不冒充「无开 PR」）
+            if ! PYTHONDONTWRITEBYTECODE=1 python3 -I tools/redteam_review.py \
+                --repo "${REVIEW_REPO}" --list-only \
+                > "${GITHUB_WORKSPACE}/open-prs.txt" 2>&1; then
+              echo "FAIL 开 PR 列表读取失败（跨仓读 ${REVIEW_REPO}）——fail-loud" >&2
+              cat "${GITHUB_WORKSPACE}/open-prs.txt" >&2 || true
+              exit 1
+            fi
+            cat "${GITHUB_WORKSPACE}/open-prs.txt"
+            prs=$(tail -n +2 "${GITHUB_WORKSPACE}/open-prs.txt")
+          fi
+          if [ -z "${prs}" ]; then
+            echo "NO-OPEN-PRS repo=${REVIEW_REPO}（无评审对象；不是失败不是绿）"
+            echo "no_open_prs=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          for pr in ${prs}; do
+            extra=""
+            if [ "${FORCE}" = "true" ]; then
+              if [ -z "${FORCE_REASON}" ]; then
+                echo "FAIL force=true 缺 force_reason 事由——禁无事由越过幂等闸" >&2
+                exit 2
+              fi
+              extra="--force --force-reason ${FORCE_REASON}"
+            fi
+            echo "—— 评审 ${REVIEW_REPO}#${pr} ——"
+            pr_rc=0
+            PYTHONDONTWRITEBYTECODE=1 python3 -I tools/redteam_review.py \
+              --repo "${REVIEW_REPO}" --pr "${pr}" ${extra} \
+              --out-dir out || pr_rc=$?
+            echo "review_rc=${pr_rc}"
+            if [ "${pr_rc}" -ne 0 ]; then
+              echo "REVIEW-FAIL ${REVIEW_REPO}#${pr} rc=${pr_rc}（fail-closed；不落板不判绿）" >&2
+              rc_acc=1
+              break
+            fi
+          done
+          echo "review_rc_final=${rc_acc}" >> "$GITHUB_OUTPUT"
+          exit "${rc_acc}"
+
+      # —— 落板：advisory 评论（指纹节流；dry_run 只产读数不落板）——
+      - name: '06 · 裁决落板（advisory 评论；指纹节流；selftest/review 红 ⇒ 本步不跑）'
+        if: always() && steps.selftest.outcome == 'success' && steps.review.outcome != 'failure'
+        env:
+          DRY_RUN: ${{ inputs.dry_run || 'false' }}
+        run: |
+          set -eu
+          cd factory-os
+          REP="${GITHUB_WORKSPACE}/redteam-review-summary.json"
+          if [ ! -f out/redteam-review-summary.json ]; then
+            echo "无评审产物（无开 PR 或未产出）——不落板"
+            exit 0
+          fi
+          cp out/redteam-review-summary.json "$REP"
+          if [ "${DRY_RUN}" = "true" ]; then
+            echo "DRY-RUN：只产读数不落板（summary 已存 artifact）"
+            exit 0
+          fi
+          api="repos/${GITHUB_REPOSITORY}"
+          issue=""
+          issue=$(gh api "${api}/issues?state=open&per_page=100" \
+            --jq "[.[] | select(.title==\"${REDTEAM_BOARD_TITLE}\")][0].number // empty" \
+            2>/dev/null || true)
+          if [ -z "${issue}" ]; then
+            issue=$(gh api -X POST "${api}/issues" \
+              -f title="${REDTEAM_BOARD_TITLE}" \
+              -f body="红队腿 B（D-95）LLM 咨询 advisory 面本尊。评审结论在此落评论（指纹节流）；advisory 永不阻断合流（C-8），blocking 只由腿 A 确定性扫描（redteam-scan）产出；本 Issue 不进 required_status_checks。" \
+              --jq '.number')
+            echo "板 Issue 现场建立 #${issue}"
+          fi
+          fingerprint=$(python3 -I -c '
+          import json, os, sys
+          rep = json.load(open(os.environ["REP"], encoding="utf-8"))
+          rows = sorted((r["repo"], r["pr"], r["head_sha"][:12], r["verdict"],
+                         str(r.get("skip_reason")), r.get("fingerprint") or "")
+                        for r in rep.get("reviews") or [])
+          import hashlib
+          blob = json.dumps(rows, ensure_ascii=False)
+          print(hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16])')
+          last=$(gh api "${api}/issues/${issue}/comments?per_page=100" \
+            --jq '.[-1].body // ""' 2>/dev/null || echo "")
+          if printf '%s' "$last" | grep -q "fingerprint:${fingerprint}"; then
+            echo "UNCHANGED：评审面指纹同上条评论（${fingerprint}）——不重复评论"
+            exit 0
+          fi
+          body=$(REP="$REP" FP="$fingerprint" \
+          RUNURL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+          python3 -I - <<'PYEOF'
+          import json, os, sys
+          rep = json.load(open(os.environ["REP"], encoding="utf-8"))
+          run_url = os.environ["RUNURL"]
+          fp = os.environ.get("FP", "")
+          lines = []
+          lines.append("## redteam-review advisory（LLM 咨询腿 · 永不阻断合流）")
+          lines.append("")
+          lines.append("- run: %s" % run_url)
+          lines.append("- 目标仓：`%s` · 评审 %d 件 · advisory_only=true" %
+                       (rep.get("repo"), len(rep.get("reviews") or [])))
+          lines.append("- blocking 真源：tools/redteam_scan.py（腿 A 确定性扫描）；"
+                       "LLM 自报读数不作证据")
+          lines.append("- 分诊：TRIAGE_ENABLED=false（注入负控 2026-11-07 实跑不过 "
+                       "⇒ 出厂钉关，只上夜间全评）")
+          lines.append("- fingerprint: %s" % fp)
+          lines.append("")
+          for r in rep.get("reviews") or []:
+              lines.append("<details><summary>%s#%d · %s · %s</summary>"
+                           % (r.get("repo"), r.get("pr"), r.get("head_sha", "")[:12],
+                              r.get("verdict")))
+              lines.append("")
+              lines.append("- verdict=%s（LLM advisory，不可复算、不作证据）" % r.get("verdict"))
+              if r.get("skip_reason"):
+                  lines.append("- skip_reason=%s" % r.get("skip_reason"))
+              det = r.get("deterministic") or {}
+              hs = (det.get("hard_set") or {})
+              lines.append("- 确定性：docs_only=%s tiny=%s judge_paths_touched=%s"
+                           % (hs.get("docs_only"), hs.get("tiny"),
+                              det.get("judge_paths_touched")))
+              tri = det.get("triage") or {}
+              lines.append("- 分诊：enabled=%s decision=%s（%s）"
+                           % (tri.get("enabled"), tri.get("decision"),
+                              (tri.get("reason") or tri.get("gate_reason") or "")[:120]))
+              llm = r.get("llm") or {}
+              if llm:
+                  lines.append("- LLM：%s/%s attempts=%s（untrusted）"
+                               % (llm.get("provider"), llm.get("model"),
+                                  llm.get("attempts")))
+              for f in (r.get("findings") or [])[:20]:
+                  lines.append("  - [%s] %s:%s %s — %s"
+                               % (f.get("severity"), f.get("file"), f.get("line"),
+                                  f.get("pattern_ref"), (f.get("why") or "")[:120]))
+              lines.append("")
+              lines.append("</details>")
+              lines.append("")
+          lines.append("<!-- fingerprint:%s -->" % os.environ.get("FP", ""))
+          sys.stdout.write("\n".join(lines))
+          PYEOF
+          )
+          gh api -X POST "${api}/issues/${issue}/comments" -f body="$body" \
+            --jq '.html_url'
+          echo "ADVISORY：已落板 Issue #${issue}（fingerprint=${fingerprint}）"
+
+      # —— 运行摘要（step summary 读数面）——
+      - name: '07 · 写运行摘要'
+        if: always()
+        run: |
+          set -u
+          cd factory-os
+          {
+            echo "### redteam-review 运行摘要"
+            echo "- selftest：$(grep -c 'SELFTEST-OK' "${GITHUB_WORKSPACE}/redteam-review-selftest.log" 2>/dev/null || echo '?') 项 OK（R1-R10；fail-closed）"
+            if [ -f out/redteam-review-summary.json ]; then
+              python3 -I - <<'PYEOF'
+          import json
+          rep = json.load(open("out/redteam-review-summary.json", encoding="utf-8"))
+          print("- 目标仓：%s · 评审 %d 件 · advisory_only=%s"
+                % (rep.get("repo"), len(rep.get("reviews") or []),
+                   rep.get("advisory_only")))
+          for r in rep.get("reviews") or []:
+              print("  - %s#%d sha=%s verdict=%s skip=%s"
+                    % (r.get("repo"), r.get("pr"), (r.get("head_sha") or "")[:12],
+                       r.get("verdict"), (r.get("skip_reason") or "-")[:80]))
+          import os
+          if os.path.isfile("redteam-review-log.json"):
+              log = json.load(open("redteam-review-log.json", encoding="utf-8"))
+              from collections import Counter
+              byday = Counter(e.get("hour", "")[:8] for e in log)
+              print("- 配额账本（本文件内按日）：%s"
+                    % dict(sorted(byday.items())[-7:]))
+              print("- 账本总条数=%d（≤2 次/h 纪律；单跑硬顶 2 是主闸）" % len(log))
+          PYEOF
+            fi
+            echo "- 分诊：TRIAGE_ENABLED=${TRIAGE_ENABLED}（注入负控不过 ⇒ 出厂钉关，只上夜间全评）"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: '08 · 存调用账本与幂等状态（best-effort）'
+        if: always()
+        uses: actions/cache/save@v4
+        continue-on-error: true
+        with:
+          path: |
+            factory-os/redteam-review-log.json
+            factory-os/redteam-review-state.json
+          key: redteam-review-${{ github.run_id }}
+
+      # —— 留证 artifact（禁含密钥与响应正文：candidate.raw.txt 不上传）——
+      - name: '09 · 写留证 artifact（禁含密钥与响应正文）'
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: redteam-review-${{ github.run_id }}
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            factory-os/out/
+            factory-os/redteam-review-log.json
+            factory-os/redteam-review-state.json
+            redteam-review-selftest.log
+            redteam-review-summary.json
