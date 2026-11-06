@@ -54,6 +54,20 @@
 #      rc=2「不可证」——那不是门的红，是环境缺席，故门只在此验判别力（夹具
 #      25 例：解析/V判/B判/前缀覆盖/豁免标记/fail-closed×2/全栏扫描/引用材料
 #      归属/处置面豁免等，含 tamper 反例）。
+#   ④ L2/L3 点选门（2026-11-07 卡#35/D-103 新增）—— CI L-25 前半（Q2 G-7）：
+#      PR 剖面原先只含 L1+scrub+recon，all-gates.sh 的 L2–L6 门族未进 PR 面。
+#      本项把 all-gates.sh **既有 L2/L3 门位**按卡点选进 PR 面：点选面 =
+#      tools/gates-pr-selection.list（新件，/tools/ 下受 CODEOWNERS 判官路径锁），
+#      门位真源 = tools/all-gates.sh（register_L2 glob 门位 + register_L3 add_item
+#      行——**判据面零改动只接线**，卡面禁项）。三条硬语义：
+#      · 按卡点选（禁全量：anolis 水位，卡面禁项「禁把 L2–L6 全量塞进 PR 门」）；
+#      · **缺件显式判红**：点选门依赖件不在检出树 ⇒ 机制步 rc=2 显式红并逐条
+#        点名缺失件（不可证不猜绿，禁 SKIP 冒充；点选门自退 rc=2 同口径不降级）；
+#      · **A-1 SKIP 语义**：未点选门零静默——job summary 列 SKIP 清单，逐条带
+#        原因（判据面在 org 工作区不在仓／按卡未点选）＋对账人（all-gates.sh
+#        全量门 runner anolis-fos-01；仓内非名册门显式声明其对账人）。
+#      退出码口径（对齐 all-gates.sh）：0=点选门全绿；1=点选门实跑非零；2=缺件/
+#      门位不可证/点选面坏行。job 名恒 gates，既有五步零删零改。
 #
 # ★ 触发面纪律：仅 pull_request 且带 base 分支约束（对齐 af 仓
 #   .github/workflows/f1.yml 的 R03/R04 口径；禁用 pull_request_target）。base=main
@@ -96,6 +110,10 @@
 #   ③ 对账判别力自证：rc=0，「selftest 25/25 过」。
 # 〔2026-11-06 D-87 注释面残料清理：仓外工作区路径改写「出处注」、G-8 时效订正；
 #   门集/job 名/bot-scrub 行钉/豁免清单/全部命令行零变化——diff 仅注释行〕
+# 〔2026-11-07 D-103 L2/L3 点选门接线（卡#35）：新增剖面④一步 + tools/
+#   gates-pr-selection.list 点选面；门位真源=tools/all-gates.sh 既有 L2/L3 门位
+#   （判据面零改动只接线）；缺件显式判红 rc=2、未点选 SKIP 带原因+对账人；
+#   既有五步与 job 名恒 gates 零删零改——diff 仅新增步与注释行〕
 # =============================================================================
 name: gates
 
@@ -480,3 +498,280 @@ jobs:
           #   逃逸问题台账.md 等）不在本仓 ⇒ PR 检出树上必 rc=2「不可证」，
           #   那是环境缺席不是门的红。PR 面验的是判别力仍在（夹具含 tamper 反例）。
           python3 -I tools/test-ledger-migration-recon.py --selftest
+
+      # ---- 剖面④（D-103）：L2/L3 点选门（all-gates 既有门位·缺件显式红·SKIP 带原因对账人）
+      - name: L2/L3 点选门（tools/gates-pr-selection.list 驱动；缺件 rc=2 显式红；未点选 SKIP+原因+对账人）
+        run: |
+          set -eu
+          set -o pipefail
+          cd src
+          # 机制内核（内联 python，与本地实跑同源同款）：
+          #   门位真源 = tools/all-gates.sh（register_L2 glob 门位 + register_L3 add_item
+          #     行——判据面零改动，只接线）；点选面 = tools/gates-pr-selection.list（新件，
+          #     /tools/ 下受 CODEOWNERS 判官路径锁）。
+          #   rc 语义（对齐 all-gates.sh 退出码口径）：0=点选门全绿；1=点选门实跑非零；
+          #     2=缺件/门位不可证/点选面坏行（含点选门自退 rc=2）——「不可证」≠「绿」。
+          python3 -I - <<'PY'
+          import glob
+          import json
+          import os
+          import re
+          import subprocess
+          import sys
+
+          TOOLS = "tools"
+          ALLGATES = os.path.join(TOOLS, "all-gates.sh")
+          SELFILE = os.path.join(TOOLS, "gates-pr-selection.list")
+          REPORT = "gates-selection-report.json"
+          SUMMARY = os.environ.get("GITHUB_STEP_SUMMARY")
+          SEL_TIMEOUT = int(os.environ.get("AF_SEL_TIMEOUT", "900"))
+
+          ACCOUNTANT_ALLGATES = (
+              "tools/all-gates.sh 全量门（L2/L3 常驻项；anolis 自托管 runner anolis-fos-01 "
+              "定时/人工全量跑——本 PR 剖面按卡点选，不全量）")
+
+          RED2_KINDS = {"缺件显式红 rc=2", "门位解析失败", "族列非法", "点选行坏行", "SKIP 行坏行",
+                        "点选面缺件", "SKIP/点选矛盾", "实跑不可证 rc=2"}
+
+
+          def out(msg=""):
+              print(msg, flush=True)
+
+
+          # ---- 1. all-gates.sh 既有门位解析 ------------------------------------------
+          def join_continuations(text):
+              joined, buf = [], ""
+              for ln in text.splitlines():
+                  buf = (buf + " " + ln.strip()) if buf else ln
+                  if buf.rstrip().endswith("\\"):
+                      buf = buf.rstrip()[:-1]
+                      continue
+                  joined.append(buf)
+                  buf = ""
+              if buf.strip():
+                  joined.append(buf)
+              return joined
+
+
+          ag_text = open(ALLGATES, encoding="utf-8").read()
+          ag_lines = join_continuations(ag_text)
+
+          l2_template, l3_pos = None, {}
+          for ln in ag_lines:
+              m = re.match(r'\s*add_item\s+L2\s+"([^"]*)"\s+"([^"]*)"\s+"([^"]*)"\s*$', ln)
+              if m:
+                  l2_template = m.group(3)          # "python3 '$f'"（all-gates.sh:757）
+                  continue
+              m = re.match(r'\s*add_item\s+L3\s+"([^"]+)"\s+\d+\s+"(.*)"\s*$', ln)
+              if m:
+                  l3_pos[m.group(1)] = m.group(2)
+
+          l2_names = sorted(os.path.basename(p) for p in glob.glob(os.path.join(TOOLS, "test-*.py")))
+
+          if not os.path.isfile(ALLGATES):
+              out("RED rc=2：%s 不在位——门位真源缺席（不可证不猜绿）" % ALLGATES)
+              sys.exit(2)
+          if l2_template is None:
+              out("RED rc=2：all-gates.sh 解析不到 register_L2 的 add_item 命令模板"
+                  "（all-gates.sh:757 同款）——L2 门位真源不可读")
+              sys.exit(2)
+          if not l3_pos:
+              out("RED rc=2：all-gates.sh 解析不到 register_L3 的 add_item 行——L3 门位真源不可读")
+              sys.exit(2)
+
+
+          def expand(cmd):
+              return cmd.replace("$TOOLS", TOOLS).replace("$WS", ".")
+
+
+          def ws_deps(cmd):
+              """命令模板里引用的 $WS/$TOOLS 相对路径（SKIP 原因判据用）。
+
+              返回 (存在性检查路径, 展示路径)：$WS→仓根、$TOOLS→tools/，两族不同根。
+              """
+              found = []
+              for m in re.finditer(r"\$(WS|TOOLS)/([^\s'\";&|)]+)", cmd):
+                  root = "." if m.group(1) == "WS" else TOOLS
+                  found.append((os.path.join(root, m.group(2)),
+                                ("%s/%s" % (root, m.group(2))).replace("./", "")))
+              return found
+
+
+          # ---- 2. 读点选面 ------------------------------------------------------------
+          if not os.path.isfile(SELFILE):
+              out("RED rc=2：%s 不在位——点选面缺席（不可证不猜绿）" % SELFILE)
+              sys.exit(2)
+
+          sel, skip_decl, bad_lines = [], [], []
+          for raw in open(SELFILE, encoding="utf-8"):
+              ln = raw.rstrip("\n")
+              if not ln.strip() or ln.lstrip().startswith("#"):
+                  continue
+              parts = ln.split("\t")
+              if parts[0].strip() == "SKIP":
+                  if len(parts) < 4 or not parts[1].strip():
+                      bad_lines.append(("SKIP 行坏行", ln, "SKIP 行须 4 列：SKIP/门名/原因/对账人"))
+                  else:
+                      skip_decl.append((parts[1].strip(), parts[2].strip(), parts[3].strip()))
+                  continue
+              if len(parts) < 5 or not parts[0].strip():
+                  bad_lines.append(("点选行坏行", ln, "点选行须 5 列：门名/族/命令/依赖件/备注"))
+                  continue
+              sel.append({"name": parts[0].strip(), "family": parts[1].strip(),
+                          "cmd": parts[2].strip(), "deps": parts[3].strip(),
+                          "note": parts[4].strip()})
+
+          # ---- 3. 点选门逐件：门位解析 → 依赖件对账 → 实跑 -----------------------------
+          runs, reds = [], list(bad_lines)
+          selected_names = set()
+          for e in sel:
+              name, fam = e["name"], e["family"]
+              if name in selected_names:
+                  reds.append(("点选面重复", name, "同名门在点选面重复出现——点选须唯一"))
+                  continue
+              selected_names.add(name)
+
+              if fam == "L2":
+                  if name not in l2_names:
+                      reds.append(("门位解析失败", name,
+                                   "register_L2 glob 名册（%d 件）无此件——点选名与既有门位不符"
+                                   % len(l2_names)))
+                      continue
+                  cmd = expand(l2_template.replace("$f", os.path.join(TOOLS, name))
+                               .replace("$base", name))
+              elif fam == "L3":
+                  if name not in l3_pos:
+                      reds.append(("门位解析失败", name,
+                                   "register_L3 add_item 名册（%d 件）无此门名——点选名与既有门位不符"
+                                   % len(l3_pos)))
+                      continue
+                  cmd = expand(l3_pos[name])
+              elif fam in ("L2X", "L3X"):
+                  if e["cmd"] in ("", "-"):
+                      reds.append(("门位解析失败", name,
+                                   "%s 族须在命令列显式给出命令（门位在 all-gates.sh 名册之外）" % fam))
+                      continue
+                  cmd = e["cmd"]
+              else:
+                  reds.append(("族列非法", name, "族须为 L2/L3/L2X/L3X，读到 %r" % fam))
+                  continue
+
+              deps = [d.strip() for d in e["deps"].split(",") if d.strip()]
+              missing = [d for d in deps if not os.path.exists(d)]
+              if missing:
+                  reds.append(("缺件显式红 rc=2", name,
+                               "点选门依赖件不在检出树：%s——不可证不猜绿（禁 SKIP 冒充）"
+                               % "; ".join(missing)))
+                  continue
+              if not deps:
+                  reds.append(("点选面缺件", name, "点选行未声明任何依赖件——判据面不可对账即不可证"))
+                  continue
+
+              out("[RUN %s·%s] %s" % (fam, name, cmd))
+              try:
+                  p = subprocess.run(cmd, shell=True, cwd=".", capture_output=True,
+                                     text=True, timeout=SEL_TIMEOUT)
+                  rc, text = p.returncode, (p.stdout or "") + (p.stderr or "")
+              except subprocess.TimeoutExpired:
+                  reds.append(("实跑超时", name, "超过 %ds 预算（all-gates.sh 口径：超时即红）"
+                               % SEL_TIMEOUT))
+                  continue
+              tail = "\n".join([l for l in text.splitlines() if l.strip()][-6:])
+              if rc == 0:
+                  runs.append({"name": name, "family": fam, "rc": 0, "verdict": "PASS",
+                               "cmd": cmd, "tail": tail})
+                  out("[PASS %s·%s] rc=0 ｜ %s" % (fam, name, tail.replace("\n", " ⏎ ")))
+              elif rc == 2:
+                  # 门自退 rc=2 = 不可证（all-gates.sh 退出码语义）——机制层同口径判红 rc=2，
+                  # 不降级成 rc=1（「不可证」≠「绿」取证）。
+                  kind = "实跑不可证 rc=2"
+                  reds.append((kind, name, tail.replace("\n", " ⏎ ")))
+                  runs.append({"name": name, "family": fam, "rc": rc, "verdict": "FAIL",
+                               "cmd": cmd, "tail": tail})
+                  out("[RED %s·%s] 门自退 rc=2（不可证）｜ %s" % (fam, name, tail.replace("\n", " ⏎ ")))
+              else:
+                  reds.append(("实跑红 rc=%d" % rc, name, tail.replace("\n", " ⏎ ")))
+                  runs.append({"name": name, "family": fam, "rc": rc, "verdict": "FAIL",
+                               "cmd": cmd, "tail": tail})
+                  out("[RED %s·%s] rc=%d ｜ %s" % (fam, name, rc, tail.replace("\n", " ⏎ ")))
+
+          # ---- 4. SKIP 面（A-1：未点选门零静默，逐条原因+对账人）----------------------
+          skips = []
+          for name in l2_names:
+              if name in selected_names:
+                  continue
+              body = open(os.path.join(TOOLS, name), encoding="utf-8", errors="replace").read()
+              extra = ""
+              if re.search(r'expanduser\("~|"/home/|~/workspace', body):
+                  extra = ("；另注：本门判据面硬编码 org 工作区路径，PR 检出树跑之将离树判读"
+                           "（更不应点选）")
+              skips.append((name, "未点选（卡 D-103 按卡点选制：L2/L3 族门不全量进 PR 门——anolis "
+                                  "水位）；门件在仓%s" % extra, ACCOUNTANT_ALLGATES))
+          for name, tmpl in sorted(l3_pos.items()):
+              if name in selected_names:
+                  continue
+              absent = [disp for chk, disp in ws_deps(tmpl) if not os.path.exists(chk)]
+              if absent:
+                  reason = ("判据面在 org 工作区（%s 不在 factory-os 仓）⇒ PR 检出树不可证——按卡 "
+                            "不点选（点选即 rc=2 缺件显式红）" % "; ".join(absent))
+              else:
+                  reason = "未点选（卡 D-103 按卡点选制：L2/L3 族门不全量进 PR 门——anolis 水位）"
+              skips.append((name, reason, ACCOUNTANT_ALLGATES))
+          for name, reason, acct in skip_decl:
+              if name in selected_names:
+                  reds.append(("SKIP/点选矛盾", name, "同名门既点选又声明 SKIP——点选面自相矛盾"))
+              else:
+                  skips.append((name, reason, acct))
+
+          # ---- 5. 摘要（stdout + job summary + 机读报告）------------------------------
+          has_red2 = any(k in RED2_KINDS for k, _n, _d in reds)
+          final_rc = 2 if has_red2 else (1 if reds else 0)
+
+          out("")
+          out("=== D-103 点选门摘要（门位真源=tools/all-gates.sh；点选面=%s）===" % SELFILE)
+          out("既有门位名册：L2 glob %d 件 + L3 add_item %d 件；点选 %d 件（L2 %d / L3 %d / X 族 %d）；"
+              "SKIP %d 件" % (len(l2_names), len(l3_pos), len(sel),
+                              sum(1 for e in sel if e["family"] == "L2"),
+                              sum(1 for e in sel if e["family"] == "L3"),
+                              sum(1 for e in sel if e["family"].endswith("X")),
+                              len(skips)))
+          for r in runs:
+              out("  [%s] %s·%s rc=%d" % (r["verdict"], r["family"], r["name"], r["rc"]))
+          for kind, name, detail in reds:
+              out("  [RED·%s] %s ｜ %s" % (kind, name, detail))
+          out("  —— SKIP 清单（A-1：逐条原因+对账人）——")
+          for name, reason, acct in skips:
+              out("  SKIP %s ｜ 原因：%s ｜ 对账人：%s" % (name, reason, acct))
+          out("结论：rc=%d（%s）" % (final_rc,
+                                   "全绿" if final_rc == 0 else
+                                   ("有红（含缺件/不可证 rc=2 类）" if final_rc == 2 else "有红（实跑非零）")))
+
+          lines = ["### D-103 点选门摘要（L2/L3 族门·按卡点选·缺件显式红·SKIP 带原因对账人）", "",
+                   "- 门位真源：`tools/all-gates.sh`（register_L2 glob 名册 %d 件 + register_L3 "
+                   "add_item 名册 %d 件）；点选面：`%s`" % (len(l2_names), len(l3_pos), SELFILE),
+                   "- 点选 %d 件；SKIP %d 件；结论 **rc=%d**" % (len(sel), len(skips), final_rc), "",
+                   "| 点选门 | 族 | rc | 判定 |", "| --- | --- | --- | --- |"]
+          for r in runs:
+              lines.append("| %s | %s | %d | %s |" % (r["name"], r["family"], r["rc"], r["verdict"]))
+          for kind, name, detail in reds:
+              lines.append("| %s | — | — | RED·%s：%s |" % (name, kind, detail.replace("|", "\\|")[:400]))
+          lines += ["", "#### SKIP 清单（A-1：每条带原因+对账人）", "",
+                    "| 门 | 原因 | 对账人 |", "| --- | --- | --- |"]
+          for name, reason, acct in skips:
+              lines.append("| %s | %s | %s |" % (name, reason.replace("|", "\\|"), acct))
+          if SUMMARY:
+              with open(SUMMARY, "a", encoding="utf-8") as f:
+                  f.write("\n".join(lines) + "\n")
+
+          with open(REPORT, "w", encoding="utf-8") as f:
+              json.dump({"schema": "af.fos.gates-selection.v1", "card": "D-103",
+                         "roster": {"l2_glob": l2_names, "l3_add_item": sorted(l3_pos)},
+                         "selected": sel, "runs": runs,
+                         "reds": [{"kind": k, "name": n, "detail": d} for k, n, d in reds],
+                         "skips": [{"name": n, "reason": r, "accountant": a}
+                                   for n, r, a in skips],
+                         "final_rc": final_rc}, f, ensure_ascii=False, indent=2)
+          out("（机读报告：%s；job summary 已写：%s）" % (REPORT, bool(SUMMARY)))
+
+          sys.exit(final_rc)
+          PY
