@@ -380,11 +380,30 @@ def expand(df, have_img, pool, subm, pend, need, max_pull, dry, repos=None, word
 # ---------- ③ 生成 ----------
 
 def build_payload(row):
-    """与 tools/swev-prep.py 同 schema：make_test_spec 产 eval_script，字段集/顺序一致。"""
-    from swebench.harness.test_spec.test_spec import make_test_spec
+    """与 tools/swev-prep.py 同 schema：make_test_spec 产 eval_script，字段集/顺序一致。
+
+    D-106（摩擦点②收编）：取数统一经 swev-spec-fetch.py（判官件 guard 外层，
+    禁裸调 make_test_spec）——无网/挂起环境快败 exit≠0 且信息明确，不再
+    90-120s 挂死；有网侧默认实呼并顺手写离线缓存（判官件 --warm-cache 同语义）。
+    """
+    import importlib.util
+    from pathlib import Path
+    p = Path(__file__).resolve().parent / "swev-spec-fetch.py"
+    if not p.is_file():
+        sys.exit(f"FAIL swev-spec-fetch.py 不在本件同目录（{p}）——取数统一入口缺席")
+    sname = "swev_spec_fetch"
+    if sname not in sys.modules:
+        sspec = importlib.util.spec_from_file_location(sname, str(p))
+        smod = importlib.util.module_from_spec(sspec)
+        sys.modules[sname] = smod
+        sspec.loader.exec_module(smod)
+    sf = sys.modules[sname]
     inst = row.to_dict() if hasattr(row, "to_dict") else dict(row._asdict())
     inst["image"] = image_name(inst["instance_id"])
-    spec = make_test_spec(inst)
+    spec, info = sf.fetch_spec(inst, allow_live=True)
+    if spec is None:
+        sys.exit(f"FAIL make_test_spec 经 guard 未成（{inst['instance_id']}）："
+                 f"{info.get('error')}（blocked={info.get('blocked_urls')}）")
     return {
         "instance_id": inst["instance_id"],
         "repo": inst["repo"],
