@@ -153,12 +153,16 @@ env:
 
 jobs:
   # ══════════════════════════════════════════════════════════════════════════
-  # 唤醒闸（试点一 · S2-D1）：schedule 提频 '*/10' 后先判「这一刻值不值得烧贵腿」。
-  # 确定性兜底三连（Jev 只做成本优化不做安全闸）：
-  #   ① manifest 距今 >60 分钟 ⇒ 强制 run；② Jev 失败/超时/422 ⇒ fail-open 强制 run；
-  #   ③ 板面近 10 分钟有新 issue/PR 事件 ⇒ 强制 run。
-  # 仅 Jev choice==skip 且 confidence≥0.8 才 skip；skip ⇒ plan job 整体跳过，
+  # 唤醒闸（试点一 · S2-D1；D-91/factory-os#24 补强段同件窗落码）：schedule '*/10'
+  # 先判「这一刻值不值得烧贵腿」。确定性兜底序（Jev 只做成本优化不做安全闸）：
+  #   ① manifest 距今 >60 分钟 ⇒ 强制 run；② Jev 不可用（超时 10s/非 JSON/不可达）
+  #     ⇒ 整点外 wakeup suppress、整点照跑（fail-open 到现状）；③ 板面近 10 分钟
+  #     有新 issue/PR 事件 ⇒ 强制 run；④ 连续压制 ≥6 ⇒ 强制 go（防饿死）。
+  # 仅 Jev choice==skip 且 confidence≥该路阈值 才 skip；skip ⇒ plan job 整体跳过，
   # 不调 GLM 不建卡不 commit。决策与概率写 step summary（可观测）。
+  # shadow（D-91 验收①）：DRY_RUN=true 决策只进 jev-shadow.json 不生效（plan job
+  # 旁路 skip 照跑全链留证）。S1 约束：三路一适配器/单路 2s/429 退避/主→备自切/
+  # 三路阈值各自标定禁共用。`*/10` 提频施工窗仍归 fos#17 接缝注记（本段零改 schedule）。
   # ══════════════════════════════════════════════════════════════════════════
   wake:
     name: '唤醒闸 · Jev 决策 + 确定性兜底三连'
@@ -166,11 +170,20 @@ jobs:
     timeout-minutes: 3
     outputs:
       decision: ${{ steps.gate.outputs.decision }}
+      shadow_record: ${{ steps.gate.outputs.shadow_record }}
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       DECISION_API_KEY: ${{ secrets.DECISION_API_KEY }}   # 缺席 ⇒ 兜底② fail-open 强制 run
     steps:
-      - name: '唤醒闸 · 聚合板面信号 → Jev 决策（choice run/skip · 兜底三连）'
+      - name: '唤醒闸 · 恢复连压计数账本（best-effort；cache miss ⇒ 归零，兜底①另有 60 分钟饿死界）'
+        uses: actions/cache/restore@v4
+        continue-on-error: true
+        with:
+          path: jev-wake-state.json
+          key: jev-wake-state-${{ github.run_id }}
+          restore-keys: |
+            jev-wake-state-
+      - name: '唤醒闸 · 聚合板面信号 → Jev 决策（choice run/skip · 兜底①②③④ · shadow 留证）'
         id: gate
         run: |
           set -euo pipefail
@@ -181,7 +194,7 @@ jobs:
           ORG, REPO = os.environ["ORG"], os.environ["BOARD_REPO"]
           API = "https://api.github.com"
           sig_errors = []      # 信号读取异常（fail-open 依据，进摘要）
-          jev_errors = []      # Jev 调用异常（兜底② fail-open 依据）
+          jev_errors = []      # Jev 调用异常（兜底②边界依据，进摘要）
           signals = {"checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                      "open_issues": None, "recent_events_10min": None,
                      "manifest_age_min": None}
@@ -216,59 +229,130 @@ jobs:
           except Exception as e:
               sig_errors.append("manifest_age 读取失败：%s" % type(e).__name__)
 
-          # ── Jev 决策调用（超时 12s；返回 dict 或 None=失败）──
-          def ask_jev():
-              key = os.environ.get("DECISION_API_KEY") or ""
-              if not key:
-                  jev_errors.append("DECISION_API_KEY 缺席——fail-open")
-                  return None
-              state = ("factory-os planner 唤醒闸 · %s（UTC）\n"
-                       "open_issues=%s\n"
-                       "近10分钟issue/PR事件=%s\n"
-                       "波次清单 manifest 最新提交距今=%s 分钟（%s）\n"
-                       "trigger=%s · 说明：run=此刻值得烧一次 GLM 规划调用；"
-                       "skip=板面静滞且 manifest 很新（<60 分钟），跳过本轮省成本。"
-                       % (signals["checked_at"], signals["open_issues"],
-                          signals["recent_events_10min"], signals["manifest_age_min"],
-                          signals.get("manifest_last_commit_at", "<读不到>"),
-                          os.environ.get("GITHUB_EVENT_NAME", "?")))
-              body = {"model": "NeoHorse-Jev-4B", "state": state,
-                      "questions": {"wake": {
-                          "type": "choice",
-                          "criteria": {"run": "板面有动静、manifest 超 60 分钟未动、或状态可疑——值得规划一轮",
-                                       "skip": "板面完全静滞且 manifest 很新（<60 分钟）——跳过本轮"},
-                          "instructions": "这是成本优化预筛不是安全闸：不确定一律选 run（fail-open 方向）。"}}}
-              t0 = time.monotonic()
-              try:
-                  req = urllib.request.Request(
-                      "https://tokenrhythm.studio/v1/systemone",
-                      data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
-                      headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"},
-                      method="POST")
-                  with urllib.request.urlopen(req, timeout=300) as r:
-                      payload = json.loads(r.read().decode("utf-8"))
-              except urllib.error.HTTPError as e:
-                  jev_errors.append("Jev HTTP %s（%sms）" % (e.code, int((time.monotonic() - t0) * 1000)))
-                  return None
-              except Exception as e:
-                  jev_errors.append("Jev 传输失败 %s（%sms）" % (type(e).__name__, int((time.monotonic() - t0) * 1000)))
-                  return None
-              ms = int((time.monotonic() - t0) * 1000)
-              ans = (payload.get("answers") or {}).get("wake") or {}
-              if ans.get("choice") not in ("run", "skip"):
-                  jev_errors.append("Jev 响应缺合法 choice（%sms）" % ms)
-                  return None
-              try:
-                  conf = float(ans.get("confidence"))
-              except (TypeError, ValueError):
-                  jev_errors.append("Jev confidence 非法（%sms）" % ms)
-                  return None
-              return {"choice": ans["choice"], "confidence": conf,
-                      "probabilities": ans.get("probabilities"), "ms": ms}
+          # ══ D-91（factory-os#24）唤醒闸补强段（排期补录表①：jev-p1 验收并入本卡同件窗）══
+          # ① shadow：DRY_RUN=true ⇒ 决策只进 jev-shadow.json 不生效（plan job 旁路 skip），
+          #    「重合率 ≥80% 空转被压对 / 有活被压=0」由 shadow 留证数据累计评读；
+          # ② 连续压制 ≥6 ⇒ 强制 go（计数进 jev-wake-state.json，cache 持久化——
+          #    planner-call-log.json 同族账本形态；cache miss ⇒ 计数归零，饿死界另有兜底①）；
+          # ③ fail-open 边界：Jev 超时 10s / 非 JSON / 不可达 ⇒ 整点外 wakeup 一律 suppress、
+          #    整点照跑（fail-open 到现状＝每小时全跑节拍；workflow_dispatch 显式意图
+          #    优先照跑）；DECISION_API_KEY 缺席同此边界（S2 试点一「缺席⇒同分支」）；
+          # ④ S1 供给约束（入禁项）：三路一适配器、单路短超时 2s、429 退避、主→备自动切换、
+          #    三路阈值各自标定禁共用（备路阈值未经环境量显式注入＝不启用）。
+          # `*/10` 提频施工窗仍归 fos#17 接缝注记——本段零改 on.schedule。
+          DRY_RUN_SHADOW = (os.environ.get("DRY_RUN") or "false") == "true"
+          SUPPRESS_RELEASE_N = 6
 
-          # ── 判定：确定性兜底三连 → Jev skip 需 confidence≥0.8 ──
-          def decide(sig, serr, jerr, jev):
-              """返回 (decision, family, reason)。family ∈ 兜底0|兜底1|兜底2|兜底3|jev。"""
+          def load_suppress_count():
+              """连压计数恢复（cache restore 步已拉回 jev-wake-state.json；miss=0——
+              误归零方向=多跑不饿死，fail-open 向，兜底①另有 60 分钟界）。"""
+              try:
+                  return int(json.load(open("jev-wake-state.json", encoding="utf-8"))
+                             .get("consecutive_suppress") or 0)
+              except Exception:
+                  return 0
+
+          # ── S1 三路一适配器：主路（在役 tokenrhythm/systemone）＋两备路（端点/密钥/
+          #    阈值三要素经环境量供给；要素不齐＝该路不启用，结构在场、切换自动）──
+          CHANNELS = [
+              {"name": "primary", "url": "https://tokenrhythm.studio/v1/systemone",
+               "model": "NeoHorse-Jev-4B", "key_env": "DECISION_API_KEY",
+               "threshold": 0.8, "threshold_src": "在役标定（试点一：skip 须 confidence≥0.8）"},
+              {"name": "backup1", "url": os.environ.get("DECISION_BACKUP1_URL") or "",
+               "model": os.environ.get("DECISION_BACKUP1_MODEL") or "decision-model-preview",
+               "key_env": "DECISION_BACKUP1_KEY", "threshold_env": "DECISION_BACKUP1_THRESHOLD",
+               "threshold": None,
+               "threshold_src": "禁共用（S1）——备路阈值须独立标定后经 DECISION_BACKUP1_THRESHOLD 注入"},
+              {"name": "backup2", "url": os.environ.get("DECISION_BACKUP2_URL") or "",
+               "model": os.environ.get("DECISION_BACKUP2_MODEL") or "jev-4b-local",
+               "key_env": "DECISION_BACKUP2_KEY", "threshold_env": "DECISION_BACKUP2_THRESHOLD",
+               "threshold": None,
+               "threshold_src": "禁共用（S1）——备路阈值须独立标定后经 DECISION_BACKUP2_THRESHOLD 注入"},
+          ]
+          ADAPTER_ATTEMPT_TIMEOUT_S = 2   # S1：单路短超时 1–2s
+          ADAPTER_BUDGET_S = 10           # ③ 边界判据源：Jev 超时 10s ⇒ fail-open 分支
+
+          def channel_enabled(ch):
+              if not (os.environ.get(ch["key_env"]) or ""):
+                  return False, "密钥环境量缺席"
+              if ch.get("threshold") is None:
+                  v = os.environ.get(ch.get("threshold_env") or "") or ""
+                  if not v:
+                      return False, "阈值未标定（S1 禁共用——须独立标定后注入）"
+                  try:
+                      ch["threshold"] = float(v)
+                  except ValueError:
+                      return False, "阈值非数"
+                  ch["threshold_src"] = "env:%s" % ch["threshold_env"]
+              if not ch["url"]:
+                  return False, "端点缺席"
+              return True, ""
+
+          def adapter_decide(state_text, questions, errors):
+              """decide(state, questions[])：按 CHANNELS 序尝试；429 退避 1s 重试同路一次
+              再换下路（主→备自动切换）；任一路合法应答即返回。全路未果 ⇒ (None, attempts)
+              ——上抛由兜底②边界分支处置（整点照跑/整点外 suppress）。"""
+              t0 = time.monotonic()
+              attempts = []
+              for ch in CHANNELS:
+                  ok, why = channel_enabled(ch)
+                  if not ok:
+                      attempts.append({"channel": ch["name"], "skipped": why})
+                      continue
+                  leg = "try"
+                  while True:
+                      budget = ADAPTER_BUDGET_S - (time.monotonic() - t0)
+                      if budget <= 0:
+                          errors.append("适配器 10s 预算耗尽（channel=%s）" % ch["name"])
+                          attempts.append({"channel": ch["name"], "error": "预算耗尽"})
+                          return None, attempts
+                      body = {"model": ch["model"], "state": state_text, "questions": questions}
+                      req = urllib.request.Request(
+                          ch["url"], data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+                          headers={"Authorization": "Bearer " + os.environ[ch["key_env"]],
+                                   "Content-Type": "application/json"}, method="POST")
+                      try:
+                          with urllib.request.urlopen(
+                                  req, timeout=min(ADAPTER_ATTEMPT_TIMEOUT_S, max(budget, 0.1))) as r:
+                              payload = json.loads(r.read().decode("utf-8"))
+                      except urllib.error.HTTPError as e:
+                          ms = int((time.monotonic() - t0) * 1000)
+                          attempts.append({"channel": ch["name"], "leg": leg, "http": e.code, "ms": ms})
+                          errors.append("%s HTTP %s（%sms）" % (ch["name"], e.code, ms))
+                          if e.code == 429 and leg == "try":
+                              time.sleep(1.0)          # 429 退避后重试同路一次
+                              leg = "retry-after-429"
+                              continue
+                          break                        # 非 429／重试仍败 ⇒ 换下路（主→备自动切换）
+                      except Exception as e:
+                          ms = int((time.monotonic() - t0) * 1000)
+                          attempts.append({"channel": ch["name"], "leg": leg,
+                                           "error": type(e).__name__, "ms": ms})
+                          errors.append("%s %s（%sms）" % (ch["name"], type(e).__name__, ms))
+                          break                        # 超时/不可达 ⇒ 换下路
+                      ms = int((time.monotonic() - t0) * 1000)
+                      ans = (payload.get("answers") or {}).get("wake") or {}
+                      if ans.get("choice") not in ("run", "skip"):
+                          attempts.append({"channel": ch["name"], "leg": leg,
+                                           "error": "非 JSON/缺合法 choice", "ms": ms})
+                          errors.append("%s 非 JSON/缺合法 choice（%sms）" % (ch["name"], ms))
+                          break                        # 非法输出 ⇒ 换下路
+                      try:
+                          conf = float(ans.get("confidence"))
+                      except (TypeError, ValueError):
+                          attempts.append({"channel": ch["name"], "leg": leg,
+                                           "error": "confidence 非法", "ms": ms})
+                          errors.append("%s confidence 非法（%sms）" % (ch["name"], ms))
+                          break
+                      return {"choice": ans["choice"], "confidence": conf,
+                              "probabilities": ans.get("probabilities"), "channel": ch["name"],
+                              "threshold": ch["threshold"], "threshold_src": ch["threshold_src"],
+                              "ms": ms}, attempts
+              return None, attempts
+
+          # ── 判定：确定性兜底 → Jev（skip 须 confidence≥该路阈值）──
+          def decide(sig, serr, jerr, jev, suppress_count, minute_utc, trigger):
+              """返回 (decision, family, reason)。family ∈ 兜底0|兜底1|兜底3|兜底4|兜底2a|兜底2b|jev。"""
               age, ev = sig.get("manifest_age_min"), sig.get("recent_events_10min")
               if serr or age is None or ev is None:      # 信号读不全 ⇒ 未知状态 ⇒ 放行（fail-open）
                   return ("run", "兜底0", "信号读取不全 fail-open ⇒ 强制 run（%s）"
@@ -277,52 +361,131 @@ jobs:
                   return ("run", "兜底1", "manifest 距今 %d 分钟 >60 ⇒ 强制 run" % age)
               if ev > 0:                                 # 兜底③：板面近 10 分钟有事件必跑
                   return ("run", "兜底3", "板面近 10 分钟 %d 件 issue/PR 事件 ⇒ 强制 run" % ev)
-              if jev is None:                            # 兜底②：Jev 失败/超时/422 ⇒ fail-open
-                  return ("run", "兜底2", "Jev 不可用 fail-open ⇒ 强制 run（%s）"
+              if suppress_count >= SUPPRESS_RELEASE_N:   # 兜底④：连压 ≥6 必放行（D1 验收②）
+                  return ("run", "兜底4", "连续压制 %d 次 ≥%d ⇒ 强制 go（防饿死放行）"
+                          % (suppress_count, SUPPRESS_RELEASE_N))
+              on_beat = (trigger != "schedule") or (minute_utc == 0)   # 整点=调度钟 UTC 分钟 0；dispatch 非节拍
+              if jev is None:
+                  # 兜底②（D1 修订）：超时 10s/非 JSON/不可达 ⇒ 整点外 wakeup suppress、整点照跑
+                  if on_beat:
+                      return ("run", "兜底2a", "Jev 不可用（%s）且整点/dispatch ⇒ 照跑（fail-open 到现状）"
+                              % (jerr[-1] if jerr else "未知"))
+                  return ("skip", "兜底2b", "Jev 不可用（%s）且非整点 ⇒ 整点外 wakeup suppress、整点照跑"
                           % (jerr[-1] if jerr else "未知"))
-              if jev["choice"] == "skip" and jev["confidence"] >= 0.8:
-                  return ("skip", "jev", "Jev skip · confidence=%.2f ≥0.8 ⇒ 跳过本轮" % jev["confidence"])
-              return ("run", "jev", "Jev %s · confidence=%.2f（skip 须 confidence≥0.8）⇒ run"
-                      % (jev["choice"], jev["confidence"]))
+              thr = jev["threshold"]
+              if jev["choice"] == "skip" and jev["confidence"] >= thr:
+                  return ("skip", "jev", "Jev[%s] skip · confidence=%.2f ≥该路阈值 %.2f ⇒ 压制（阈值各自标定禁共用）"
+                          % (jev["channel"], jev["confidence"], thr))
+              return ("run", "jev", "Jev[%s] %s · confidence=%.2f（skip 须 ≥该路阈值 %.2f）⇒ run"
+                      % (jev["channel"], jev["choice"], jev["confidence"], thr))
 
-          # 兜底①③可先于 Jev 判出 ⇒ 不必花钱问 Jev；其余才调用
+          trigger = os.environ.get("GITHUB_EVENT_NAME", "?")
+          minute_utc = datetime.now(timezone.utc).minute
+          suppress_count = load_suppress_count()
+
+          # 兜底①③④可先于 Jev 判出 ⇒ 不必花钱问 Jev；其余才调用
           pre = (bool(sig_errors) or signals.get("manifest_age_min") is None
                  or signals.get("recent_events_10min") is None
-                 or signals["manifest_age_min"] > 60 or signals["recent_events_10min"] > 0)
-          jev = None
+                 or signals["manifest_age_min"] > 60 or signals["recent_events_10min"] > 0
+                 or suppress_count >= SUPPRESS_RELEASE_N)
+          jev, attempts = None, []
           if not pre:
-              jev = ask_jev()
-          decision, family, reason = decide(signals, sig_errors, jev_errors, jev)
+              state = ("factory-os planner 唤醒闸 · %s（UTC）\n"
+                       "open_issues=%s\n"
+                       "近10分钟issue/PR事件=%s\n"
+                       "波次清单 manifest 最新提交距今=%s 分钟（%s）\n"
+                       "trigger=%s · 说明：run=此刻值得烧一次 GLM 规划调用；"
+                       "skip=板面静滞且 manifest 很新（<60 分钟），跳过本轮省成本。"
+                       % (signals["checked_at"], signals["open_issues"],
+                          signals["recent_events_10min"], signals["manifest_age_min"],
+                          signals.get("manifest_last_commit_at", "<读不到>"), trigger))
+              questions = {"wake": {
+                  "type": "choice",
+                  "criteria": {"run": "板面有动静、manifest 超 60 分钟未动、或状态可疑——值得规划一轮",
+                               "skip": "板面完全静滞且 manifest 很新（<60 分钟）——跳过本轮"},
+                  "instructions": "这是成本优化预筛不是安全闸：不确定一律选 run（fail-open 方向）。"}}
+              jev, attempts = adapter_decide(state, questions, jev_errors)
+
+          decision, family, reason = decide(signals, sig_errors, jev_errors, jev,
+                                            suppress_count, minute_utc, trigger)
+
+          # ── 连压计数落账（仅生效压制/放行计数；shadow 决策不生效不计数）──
+          new_count = suppress_count
+          if not DRY_RUN_SHADOW:
+              new_count = (suppress_count + 1) if decision == "skip" else 0
+              with open("jev-wake-state.json", "w", encoding="utf-8") as f:
+                  json.dump({"consecutive_suppress": new_count,
+                             "updated_at": signals["checked_at"], "last_family": family},
+                            f, ensure_ascii=False)
+
+          # ── shadow 留证（DRY_RUN=true）：决策只进 jev-shadow.json 链路（由 plan job
+          #    08s 步并 actual outcome 落盘 artifact），本 job 经 output 携带 ──
+          shadow_record = None
+          if DRY_RUN_SHADOW:
+              shadow_record = {
+                  "checked_at": signals["checked_at"], "trigger": trigger,
+                  "minute_utc": minute_utc, "would_decision": decision,
+                  "would_family": family, "would_reason": reason,
+                  "signals": {k: signals.get(k) for k in
+                              ("open_issues", "recent_events_10min", "manifest_age_min")},
+                  "consecutive_suppress_before": suppress_count,
+                  "consecutive_suppress_would": (suppress_count + 1) if decision == "skip" else 0,
+                  "enforced": False,
+                  "note": "shadow：决策只留证不生效（重合率≥80% 空转被压对/有活被压=0 由累计数据评读）",
+              }
 
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
               f.write("decision=%s\nreason=%s\n" % (decision, reason.replace("\n", " ")))
-          line = "唤醒闸决策: decision=%s · %s · open_issues=%s · 近10min事件=%s · manifest距今=%s分钟" % (
+              if shadow_record is not None:
+                  f.write("shadow_record=%s\n" % json.dumps(shadow_record, ensure_ascii=False).replace("\n", " "))
+          line = "唤醒闸决策: decision=%s · %s · open_issues=%s · 近10min事件=%s · manifest距今=%s分钟 · 连压计数=%d%s" % (
               decision, reason, signals["open_issues"], signals["recent_events_10min"],
-              signals["manifest_age_min"])
+              signals["manifest_age_min"], suppress_count,
+              "（shadow 不生效）" if DRY_RUN_SHADOW else " → 新计数 %d" % new_count)
           print(line)
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:
               f.write("### 唤醒闸决策\n\n| 项 | 值 |\n|---|---|\n")
-              f.write("| decision | **%s** |\n| 判定族 | %s |\n| 理由 | %s |\n" % (decision, family, reason))
+              f.write("| decision | **%s**%s |\n| 判定族 | %s |\n| 理由 | %s |\n"
+                      % (decision, "（shadow 留证不生效）" if DRY_RUN_SHADOW else "",
+                         family, reason))
               f.write("| open_issues | %s |\n| 近10min issue/PR 事件 | %s |\n| manifest 距今 | %s 分钟 |\n"
                       % (signals["open_issues"], signals["recent_events_10min"], signals["manifest_age_min"]))
+              f.write("| 连压计数 | 前=%d %s |\n"
+                      % (suppress_count, ("（shadow 不计数）" if DRY_RUN_SHADOW else "→ 新=%d" % new_count)))
               if jev:
-                  f.write("| Jev | choice=%s · confidence=%.2f · probabilities=%s · %sms |\n"
-                          % (jev["choice"], jev["confidence"],
-                             json.dumps(jev.get("probabilities"), ensure_ascii=False), jev["ms"]))
+                  f.write("| Jev | channel=%s · choice=%s · confidence=%.2f · 阈值=%.2f（%s）· %sms |\n"
+                          % (jev["channel"], jev["choice"], jev["confidence"], jev["threshold"],
+                             jev["threshold_src"], jev["ms"]))
               else:
-                  f.write("| Jev | 未调用（确定性兜底先行或不可用） |\n")
+                  f.write("| Jev | 未调用（确定性兜底先行）或全路未果（兜底②边界分支） |\n")
+              for a in attempts:
+                  f.write("| 适配器尝试 | %s |\n" % json.dumps(a, ensure_ascii=False))
+              if shadow_record is not None:
+                  f.write("| shadow 留证 | would=%s/%s · enforced=false（jev-shadow.json 链路） |\n"
+                          % (shadow_record["would_decision"], shadow_record["would_family"]))
               for e in sig_errors + jev_errors:
                   f.write("| WARN | %s |\n" % e)
-              f.write("\n> 兜底三连：① manifest>60 分钟必跑 ② Jev 失败 fail-open 必跑 ③ 近 10 分钟有事件必跑；"
-                      "仅 Jev skip 且 confidence≥0.8 才跳过。\n")
-          if decision == "skip":
-              print("唤醒闸：skip——plan job 跳过（不调 GLM 不建卡不 commit）；下次唤醒 10 分钟后")
+              f.write("\n> 兜底序：① manifest>60 分钟必跑 ② Jev 不可用⇒整点外 suppress、整点照跑 "
+                      "③ 近 10 分钟有事件必跑 ④ 连压 ≥6 强制 go；仅 Jev skip 且 confidence≥该路阈值才压制。\n"
+                      "> shadow（DRY_RUN=true）：决策只进 jev-shadow.json 不生效。\n")
+          if decision == "skip" and not DRY_RUN_SHADOW:
+              print("唤醒闸：suppress——plan job 跳过（不调 GLM 不建卡不 commit）；连压 %d 次，≥%d 将强制放行"
+                    % (new_count, SUPPRESS_RELEASE_N))
+          elif decision == "skip":
+              print("唤醒闸：would-suppress（shadow 不生效——plan job 照跑全链留证）")
           sys.exit(0)
           PY
+      - name: '唤醒闸 · 保存连压计数账本（best-effort）'
+        if: always()
+        uses: actions/cache/save@v4
+        continue-on-error: true
+        with:
+          path: jev-wake-state.json
+          key: jev-wake-state-${{ github.run_id }}
 
   plan:
     needs: wake
-    if: needs.wake.outputs.decision != 'skip'   # 唤醒闸 skip ⇒ 整 job 跳过（16 步零改动）
+    if: needs.wake.outputs.decision != 'skip' || inputs.dry_run == 'true'   # skip ⇒ 跳过；shadow（D-91 验收①）：DRY_RUN=true 决策不生效照跑全链留证
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
@@ -1331,6 +1494,313 @@ jobs:
 
       # ── commit manifest：append-only 只增不改；禁 force（factory-os README §二）──
       # 两段式第一段：推 planner/<wave> 分支（main 有分支保护，直推必拒）。
+      # ── step 08b（D-91 · factory-os#24）：manifest acceptance 命令 python 级干跑预检 ──
+      # mktemp worktree＋浅 fetch pinned base（SHA 存活核复用＝M-3 的干跑形态，一箭双雕）
+      # ＋每命令 timeout 60s（禁超时）。三态处置：pass（基线应绿）放行；cmd-red（命令
+      # 本身坏）⇒ invalid fail-closed 本步 exit 1 整链停；env-red（环境缺席：127/126/
+      # 超时/跨仓树缺/SHA fetch 败）⇒ 不判 invalid，标 needs-env-dryrun 转沙箱开工自检。
+      # bench 卡型（card_type=bench）跳过干跑、判分腿 verdict 为准（D-86 语义互锁）。
+      # 禁项：只跑 planner 自产 acceptance 命令（禁跑 PR 外部 diff——B2 权限边界）；
+      # 主树零写入（porcelain 前后对照留证，违例本步红）；禁装包。
+      # D-2/边界差-12 注记：干跑扩权方向与 B2 容器隔离同属自动化权限扩张，裁决点登记
+      # ——cargo 级干跑取舍与 B2 隔离一并裁量（本卡只上 python 级）。
+      - name: '08b · acceptance 干跑预检（python 级三态 pass/cmd-red/env-red · bench 例外 · 主树零写入）'
+        id: dryrun
+        if: steps.quota.outputs.plan_allowed == 'true' && steps.validate.outputs.outcome == 'plan'
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          python3 -I - <<'PY'
+          import json, os, re, shlex, shutil, subprocess, sys, tempfile
+          from datetime import datetime, timezone, timedelta
+
+          # ══ step 08b（D-91 · factory-os#24）：manifest acceptance 命令 python 级干跑预检 ══
+          # mktemp worktree＋浅 fetch pinned base（SHA 存活核复用＝M-3 的干跑形态，一箭双雕：
+          # fetch 成功即「钉桩基线在远端存活」实读，同一棵树就地跑 acceptance 命令）；
+          # 每命令 timeout 60s 硬顶（卡面「禁超时」）；三态处置：
+          #   pass    ——命令退出码=期望（基线应绿）⇒ 放行；
+          #   cmd-red ——命令本身坏（可解析头＋树上幻指路径＋rc≠期望）⇒ invalid fail-closed
+          #             （本步 exit 1，09/09b/10 整链停，红波不建卡）；
+          #   env-red ——环境缺席（127/126 工具缺场、超 60s、跨仓树未建立）⇒ 不判 invalid，
+          #             标 needs-env-dryrun 转沙箱开工自检（禁把环境缺席当卡坏——
+          #             fail-closed 方向甄别：只有「可证环境缺席」才得宽免，
+          #             头可解析而 rc≠期望一律归命令坏）。
+          # bench 卡型（card_type=bench）跳过干跑、判分腿 verdict 为准（D-86 卡面语义互锁；
+          # 板面 label 正本无 bench 词，M-8 词汇零改动——卡型走 manifest 键不走板面 label）。
+          # 非命令形条目（prose，shlex 不可解析或头含 CJK）⇒ prose-skip 不硬红（机器干跑
+          # 对 prose 无判别力，如实留证转沙箱人工/判分核；M-1 形制闸已在 step 08 把住）。
+          # 禁项：只跑 planner 自产 acceptance 命令（禁跑 PR 外部 diff——B2 权限扩张边界）；
+          # 主树零写入（porcelain 前后对照留证，违者本步红）；禁装包。
+          # D-2/边界差-12 注记：干跑扩权方向与 B2 容器隔离同属自动化权限扩张，裁决点
+          # 登记——cargo 级干跑取舍与 B2 隔离一并裁量（本卡只上 python 级）。
+          CMD_TIMEOUT_S = 60
+
+          def is_cjk(s):
+              return any("\u4e00" <= ch <= "\u9fff" for ch in s)
+
+          man = json.load(open("manifest-candidate.json", encoding="utf-8"))
+          board = json.load(open("board-state.json", encoding="utf-8"))
+          inflight = set(board.get("in_flight_task_ids") or [])
+
+          cards = [c for c in (man.get("cards") or []) if isinstance(c, dict)]
+          # 干跑对象=本波将新建卡（state=queued 且未在飞）——与 step 10 建卡集合同口径；
+          # 在飞卡不重复干跑（占时无增益）。
+          todo = [c for c in cards
+                  if c.get("state") == "queued" and (c.get("task_id") or "") not in inflight]
+          inflight_skipped = len(cards) - len(todo)
+
+          def is_bench(c):
+              """bench 标记＝manifest 卡可选键 card_type=="bench"（或 labels 含 bench，
+              供治理面将来引入 bench 板面 label 后前向兼容——当前 M-8 会先拦 labels 形）。"""
+              return (c.get("card_type") == "bench") or ("bench" in (c.get("labels") or []))
+
+          ACC_RX = re.compile(r"→\s*rc\s*=\s*(\d+)")
+
+          def classify_head(cmd, wt):
+              """确定性可跑性甄别：返回 (runnable, verdict, note)。
+              verdict ∈ run｜cmd-red（幻指路径）｜env-red（工具缺场）｜prose-skip（非命令形）。"""
+              try:
+                  toks = shlex.split(cmd)
+              except ValueError:
+                  return False, "prose-skip", "shlex 不可解析（prose 形）"
+              if not toks:
+                  return False, "prose-skip", "空命令段（prose 形）"
+              head = toks[0]
+              if is_cjk(head):
+                  return False, "prose-skip", "命令头含 CJK（prose 形，非机器可跑）"
+              if "/" in head:
+                  p = head if os.path.isabs(head) else os.path.join(wt, head)
+                  if os.path.exists(p):
+                      return True, "run", ""
+                  return False, "cmd-red", "路径形命令头树上不存在（幻指——负例#4 同形：命令面坏）"
+              if shutil.which(head):
+                  return True, "run", ""
+              return False, "env-red", "命令头不在 runner PATH（127 同形——工具/环境缺席可证，转沙箱自检）"
+
+          per_card, needs_env, cmd_red_cards, bench_skipped = [], [], [], 0
+          prose_skipped = env_red_entries = passed_entries = 0
+
+          # ── 主树只读取证：干跑前 porcelain 快照（违例即红，见文末对照）──
+          st_before = subprocess.run(["git", "-C", "factory-os", "status", "--porcelain"],
+                                     capture_output=True, text=True).stdout.splitlines()
+
+          base_sha = man.get("base_sha") or ""
+          wt_dir, sha_alive, tree_note = None, None, ""
+          if base_sha:
+              # SHA 存活核复用（一箭双雕）：浅 fetch 成功=钉桩基线远端存活实读＋就地得执行树。
+              # M-3（step 08 ls-remote 形）原样在役零改动；fetch 在其后失败=传输层瞬时缺席
+              # ⇒ env-red（环境缺席不判卡坏），不在此重判 M-3 语义。
+              try:
+                  r = subprocess.run(["git", "-C", "factory-os", "fetch", "--depth", "1",
+                                      "origin", base_sha],
+                                     capture_output=True, text=True, timeout=120)
+                  sha_alive = (r.returncode == 0)
+                  if not sha_alive:
+                      tree_note = "浅 fetch pinned base %s 失败 rc=%d：%s" % (
+                          base_sha, r.returncode, (r.stderr or "").strip()[:120])
+              except subprocess.TimeoutExpired:
+                  sha_alive = False
+                  tree_note = "浅 fetch pinned base 超时（120s）"
+          else:
+              tree_note = "manifest 未钉 base_sha——干跑退回 HEAD（存活核 n/a）"
+
+          if sha_alive is not False:
+              wt_dir = tempfile.mkdtemp(prefix="planner-dryrun-wt-")
+              ref = base_sha if sha_alive else "HEAD"
+              r = subprocess.run(["git", "-C", "factory-os", "worktree", "add", "--detach",
+                                  wt_dir, ref], capture_output=True, text=True, timeout=120)
+              if r.returncode != 0:
+                  tree_note += "｜worktree add 失败 rc=%d：%s" % (r.returncode, (r.stderr or "").strip()[:120])
+                  shutil.rmtree(wt_dir, ignore_errors=True)
+                  wt_dir = None
+
+          tree_established = wt_dir is not None
+          if not tree_established:
+              tree_note += "｜干跑执行树未建立——全部条目按 env-red 处置（转沙箱开工自检）"
+
+          for c in todo:
+              tid = c.get("task_id") or "card"
+              tag = {"task_id": tid, "entries": []}
+              if is_bench(c):
+                  # bench 卡型判分例外（D-86/Q5 盲点 B1：bench 基线本来红=题目本体，
+                  # 干跑无判别力）——跳过＋例外分支日志留证，判分腿 verdict 为准。
+                  tag["verdict"] = "bench-skip"
+                  tag["note"] = "bench 卡型——跳过干跑，判分腿 verdict 为准（D-86 语义互锁）"
+                  bench_skipped += 1
+                  per_card.append(tag)
+                  continue
+              repo = c.get("repo")
+              cross_repo = bool(repo) and repo not in ("factory-os",)
+              card_state = "pass"
+              for a in (c.get("acceptance") or []):
+                  a = str(a)
+                  m = ACC_RX.search(a)
+                  ent = {"cmd": (a[:m.start()].strip() if m else a.strip())[:160],
+                         "want": int(m.group(1)) if m else None}
+                  if cross_repo:
+                      ent["verdict"] = "env-red"
+                      ent["note"] = "跨仓卡（repo=%s）本环只浅 fetch factory-os——执行树未建立，转沙箱自检" % repo
+                  elif not tree_established:
+                      ent["verdict"] = "env-red"
+                      ent["note"] = "干跑执行树未建立（fetch/worktree 缺席）——好/坏均不可证，转沙箱自检"
+                  elif not m or not ent["cmd"]:
+                      # M-1 形制闸（step 08）已在役：到不了这里＝防御兜底；缺期望形制
+                      # ＝命令面不可证好 ⇒ cmd-red fail-closed。
+                      ent["verdict"] = "cmd-red"
+                      ent["note"] = "缺「→ rc=N」期望形制（M-1 兜底，命令面不可证好）"
+                  else:
+                      runnable, verdict, note = classify_head(ent["cmd"], wt_dir)
+                      if not runnable:
+                          ent["verdict"], ent["note"] = verdict, note
+                      else:
+                          try:
+                              r = subprocess.run(["bash", "-c", ent["cmd"]], cwd=wt_dir,
+                                                 capture_output=True, text=True,
+                                                 errors="replace", timeout=CMD_TIMEOUT_S)
+                              rc, timed_out = r.returncode, False
+                          except subprocess.TimeoutExpired:
+                              rc, timed_out = None, True
+                          if timed_out:
+                              ent["verdict"] = "env-red"
+                              ent["note"] = "超 %ds 硬顶（禁超时）——好/坏均不可证，转沙箱自检" % CMD_TIMEOUT_S
+                          elif rc == ent["want"]:
+                              ent["verdict"] = "pass"
+                              ent["note"] = "rc=%d=期望" % rc
+                          elif rc in (126, 127):
+                              ent["verdict"] = "env-red"
+                              ent["note"] = "rc=%d（126/127 命令缺场/不可执行——环境缺席可证）" % rc
+                          else:
+                              ent["verdict"] = "cmd-red"
+                              ent["note"] = "rc=%s≠期望 %d（头可解析而行为坏——命令面败证，invalid fail-closed）" % (rc, ent["want"])
+                  if ent["verdict"] == "pass":
+                      passed_entries += 1
+                  elif ent["verdict"] == "env-red":
+                      env_red_entries += 1
+                  elif ent["verdict"] == "prose-skip":
+                      prose_skipped += 1
+                  if ent["verdict"] == "cmd-red" and card_state != "cmd-red":
+                      card_state = "cmd-red"
+                  elif ent["verdict"] == "env-red" and card_state == "pass":
+                      card_state = "env-red"
+              tag["verdict"] = card_state
+              if card_state == "cmd-red":
+                  cmd_red_cards.append(tid)
+              elif card_state == "env-red":
+                  needs_env.append(tid)
+              per_card.append(tag)
+
+          # ── 执行树清理＋主树零写入复核（禁项：主树零写入——违例即红）──
+          wt_residue = None
+          if wt_dir is not None:
+              subprocess.run(["git", "-C", "factory-os", "worktree", "remove", "--force", wt_dir],
+                             capture_output=True, text=True, timeout=60)
+              subprocess.run(["git", "-C", "factory-os", "worktree", "prune"],
+                             capture_output=True, text=True, timeout=60)
+              shutil.rmtree(wt_dir, ignore_errors=True)
+              wl = subprocess.run(["git", "-C", "factory-os", "worktree", "list"],
+                                  capture_output=True, text=True).stdout.splitlines()
+              wt_residue = len(wl)
+          st_after = subprocess.run(["git", "-C", "factory-os", "status", "--porcelain"],
+                                    capture_output=True, text=True).stdout.splitlines()
+          zero_write = (st_before == st_after)
+
+          if cmd_red_cards:
+              outcome = "cmd-red"
+          elif needs_env:
+              outcome = "env-red"
+          else:
+              outcome = "pass"
+
+          report = {
+              "checked_at": datetime.now(timezone(timedelta(hours=8))).isoformat(timespec="seconds"),
+              "step": "08b acceptance 干跑预检（python 级三态）",
+              "card": "D-91 · factory-os#24",
+              "outcome": outcome,
+              "dry_run_input": os.environ.get("DRY_RUN", ""),
+              "base_sha": base_sha or None,
+              "sha_alive": sha_alive,
+              "worktree_established": tree_established,
+              "tree_note": tree_note.strip("｜"),
+              "main_tree_zero_write": {
+                  "porcelain_before": st_before,
+                  "porcelain_after": st_after,
+                  "equal": zero_write,
+                  "worktree_list_after": wt_residue,
+              },
+              "cards": {"total": len(cards), "todo": len(todo),
+                        "inflight_skipped": inflight_skipped,
+                        "bench_skipped": bench_skipped,
+                        "pass": len(todo) - bench_skipped - len(cmd_red_cards) - len(needs_env),
+                        "env_red": len(needs_env), "cmd_red": len(cmd_red_cards)},
+              "entries": {"pass": passed_entries, "env_red": env_red_entries,
+                          "prose_skip": prose_skipped},
+              "needs_env_dryrun_cards": needs_env,
+              "cmd_red_cards": cmd_red_cards,
+              "per_card": per_card,
+              "note": "D-2/边界差-12：干跑扩权方向与 B2 容器隔离同属自动化权限扩张，"
+                      "裁决点登记——cargo 级干跑取舍与 B2 隔离一并裁量（本卡只上 python 级）；"
+                      "三态处置：pass 放行／cmd-red invalid fail-closed／env-red 标 "
+                      "needs-env-dryrun 转沙箱开工自检（不判 invalid）。",
+          }
+          with open("dryrun-report.json", "w", encoding="utf-8") as f:
+              json.dump(report, f, ensure_ascii=False, indent=1)
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+              f.write("outcome=%s\nneeds_env_count=%d\nbench_skipped=%d\n"
+                      % (outcome, len(needs_env), bench_skipped))
+          if not zero_write:
+              print("主树零写入违例：干跑前后 porcelain 不一致（fail-loud，本步红）", file=sys.stderr)
+              for ln in set(st_after) - set(st_before):
+                  print("  + " + ln, file=sys.stderr)
+              sys.exit(2)
+          if outcome == "cmd-red":
+              print("干跑 cmd-red（invalid fail-closed）：", file=sys.stderr)
+              for t in per_card:
+                  if t.get("verdict") == "cmd-red":
+                      print(" - %s" % t["task_id"], file=sys.stderr)
+                      for e in t["entries"]:
+                          if e["verdict"] == "cmd-red":
+                              print("   · %s → %s" % (e["cmd"][:80], e["note"]), file=sys.stderr)
+              sys.exit(1)
+          print("干跑预检 outcome=%s：todo=%d（bench 跳过 %d）· 条目 pass=%d env-red=%d "
+                "prose-skip=%d · needs-env-dryrun=%s · 主树零写入=%s"
+                % (outcome, len(todo), bench_skipped, passed_entries, env_red_entries,
+                   prose_skipped, needs_env or "无", zero_write))
+          PY
+
+      # ── 08s（D-91 验收①）：shadow 决策留证——DRY_RUN=true 时唤醒闸决策只进
+      # jev-shadow.json 不生效；本步把 wake 的 would 决策与本波 actual outcome 并档，
+      # 落 artifact 供「重合率 ≥80% 空转被压对／有活被压=0」累计评读 ──
+      - name: '08s · jev-shadow.json 落盘（shadow 留证 · DRY_RUN=true 决策不生效）'
+        id: shadow
+        if: always() && inputs.dry_run == 'true' && needs.wake.outputs.shadow_record != ''
+        env:
+          SHADOW_RECORD: ${{ needs.wake.outputs.shadow_record }}
+        run: |
+          set -euo pipefail
+          python3 -I - <<'PY'
+          import json, os
+          rec = json.loads(os.environ["SHADOW_RECORD"])
+          man = {}
+          try:
+              man = json.load(open("manifest-validation.json", encoding="utf-8"))
+          except Exception:
+              pass
+          rec["actual_outcome"] = man.get("outcome")
+          rec["actual_cards_total"] = man.get("cards_total")
+          rec["actual_new_cards"] = man.get("new_cards")
+          rec["actual_mem"] = man.get("mem")
+          # 评读判型：would=skip 且 actual=idle ⇒ 空转被压对；would=skip 且
+          # actual=plan（有卡）⇒ 有活被压——shadow 恒不生效，后者真值恒 0
+          rec["shadow_type"] = (("idle-suppressed-ok" if rec.get("actual_outcome") == "idle"
+                                 else "active-suppressed-BAD") if rec["would_decision"] == "skip"
+                                else "would-run")
+          with open("jev-shadow.json", "w", encoding="utf-8") as f:
+              json.dump(rec, f, ensure_ascii=False, indent=1)
+          print("shadow 留证: would=%s/%s actual=%s 型=%s enforced=false"
+                % (rec["would_decision"], rec["would_family"], rec.get("actual_outcome"),
+                   rec["shadow_type"]))
+          PY
+
       - name: '09 · commit manifest 到 planner/<wave> 分支（append-only；禁 force）'
         id: commit
         if: steps.quota.outputs.plan_allowed == 'true' && steps.validate.outputs.outcome == 'plan' && inputs.dry_run != 'true'
@@ -1478,6 +1948,20 @@ jobs:
               L.append("【通道】`%s`　【异步】%s　【mem_budget】%s G" % (c["channel"], c["async"], c["mem_budget_g"]))
               L.append("【OOM 准入】anolis Σmem_budget ≤ 45G 且 cargo 并发 ≤ 4；本机 Σ ≤ 3G 且只走 API 轨+门禁（≈2G）；gov 单卡 ≤ 2G")
               L.append("【pinned base】%s" % base_ref)
+              # ── D-91 step 08b 联动：干跑预检判读进卡面。env-red=needs-env-dryrun
+              # 标记（不判 invalid，转沙箱开工自检）；bench=判分例外注明；pass 不加行
+              # 保持卡面干净。报告件：dryrun-report.json（artifact 同档）──
+              _dry = {}
+              if os.path.exists("dryrun-report.json"):
+                  _dry = json.load(open("dryrun-report.json", encoding="utf-8"))
+              _vt = ({t.get("task_id"): t for t in (_dry.get("per_card") or [])}
+                     .get(c["task_id"]) or {})
+              if _vt.get("verdict") == "env-red":
+                  L.append("【干跑预检】needs-env-dryrun——干跑环境缺席（不判 invalid），"
+                           "转沙箱开工自检；报告：dryrun-report.json")
+              elif _vt.get("verdict") == "bench-skip":
+                  L.append("【干跑预检】bench 卡型例外——跳过干跑（基线红=题目本体），"
+                           "判分腿 verdict 为准")
               L.append("【验收命令集】（逐条退出码 + 期望串；全绿才可翻状态）")
               for a in c["acceptance"]:
                   L.append("- [ ] %s" % a)
@@ -1559,6 +2043,13 @@ jobs:
               jq -r '.errors[]? | "- ERROR: " + .' manifest-validation.json
               jq -r '.warnings[]? | "- WARN: " + .' manifest-validation.json
             fi
+            if [ -f dryrun-report.json ]; then
+              echo "- 干跑预检（08b）：outcome=$(jq -r '.outcome' dryrun-report.json) · todo=$(jq -r '.cards.todo' dryrun-report.json) · pass=$(jq -r '.cards.pass' dryrun-report.json) · env-red=$(jq -r '.cards.env_red' dryrun-report.json) · cmd-red=$(jq -r '.cards.cmd_red' dryrun-report.json) · bench跳过=$(jq -r '.cards.bench_skipped' dryrun-report.json) · SHA存活=$(jq -r '.sha_alive' dryrun-report.json) · 主树零写入=$(jq -r '.main_tree_zero_write.equal' dryrun-report.json)"
+              jq -r '.needs_env_dryrun_cards[] | "-   needs-env-dryrun: " + .' dryrun-report.json
+            fi
+            if [ -f jev-shadow.json ]; then
+              echo "- 唤醒闸 shadow（D-91）：would=$(jq -r '.would_decision' jev-shadow.json)/$(jq -r '.would_family' jev-shadow.json) · actual=$(jq -r '.actual_outcome // "无"' jev-shadow.json) · 型=$(jq -r '.shadow_type' jev-shadow.json) · enforced=false"
+            fi
             if [ -f planner-raw.json ]; then
               echo "- API：attempts=$(jq -r '.attempts' planner-raw.json) · prompt_tk=$(jq -r '[.calls[].prompt_tk] | add // 0' planner-raw.json) · completion_tk=$(jq -r '[.calls[].completion_tk] | add // 0' planner-raw.json)"
             fi
@@ -1586,6 +2077,8 @@ jobs:
             manifest-candidate.json
             manifest-candidate.raw.txt
             manifest-validation.json
+            dryrun-report.json
+            jev-shadow.json
             issues-todo.json
             issues-created.json
             issues-created.log
