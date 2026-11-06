@@ -1,0 +1,172 @@
+# =============================================================================
+# redteam-scan.yml — 红队腿 A 定时确定性扫描（factory-os · D-88 · factory-os#23）
+#
+# 定位（CI L-16 / Q3 §五.2）：零 token 确定性红队扫描面。扫描内核 =
+#   tools/mirror-disclose.sh 内嵌 scan_text()/scan_g13()（AST 切段取法照
+#   bot-scrub.py:91-182）+ tools/redteam_scan.py 内嵌红队 playbook 三元组
+#   规则集（每条 (pattern, severity, rationale_ref)，rationale_ref 必填台账
+#   RT-E 编号）。fail-closed：自证电池不过 / 命中 / 未覆盖面非空 ⇒ block。
+#
+# ★ 触发面纪律：schedule '*/20' + workflow_dispatch；**禁 pull_request 触发**
+#   （Q3 实证 R08-R16 全面生效判红）。判据面零接触：本件不进 af gates 作业
+#   链、不进 required_status_checks；blocking 面 = factory-os 板 Issue 评论 +
+#   运行摘要（运行报告全文随评论落档）。
+# ★ 零外部 action：不用 actions/checkout 等任何 action（对齐本仓 gates.yml
+#   零 action 形态）⇒ 检出步手写 git clone（公开仓匿名 clone，零 token、
+#   零凭据进 argv）。
+# ★ 权限最小化：contents:read（只读检出）+ issues:write（板评论）+
+#   pull-requests:write（卡面钉扎权限集，本件当前不用 PR 面）。
+# ★ 评论节流：按发现面指纹（fingerprint = 发现元组集合的 sha256 前缀，
+#   确定性无时钟成分）与本板 Issue 最后一条评论比对——同指纹不重复评论，
+#   树无变化时 */20 节律只留运行读数不刷屏。
+# ★ 真门红停车：selftest 不过（扫描器自身完整性破坏）⇒ 本作业 exit 1
+#   （check-run 红，fail-loud）；树面命中/未覆盖 ⇒ verdict=block 走板评论
+#   面（不弱化、不静默）。
+# =============================================================================
+
+name: redteam-scan
+
+on:
+  schedule:
+    - cron: '*/20 * * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: redteam-scan
+  cancel-in-progress: false
+
+env:
+  # 板 Issue（blocking 面落点）。缺席/被删时按标题自动检索，仍无则现场建。
+  REDTEAM_BOARD_ISSUE: '46'
+  REDTEAM_BOARD_TITLE: '红队确定性扫描 blocking 面（redteam-scan · D-88）'
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: '01 · 检出（零外部 action：手写 git clone；公开仓匿名即可）'
+        run: |
+          set -eu
+          rm -rf src
+          git clone --depth 1 "https://github.com/${GITHUB_REPOSITORY}.git" src
+          cd src
+          git --no-pager log --oneline -1
+
+      - name: '02 · 红队确定性扫描（自证电池 + 全树；fail-closed）'
+        id: scan
+        run: |
+          set -eu
+          cd src
+          rc=0
+          PYTHONDONTWRITEBYTECODE=1 python3 -I tools/redteam_scan.py . \
+            --out /tmp/redteam-report.json || rc=$?
+          echo "scanner_rc=${rc}" >> "$GITHUB_OUTPUT"
+          cp /tmp/redteam-report.json "${GITHUB_WORKSPACE}/redteam-report.json"
+          # rc 语义：0=clean；1=block（自证不过/命中/未覆盖）；2=结构失败。
+          # 结构失败在本步即红（fail-loud），block 交下一步裁决落板。
+          if [ "$rc" = "2" ]; then
+            echo "FAIL 扫描器结构失败（rc=2）——真门红停车" >&2
+            exit 1
+          fi
+          exit 0
+
+      - name: '03 · 裁决落板（block ⇒ 板 Issue 评论，指纹节流；selftest 红 ⇒ 作业红）'
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SCANNER_RC: ${{ steps.scan.outputs.scanner_rc }}
+        run: |
+          set -eu
+          REP="${GITHUB_WORKSPACE}/redteam-report.json"
+          if [ ! -f "$REP" ]; then
+            echo "FAIL 报告缺席（扫描步未产出）——fail-loud" >&2
+            exit 1
+          fi
+          verdict=$(python3 -I -c 'import json,os;print(json.load(open(os.environ["REP"]))["verdict"])')
+          selftest=$(python3 -I -c 'import json,os;print(json.load(open(os.environ["REP"]))["selftest"]["status"])')
+          fingerprint=$(python3 -I -c 'import json,os;print(json.load(open(os.environ["REP"]))["fingerprint"])')
+          echo "verdict=${verdict} selftest=${selftest} fingerprint=${fingerprint}"
+          if [ "$selftest" != "pass" ]; then
+            echo "FAIL 扫描器自证电池不过——真门红停车（check-run 红）" >&2
+            exit 1
+          fi
+          if [ "$verdict" = "clean" ]; then
+            echo "CLEAN：零命中零未覆盖（run ${GITHUB_RUN_ID}）"
+            exit 0
+          fi
+          # ---- verdict=block：板 Issue 评论（指纹节流）----
+          api="repos/${GITHUB_REPOSITORY}"
+          issue="${REDTEAM_BOARD_ISSUE:-}"
+          if [ -z "$issue" ]; then
+            issue=$(gh api "${api}/issues?state=open&per_page=100" \
+              --jq "[.[] | select(.title==\"${REDTEAM_BOARD_TITLE}\")][0].number // empty" 2>/dev/null || true)
+          fi
+          if [ -z "$issue" ]; then
+            issue=$(gh api -X POST "${api}/issues" \
+              -f title="${REDTEAM_BOARD_TITLE}" \
+              -f body="红队腿 A（D-88）确定性扫描 blocking 面本尊。verdict=block 的运行在此落评论（指纹节流）；本 Issue 不进 required_status_checks。" \
+              --jq '.number')
+            echo "板 Issue 现场建立 #${issue}"
+          fi
+          last=$(gh api "${api}/issues/${issue}/comments?per_page=100" \
+            --jq '.[-1].body // ""' 2>/dev/null || echo "")
+          if printf '%s' "$last" | grep -q "fingerprint:${fingerprint}"; then
+            echo "UNCHANGED：发现面指纹同上条评论（${fingerprint}）——不重复评论"
+            exit 0
+          fi
+          body=$(python3 -I - "$REP" "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" <<'PYEOF'
+          import json, os, sys
+          rep = json.load(open(sys.argv[1], encoding="utf-8"))
+          run_url = sys.argv[2]
+          hits = rep["hits"]
+          unc = rep["uncovered"]
+          pb = [h for h in hits if h.get("source") == "playbook"]
+          kr = [h for h in hits if h.get("source") == "kernel"]
+          lines = []
+          lines.append("## redteam-scan verdict=block")
+          lines.append("")
+          lines.append("- run: %s" % run_url)
+          lines.append("- tree: `%s`（scanned=%d）" % (rep.get("tree", ""), rep.get("scanned_files", 0)))
+          lines.append("- kernel 命中 %d ｜ playbook 命中 %d ｜ 未覆盖面 %d" % (len(kr), len(pb), len(unc)))
+          lines.append("- 自证电池：pass（S1-S8）；规则集 %d 条全带 RT-E 引用" % rep["playbook"]["rule_count"])
+          lines.append("- fingerprint: %s" % rep["fingerprint"])
+          lines.append("")
+          if pb:
+            lines.append("<details><summary>playbook 命中明细（前 40）</summary>")
+            lines.append("")
+            lines.append("| file:line | rule | sev | rationale_ref |")
+            lines.append("|---|---|---|---|")
+            for h in pb[:40]:
+                lines.append("| %s:%s | %s | %s | %s |" % (
+                    h.get("file"), h.get("line", "?"), h.get("pattern"),
+                    h.get("severity", ""), h.get("rationale_ref", "")))
+            lines.append("")
+            lines.append("</details>")
+          if kr:
+            lines.append("<details><summary>kernel（18 模式）命中明细（前 40）</summary>")
+            lines.append("")
+            for h in kr[:40]:
+                lines.append("- %s:%s [%s]" % (h.get("file"), h.get("line", "?"), h.get("pattern")))
+            lines.append("")
+            lines.append("</details>")
+          if unc:
+            lines.append("<details><summary>未覆盖面明细（fail-closed 全量）</summary>")
+            lines.append("")
+            for u in unc[:100]:
+                lines.append("- %s (%s)" % (u.get("file"), u.get("reason")))
+            lines.append("")
+            lines.append("</details>")
+          lines.append("")
+          lines.append("<!-- fingerprint:%s -->" % rep["fingerprint"])
+          sys.stdout.write("\n".join(lines))
+          PYEOF
+          )
+          gh api -X POST "${api}/issues/${issue}/comments" -f body="$body" \
+            --jq '.html_url'
+          echo "BLOCK：已落板 Issue #${issue}（fingerprint=${fingerprint}）"
