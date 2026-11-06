@@ -860,7 +860,19 @@ jobs:
           set -euo pipefail
           python3 -I - <<'PY'
           import json, os
+          import subprocess as _sp
           from datetime import datetime, timezone, timedelta
+
+          # 活体钉桩基线：factory-os 检出树的 origin/main（退 HEAD）实读尖端
+          live_head = None
+          for _ref in ("origin/main", "HEAD"):
+              try:
+                  _lh = _sp.run(["git", "-C", "factory-os", "rev-parse", _ref],
+                                capture_output=True, text=True, timeout=30)
+                  if _lh.returncode == 0 and _lh.stdout.strip():
+                      live_head = _lh.stdout.strip(); break
+              except Exception:
+                  pass
 
           board = json.load(open("board-state.json", encoding="utf-8"))
           ledger = json.load(open("ledger-summary.json", encoding="utf-8"))
@@ -901,8 +913,11 @@ jobs:
                   "gov": {"card_cap_g": 2, "note": "小件后端手术单卡 ≤2G"},
               },
               "budgets": {"anolis_mem_cap_g": 45, "local_mem_cap_g": 3, "anolis_concurrency": 4},
-              "base_sha": ledger.get("base_sha"),
-              "allowed_base_shas": [ledger["base_sha"]] if ledger.get("base_sha") else [],
+              # 钉桩基线改喂活体 main 尖端（2026-11-06 夜修）：陈年 wave 文件里的
+              # 缩位 base 不是 ref 尖端，模型照抄白名单必死于 M-3 ls-remote——
+              # 输入面纠偏，M-1/M-3 判据一字不动。
+              "base_sha": live_head,
+              "allowed_base_shas": [live_head] if live_head else [],
               "channels_allowed": ["anolis-build", "local-api", "bot-lane"],
               "channels_banned": [
                   {"channel": "GLM/start-plan",
