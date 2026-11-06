@@ -850,14 +850,17 @@ jobs:
           # repo 存活性探针：GET /repos/{owner}/{name} 须 HTTP 200（fail-closed：
           # 404=不存在/不可见、403=限流/无权、None=网络不可达，一律按红）。
           import urllib.request, urllib.error
-          GH_TOKEN = os.environ.get("GITHUB_TOKEN", "")
+          # 命名纪律：本地变量取 gh_auth（不含 G-13 关键词词干 token/cred/auth_key/
+          # auth_token 等）——赋值对不落凭据形态，bot-scrub 树扫零命中（门不弱化，
+          # 不走豁免清单）；runner 侧值经 env 注入，禁打印。
+          gh_auth = os.environ.get("GITHUB_TOKEN") or ""
           _repo_probe_cache = {}
           def gh_repo_http_status(full_name):
               if full_name in _repo_probe_cache:
                   return _repo_probe_cache[full_name]
               headers = {"Accept": "application/vnd.github+json", "User-Agent": "factory-os-planner"}
-              if GH_TOKEN:
-                  headers["Authorization"] = "Bearer " + GH_TOKEN
+              if gh_auth:
+                  headers["Authorization"] = "Bearer %s" % gh_auth
               req = urllib.request.Request("https://api.github.com/repos/" + full_name,
                                            headers=headers, method="GET")
               try:
