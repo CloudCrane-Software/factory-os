@@ -6,6 +6,11 @@
 #       30-工件/波次自转器-20261106/制度-v1.md（§二 四通道 / §五 OOM 准入 / §六 已知坑）、
 #       30-工件/波次自转器-20261106/wave-01.json（af.wave-manifest.v1 字段真源）、
 #       状态/模型配额停用-20261105.json（2026-11-06 09:25 版配额现实）。
+#       沙箱研究 D-1（manifest schema v1.1：repo/env_precondition/卡面证据段，
+#       §3.2 M-5/M-6）＋ CI L-08（fast_tests 字段：acceptance 派生测试登记，
+#       只增不改）＋ Q5 盲点 B6（bench 卡 repo 无字段承载活案例）
+#       ——schema v1.1 三可选键出处注（2026-11-06；落点 = step 06 constraints
+#       的 schema_v1_1_optional_fields 与 step 08 的「v1.1 可选字段」校验段）。
 #
 # 【部署注记 · P4 落地前必读】
 # 1. 运行仓 = factory-os。schedule 触发器只能位于运行仓默认分支；Actions 内置
@@ -672,6 +677,16 @@ jobs:
                   "judge_protection": "判官/门禁/判据件由仓级 CODEOWNERS 锁 @feasy898，一改即拒收；只读卡走 content-only",
                   "max_cards_per_wave": 20,
                   "no_leaks": "任何字符串字段禁出现凭据形态（机扫 fail-closed）",
+                  # ── schema v1.1（2026-11-06）只增不改：af.wave-manifest.v1 十字段
+                  #    名称与必填性零触碰；以下三键全部 optional、有值才校验（step 08）。
+                  #    出处：沙箱研究 D-1（§3.2 M-5/M-6）＋ CI L-08（fast_tests 只增不改）
+                  #    ＋ Q5 盲点 B6（bench 卡 repo 活案例承载）。
+                  "schema_v1_1_optional_fields": {
+                      "repo": "可选 string，owner/name 形制；有值时 step 08 校验存活性（GET /repos/{repo} 须 HTTP 200）——外部仓活案例承载（Q5 盲点 B6）",
+                      "env_precondition": "可选非空 string，环境前置声明（GPU/依赖/代理剥离等）；语义与命令族一致性校验留 #13 干跑/沙箱自检，本环只校非空（沙箱研究 D-1 §3.2 M-5/M-6）",
+                      "fast_tests": "可选 string[]，basename 测试件清单（禁命令串/路径分隔符；落点纪律照 CI L-08：factory-os tools/test-*.py 或 af 封闭快速子集）——acceptance 的派生测试登记，只增不改",
+                  },
+                  "schema_v1_1_directive": "v1.1 只增不改：新卡请尽量携带上述三可选键（可空/可 null）；缺席时 step 08 会透明补 null 并在 manifest-validation.json 的 v1_1 段留痕",
               },
           }
           if legacy_warn:
@@ -824,6 +839,37 @@ jobs:
           ledger = json.load(open("ledger-summary.json", encoding="utf-8"))
           inputs = json.load(open("planner-inputs.json", encoding="utf-8"))
 
+          # ── schema v1.1（2026-11-06；只增不改）：三可选键常量 ──
+          # 出处：沙箱研究 D-1（repo/env_precondition，§3.2 M-5/M-6）＋ CI L-08
+          # （fast_tests：acceptance 派生测试登记，只增不改）＋ Q5 盲点 B6
+          # （bench 卡 repo 无字段承载活案例）。
+          # 纪律：十字段（上方必填清单）名称与必填性零触碰；三键有值才校验，
+          # 缺席合法（缺席键在通过校验后透明补 null，留痕 v1_1.key_completed）。
+          V11_OPTIONAL = ("repo", "env_precondition", "fast_tests")
+
+          # repo 存活性探针：GET /repos/{owner}/{name} 须 HTTP 200（fail-closed：
+          # 404=不存在/不可见、403=限流/无权、None=网络不可达，一律按红）。
+          import urllib.request, urllib.error
+          GH_TOKEN = os.environ.get("GITHUB_TOKEN", "")
+          _repo_probe_cache = {}
+          def gh_repo_http_status(full_name):
+              if full_name in _repo_probe_cache:
+                  return _repo_probe_cache[full_name]
+              headers = {"Accept": "application/vnd.github+json", "User-Agent": "factory-os-planner"}
+              if GH_TOKEN:
+                  headers["Authorization"] = "Bearer " + GH_TOKEN
+              req = urllib.request.Request("https://api.github.com/repos/" + full_name,
+                                           headers=headers, method="GET")
+              try:
+                  with urllib.request.urlopen(req, timeout=15) as resp:
+                      code = resp.status
+              except urllib.error.HTTPError as e:
+                  code = e.code
+              except Exception:
+                  code = None
+              _repo_probe_cache[full_name] = code
+              return code
+
           # ── 顶层 ──
           if man.get("schema") != "af.wave-manifest.v1":
               errors.append("schema 必须为 af.wave-manifest.v1（实得 %r）" % man.get("schema"))
@@ -867,6 +913,9 @@ jobs:
           CHANNELS = {"anolis-build", "local-api", "bot-lane"}
           seen_task, seen_debt = set(), set()
           sum_anolis = sum_local = n_anolis = n_bot = 0
+          # v1.1 取证面：候选卡字段名并集（wave-XX.json 字段集对照「零丢失」用）
+          # ＋ 透明补全留痕（v1_1.key_completed）
+          v11_card_fields, v11_completed = set(), []
 
           for i, c in enumerate(cards):
               tag = "card[%d]" % i
@@ -947,6 +996,45 @@ jobs:
               if isinstance(ap, list) and any(judge_pat.search(x) for x in ap):
                   warnings.append("%s allowed_paths 疑似判官/门禁件——仓级 CODEOWNERS 锁 @feasy898 将拒 PR；只读卡应走 content-only" % tag)
 
+              # ── v1.1 可选字段（只增不改；有值才校验——缺席合法，不触碰十字段必填性）──
+              # 出处：沙箱研究 D-1（repo/env_precondition，§3.2 M-5/M-6）＋ CI L-08
+              # （fast_tests）＋ Q5 盲点 B6。本卡（factory-os#19）不扩权：
+              # env_precondition 与命令族的一致性校验留 #13 干跑/沙箱自检。
+              v11_card_fields.update(c.keys())
+              repo = c.get("repo")
+              if repo is not None and repo != "":
+                  if not isinstance(repo, str) or not re.fullmatch(
+                          r"[A-Za-z0-9][A-Za-z0-9_.-]{0,38}/[A-Za-z0-9][A-Za-z0-9_.-]{0,99}", repo):
+                      errors.append("%s repo 须为 owner/name 形制（实得 %r）" % (tag, repo))
+                  else:
+                      _code = gh_repo_http_status(repo)
+                      if _code != 200:
+                          errors.append("%s repo 存活性校验红（GET /repos/%s → HTTP %s，须 200；"
+                                        "404=不存在/不可见，403=限流/无权，None=网络不可达——fail-closed）"
+                                        % (tag, repo, _code))
+              envp = c.get("env_precondition")
+              if envp is not None and envp != "":
+                  if not (isinstance(envp, str) and envp.strip()):
+                      errors.append("%s env_precondition 有值时须为非空串（实得 %r）" % (tag, envp))
+              ft = c.get("fast_tests")
+              if ft is not None and ft != []:
+                  if not isinstance(ft, list) or not ft or not all(isinstance(x, str) for x in ft):
+                      errors.append("%s fast_tests 须为 basename 字符串数组（实得 %r）" % (tag, ft))
+                  else:
+                      for x in ft:
+                          # basename 形制一式三堵：路径分隔符（a/b、a\b）、空白
+                          # （命令串骨架）、shell 元字符——塞命令串必含其一，全拒。
+                          if not x.strip() or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", x):
+                              errors.append("%s fast_tests 元素须为 basename 形制（禁路径分隔符/"
+                                            "空白/shell 元字符=禁塞命令串；实得 %r）" % (tag, x))
+              # 缺席键透明补 null（只增键不改值；写明留痕，非静默）——出证
+              # 「新字段键存在（可空）」，杜绝依赖 LLM 是否配合的验收抖动。
+              _missing = [k for k in V11_OPTIONAL if k not in c]
+              if _missing:
+                  for k in _missing:
+                      c[k] = None
+                  v11_completed.append({"card": tid or tag, "added_keys": _missing})
+
           # ── 波次数学（OOM 准入 + 并发）──
           if sum_anolis > 45:
               errors.append("Σmem_budget(anolis-build)=%dG > 45G（OOM 准入：anolis 125G 的 36%%）" % sum_anolis)
@@ -982,7 +1070,21 @@ jobs:
                       "anolis_cards": n_anolis, "bot_cards": n_bot},
               "errors": errors,
               "warnings": warnings,
+              # ── schema v1.1 取证段（只增；wave-XX.json 字段集对照零丢失的回读位）──
+              "v1_1": {
+                  "schema_spec": "af.wave-manifest.v1.1（af.wave-manifest.v1 只增不改："
+                                 "可选键 repo/env_precondition/fast_tests，有值才校验）",
+                  "optional_fields": list(V11_OPTIONAL),
+                  "card_field_names_union": sorted(v11_card_fields),
+                  "key_completed": v11_completed,
+              },
           }
+          # v1.1 透明补全回写：把补 null 后的候选覆盖 manifest-candidate.json，
+          # 使产出 manifest 自身携带三可选键（可空）；补全明细留痕上方 v1_1 段。
+          # fail-closed 面（errors 非空）不回写——红波作废原样留证。
+          if v11_completed and not errors:
+              with open("manifest-candidate.json", "w", encoding="utf-8") as f:
+                  json.dump(man, f, ensure_ascii=False, indent=1)
           with open("manifest-validation.json", "w", encoding="utf-8") as f:
               json.dump(report, f, ensure_ascii=False, indent=1)
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
