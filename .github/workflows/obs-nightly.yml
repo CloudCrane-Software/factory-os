@@ -1,0 +1,243 @@
+# =============================================================================
+# obs-nightly.yml — 夜间周期门（factory-os · D-93 · factory-os#26；CI L-19 / Q2 G-4）
+#
+# 定位（卡面施工步 3）：夜间 schedule 周期门——点选长杆刷新项（python 级可跑项）
+#   ＋ L1 判读器（tools/sandbox-obs-weekly.py）周窗实读，读数落状态面
+#   （状态观测/sandbox-obs-weekly.json，otelo-production 形态）。
+#   读数落状态面、门消费状态面（all-gates L3 常驻项同形态）：
+#   · 门判据 = 周窗连续性（失周⇒红停车）＋判读器结构完好性——即 Q3 §一教训
+#     「观测面自身守护断链史 ⇒ 信标缺席=显式可见」的周期门化：观测环断了，
+#     本门必须红，绝不静默续窗。
+#   · 四类瓶颈信号 B-1..B-4 的红绿是**读数**不是门红：门不判瓶颈（瓶颈消费面
+#     = planner-inputs 扩展＋板面落档，判读器已产四列清单「信号→归因→责任面→建议」）。
+#
+# ★ 触发面纪律（redteam-scan.yml 同款）：schedule 夜窗 + workflow_dispatch；
+#   **禁 pull_request 触发**。cron '30 18 * * *' = 02:30 +0800 夜窗。
+# ★ 禁项对齐（卡面）：**周期门禁跑 cargo 全量**（anolis 水位）——本件零 cargo、
+#   零 rustc；长杆刷新项点选 python 级可跑项：deny-audit = tools/redteam_scan.py
+#   （零 token 确定性扫描，redteam-scan.yml 同内核）。fuzz 仓内无 python 级载体
+#   ⇒ 判读器 long_pole_refresh.fuzz 显式 null（真空窗显式记，不猜绿）；
+#   miri/criterion 为 cargo 级，禁跑（显式 null）。
+# ★ 零外部 action（本仓纪律）：不用 actions/checkout 等任何 action ⇒ 检出步
+#   手写 git clone（按触发 ref 检出；公开仓匿名 clone，零 token 进 argv）。
+# ★ 权限：contents:write（读数落盘回推）+ issues:write（板面落档）。
+#   最小化面：判读器本身零写（只读板面）；写面仅「读数落盘 + 板面落档」两处。
+# ★ 落盘回推失败（分支保护拒推等）⇒ 读数改落板面 Issue（redteam-scan D-88
+#   「板 Issue 评论落档=artifact 合规替代形态」同款）；落档再失败 ⇒ 本作业红。
+#   落地面在 job 日志与板面评论中显式声明，不静默换面。
+# ★ 真门红停车：判读器 rc=2（结构失败）或 gate_verdict=fail:missing-week（失周）
+#   ⇒ 本作业 exit 1（check-run 红，fail-loud）；不弱化、不静默。
+# =============================================================================
+
+name: obs-nightly
+
+on:
+  schedule:
+    - cron: '30 18 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: obs-nightly
+  cancel-in-progress: false
+
+env:
+  # 板面落档 Issue（读数落档面）。缺席/被删时按标题自动检索，仍无则现场建
+  # （redteam-scan.yml 同款）。空串=按标题检索。
+  OBS_BOARD_ISSUE: ''
+  OBS_BOARD_TITLE: '观测周期档读数落档面（obs-nightly · D-93）'
+
+jobs:
+  obs-nightly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: '01 · 检出（零外部 action：手写 git clone 按触发 ref）'
+        run: |
+          set -eu
+          rm -rf src
+          git clone --depth 1 --branch "${GITHUB_REF_NAME}" "https://github.com/${GITHUB_REPOSITORY}.git" src
+          cd src
+          git --no-pager log --oneline -1
+
+      - name: '02 · 长杆刷新（python 级 deny-audit；禁 cargo——anolis 水位禁项）'
+        run: |
+          set -eu
+          cd src
+          rc=0
+          PYTHONDONTWRITEBYTECODE=1 python3 -I tools/redteam_scan.py . \
+            --out /tmp/redteam-report.json || rc=$?
+          echo "deny_audit_rc=${rc}（0=clean / 1=block 读数照收 / 2=结构失败红）"
+          cp /tmp/redteam-report.json "${GITHUB_WORKSPACE}/redteam-report.json"
+          # rc 语义照 redteam-scan.yml 步 02：block（rc=1）不是本门红——blocking 面
+          # =板 Issue，redteam-scan 专件 */20 已管；本件只收编其读数进长杆刷新段。
+          # 结构失败（rc=2）即红——扫描器自身完整性破坏，读数不可信（fail-loud）。
+          if [ "$rc" = "2" ]; then
+            echo "FAIL deny-audit 结构失败（rc=2）——真门红停车" >&2
+            exit 1
+          fi
+          exit 0
+
+      - name: '03 · 判读器周窗实读（只读板面；失周/结构失败⇒红停车）'
+        id: obs
+        env:
+          # 仅作未认证限速的豁免头（判读器全 GET 零写；tool.token_mode 留痕）。
+          AF_OBS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          cd src
+          rc=0
+          PYTHONDONTWRITEBYTECODE=1 python3 -I tools/sandbox-obs-weekly.py \
+            --repo "$GITHUB_REPOSITORY" \
+            --out 状态观测/sandbox-obs-weekly.json \
+            --long-pole-report /tmp/redteam-report.json || rc=$?
+          echo "reader_rc=${rc}（0=结构完好；2=结构失败红）"
+          if [ "$rc" = "2" ]; then
+            echo "FAIL 判读器结构失败（rc=2）——真门红停车" >&2
+            exit 1
+          fi
+          python3 -I - <<'PY'
+          import json
+          d = json.load(open("状态观测/sandbox-obs-weekly.json", encoding="utf-8"))
+          print("gate_verdict=%s status=%s ts=%s window=%dd" % (
+              d["gate_verdict"], d["status"], d["ts"], d["window_days"]))
+          for k, s in d["signals"].items():
+              print("signal %-28s %-5s empty_window=%s %s" % (k, s["status"], s["empty_window"], s["detail"]))
+          print("continuity: %s %s" % (d["continuity"]["record"], d["continuity"]["note"][:60]))
+          print("long_pole: deny_audit=%s fuzz=%s" % (
+              (d["long_pole_refresh"]["deny_audit"] or {}).get("verdict"),
+              d["long_pole_refresh"]["fuzz"]))
+          print("planner_inputs rows=%d" % len(d["planner_inputs"]["iteration_suggestions"]))
+          PY
+          # 门消费状态面：失周⇒红停车（信标缺席=显式可见）；信号红绿是读数不是门红
+          v="$(python3 -I -c 'import json;print(json.load(open("状态观测/sandbox-obs-weekly.json",encoding="utf-8"))["gate_verdict"])')"
+          echo "gate_verdict=${v}" >> "$GITHUB_OUTPUT"
+          case "$v" in
+            pass|pass:degraded) : ;;
+            *) echo "FAIL gate_verdict=${v}——失周/结构失败，真门红停车" >&2; exit 1 ;;
+          esac
+
+      - name: '04 · 读数落盘（状态面 commit 回推触发 ref；拒推⇒显式记录改板面落档）'
+        id: land
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GATE_VERDICT: ${{ steps.obs.outputs.gate_verdict }}
+        run: |
+          set -eu
+          cd src
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add 状态观测/sandbox-obs-weekly.json
+          if git diff --cached --quiet; then
+            echo "push_status=nochange（读数零变化，免空转 commit）"
+            echo "push_status=nochange" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git commit -m "obs-nightly: 周窗读数落盘（run ${GITHUB_RUN_ID} · gate=${GATE_VERDICT:-see-log}）"
+          push_rc=0
+          git push origin "HEAD:${GITHUB_REF_NAME}" || push_rc=$?
+          if [ "$push_rc" = "0" ]; then
+            echo "push_status=pushed → ${GITHUB_REF_NAME}"
+            echo "push_status=pushed" >> "$GITHUB_OUTPUT"
+          else
+            echo "push_status=rejected（分支保护拒推）——读数改落板面 Issue（显式记录，不静默换面）"
+            echo "push_status=rejected" >> "$GITHUB_OUTPUT"
+          fi
+          exit 0
+
+      - name: '05 · 板面落档＋文件回读（指纹节流；回读 sha 进日志）'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PUSH_STATUS: ${{ steps.land.outputs.push_status }}
+          GATE_VERDICT: ${{ steps.obs.outputs.gate_verdict }}
+        run: |
+          set -eu
+          cd "${GITHUB_WORKSPACE}/src"
+          OBS="状态观测/sandbox-obs-weekly.json"
+          OBS_ENC="$(python3 -I -c 'import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))' "$OBS")"
+          # —— 指纹节流：读数面指纹（无时钟成分）＝信号状态集＋counts＋连续性＋长杆 verdict＋落地面
+          fp="$(python3 -I - "$OBS" "$PUSH_STATUS" <<'PY'
+          import json, hashlib, sys
+          d = json.load(open(sys.argv[1], encoding="utf-8"))
+          fp_src = json.dumps({
+              "signals": {k: [s["status"], s["empty_window"]] for k, s in d["signals"].items()},
+              "counts": d["counts"],
+              "continuity": d["continuity"]["record"],
+              "long_pole": (d["long_pole_refresh"]["deny_audit"] or {}).get("verdict"),
+              "push": sys.argv[2],
+          }, ensure_ascii=False, sort_keys=True)
+          print(hashlib.sha256(fp_src.encode("utf-8")).hexdigest()[:16])
+          PY
+          )"
+          echo "fingerprint=${fp}"
+          # —— 文件回读（push 成功面：API 回读刚推文件 sha 与本地 hash-object 对账；
+          #     中文路径 percent-encode——planner 唤醒闸同款教训）
+          if [ "$PUSH_STATUS" = "pushed" ]; then
+            readback_sha="$(gh api "repos/${GITHUB_REPOSITORY}/contents/${OBS_ENC}?ref=${GITHUB_REF_NAME}" \
+              --jq '.sha' 2>/dev/null || echo unreadable)"
+            local_sha="$(git hash-object "$OBS")"
+            echo "read_back(ref=${GITHUB_REF_NAME}): api_sha=${readback_sha} local_sha=${local_sha}"
+            if [ "$readback_sha" = "$local_sha" ]; then
+              echo "READ-BACK MATCH：落盘文件 API 回读与本地逐字一致"
+            else
+              echo "WARN read-back sha 不一致——落地面看板面评论（不静默）"
+            fi
+          else
+            echo "read_back: push_status=${PUSH_STATUS}——状态面文件未由本 run 更新（nochange/rejected），回读=现网文件"
+            gh api "repos/${GITHUB_REPOSITORY}/contents/${OBS_ENC}?ref=${GITHUB_REF_NAME}" \
+              --jq '.sha + " (现网)"' 2>/dev/null || echo "现网文件回读不可读"
+          fi
+          # —— 板面落档（指纹节流：同指纹不重评，板面噪音零增）
+          api="repos/${GITHUB_REPOSITORY}"
+          issue="${OBS_BOARD_ISSUE:-}"
+          if [ -z "$issue" ]; then
+            issue="$(gh api "${api}/issues?state=open&per_page=100" \
+              --jq "[.[] | select(.title==\"${OBS_BOARD_TITLE}\")][0].number // empty" 2>/dev/null || true)"
+          fi
+          if [ -z "$issue" ]; then
+            issue="$(gh api -X POST "${api}/issues" \
+              -f title="${OBS_BOARD_TITLE}" \
+              -f body="obs-nightly 读数落档面（D-93 卡建面；本 issue 由周期门自动维护，读数评论指纹节流）" \
+              --jq '.number')"
+            echo "board_issue_created=${issue}"
+          fi
+          last_fp="$(gh api "${api}/issues/${issue}/comments?per_page=1" \
+            --jq '.[0].body // ""' 2>/dev/null | grep -oE 'fingerprint=[0-9a-f]{16}' | head -1 | cut -d= -f2 || true)"
+          if [ "$last_fp" = "$fp" ]; then
+            echo "THROTTLED：板面末评指纹一致（${fp}），免重评；本轮读数以 job 日志为准"
+            exit 0
+          fi
+          python3 -I - "$OBS" "$fp" "$PUSH_STATUS" "${GITHUB_REF_NAME}" "${GITHUB_RUN_ID}" <<'PY'
+          import json, sys
+          d = json.load(open(sys.argv[1], encoding="utf-8"))
+          fp, push, ref, run_id = sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]
+          lp = d["long_pole_refresh"]
+          lines = []
+          lines.append("## obs-nightly 周窗读数（%s）" % d["ts"])
+          lines.append("")
+          lines.append("- gate_verdict=%s status=%s window=%dd（window %s ~ %s）" % (
+              d["gate_verdict"], d["status"], d["window_days"], d["window_start"], d["window_end"]))
+          lines.append("- 落地面: push_status=%s → %s；fingerprint=%s" % (push, ref, fp))
+          lines.append("- 周窗连续性: %s %s" % (d["continuity"]["record"], d["continuity"]["note"][:80]))
+          lines.append("")
+          for k, s in d["signals"].items():
+              lines.append("- `%s` **%s** empty_window=%s —— %s" % (k, s["status"], s["empty_window"], s["detail"]))
+          lines.append("")
+          lines.append("长杆刷新: deny_audit=%s fuzz=%s（python 级点选；miri/criterion=cargo 级禁跑）" % (
+              (lp["deny_audit"] or {}).get("verdict"), lp["fuzz"]))
+          rows = d["planner_inputs"]["iteration_suggestions"]
+          if rows:
+              lines.append("")
+              lines.append("迭代建议四列清单（信号→归因→责任面→建议）：")
+              for r in rows:
+                  lines.append("- %s | 归因: %s | 责任面: **%s** | 建议: %s" % (
+                      r["signal"], r["attribution"], r["responsibility_face"], r["suggestion"]))
+          lines.append("")
+          lines.append("<!-- fingerprint=%s run=%s -->" % (fp, run_id))
+          open("/tmp/obs-comment.md", "w", encoding="utf-8").write("\n".join(lines))
+          PY
+          gh api -X POST "${api}/issues/${issue}/comments" -F body @/tmp/obs-comment.md >/dev/null
+          echo "board_comment_landed: issue=${issue} fingerprint=${fp}"
