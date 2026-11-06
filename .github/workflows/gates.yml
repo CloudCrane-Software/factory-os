@@ -1,0 +1,411 @@
+# =============================================================================
+# gates.yml — factory-os 仓门禁接线件（内联 python 剖面；required check 上下文 = gates）
+#
+# 定位（30-工件/GitHub协作平面-建设方案/01-建设方案.md §三「验收面」/§五 P1）：
+#   factory-os = 工厂 OS 本体（tools/ 门禁脚本在役件 + 账本三件套 + 波次清单 +
+#   制度文档）。本件是它在 GitHub Actions 侧的 PR 级反馈面，作业名恒 `gates`
+#   ——分支保护把 required check `gates` 挂到这个作业名上（缺它即未验）。
+#
+# ★ 为什么是内联剖面而不是 uses: CloudCrane-Software/.github/.../gates.yml@main：
+#   org 可复用门（.github/workflows/gates.yml）的正本是 **af 仓 F2 全量门的
+#   Actions 形态**——fmt/clippy/strategies_check/test 四步全是 cargo 语义，
+#   专项门点选族 {ledger,anchor,otel} 又只认 factory-os 的工具面。本仓无
+#   Cargo.toml、无 crates/，套用可复用门会整链跑不动；且可复用门的专项门腿
+#   依赖 计划/研究组/方法论批-20261031/anchor-check.py 等**不在本仓**的件
+#   （点选即按缺件判红）。故本仓按 §三「每个产品仓 PR 触发 gates.yml」的同一
+#   目标，取内联 python 剖面（零 cargo、零外部件依赖）。af 仓走可复用门那条
+#   路，见 staging/wiring/af/.github/workflows/gates.yml。
+#
+# ★ 剖面三项（逐项命令正本均已实读/实跑，禁凭空编造）：
+#   ① py_compile 全量 tools/（含 tools/otel/ 子目录）+ 件数下限对账
+#      —— L1 同款口径（tools/all-gates.sh 头注 L1 段：全部 tools/*.py
+#      py_compile；件数下限判据源 = tools/test-manifest.list 的
+#      #L1_PY_COUNT_MIN 声明，all-gates.sh:644 manifest_decl 同款读法，
+#      RT-E84③「删门脚本并同步改声明也红」）。下限值不写死在本件里（避免
+#      第二真源），只从清单现读。
+#   ② bot-scrub 树扫 —— 扫描内核**直接复用 tools/mirror-disclose.sh 内嵌
+#      python 段的 scan_text() 纯函数**（18 模式 + G-13 线性内核；取法照抄
+#      30-工件/外派-bot-试点/tool/bot-scrub.py 的 load_scan_text()：AST 切出
+#      `<<'PYEOF'`…`PYEOF` 段、只执行 scan_text/scan_g13 及其依赖闭包，不跑
+#      它的 git/argparse/main 逻辑）。fail-closed：命中**或**覆盖不全
+#      （二进制/非 UTF-8/单文件超预算）一律 rc=1（bot-scrub.py 2026-11-05
+#      止血批口径：uncovered 非空即拒发，不得当作「扫过」）。
+#      豁免面：仓内 tools/mirror-scan-allowlist.json（判据件，/tools/ 下受
+#      CODEOWNERS 判官路径锁；mirror-disclose.sh load_exempt 同形同语义：
+#      pattern/file/reason/expires，缺件/解析失败=空白清单 fail-closed，过期
+#      自动失效）。2026-11-06 出仓闸 adjudication（判据：11-04 盘点纪律——
+#      探测串/夹具/机制代码非凭据）判完 74 条全部落清单（expires 2026-12-05；
+#      到期不复审即整体失效回红——时间炸弹是有意设计，逼周期复核）。**行钉**
+#      （本件严于 mirror-disclose.sh）：条目带 line 时必须与命中行同号，行漂移
+#      不豁免（判据漂移即红，同 gate-pins 纪律）；仅豁免清单自身因 reason 段
+#      原文引用命中行所致结构性自命中，按文件级条目（不钉行）覆盖——与
+#      mirror-disclose.sh 内嵌模式表自命中（17 处，同批 adjudication 逐条钉行
+#      豁免）同族。未知命中（清单外）一律红，不放宽。
+#   ③ 账本迁移对账门判别力自证 —— `python3 -I tools/test-ledger-migration-recon.py
+#      --selftest`（该件 docstring「用法」段：--selftest = 内嵌夹具自测，零
+#      网络、零真台账读取）。为什么跑 --selftest 而不是无参实跑：无参模式的
+#      判据面是 计划/研究组/红队终局轮-20261101/逃逸问题台账.md 等**不在本仓**
+#      的路径（该件:85-96 ESC_PATH/DEBT_PATH/DISP_PATH），在 PR 检出树上跑必
+#      rc=2「不可证」——那不是门的红，是环境缺席，故门只在此验判别力（夹具
+#      25 例：解析/V判/B判/前缀覆盖/豁免标记/fail-closed×2/全栏扫描/引用材料
+#      归属/处置面豁免等，含 tamper 反例）。
+#
+# ★ 触发面纪律：仅 pull_request 且带 base 分支约束（对齐 af/.github/
+#   workflows/f1.yml 的 R03/R04 口径；禁用 pull_request_target）。base=main
+#   已实证：本仓 2026-11-06 建仓，default_branch=main（GET /repos/
+#   CloudCrane-Software/factory-os 回读），分支保护 required check `gates`
+#   已挂 main（strict=True + enforce_admins + code owner 审查）。
+#
+# ★ 零外部 action：不用 actions/checkout 等任何第三方/第一方 action（对齐
+#   af/ci/gh_workflow_check.py R07 与 af/.github/workflows/f1.yml 的零 action
+#   形态）⇒ 检出步手写 `git clone`（公开仓匿名 clone，零 token、零凭据进 argv）。
+#
+# ★ runner：runs-on: [anolis-heavy]（01-建设方案.md §三：自托管 runner label
+#   anolis-heavy）。2026-11-06 导入批已就位：anolis 宿主 /data/gh-runner-fos
+#   （bin/externals 自 af 的 /data/gh-runner 复制，v2.338.2），repo 级注册于
+#   本仓、label anolis-heavy、work=/data/gh-runner-fos-work——与 af 仓的
+#   anolis-gpu-01 同宿主第二实例，互不争抢。容器作业隔离留待 P2（runner 宿主
+#   暂不直跑 untrusted PR 码，P2 前仅厂内可信分支进门）。
+#
+# ★ 本件三项的实跑读数（2026-11-06 17:1x，暂存树 staging/factory-os 快照，
+#   含本批入库的 tools/mirror-scan-allowlist.json；复跑口径 = 本件内联命令原样）：
+#   ① py_compile：rc=0，「L1 在册 py 134 件（tools/ 一级 126 + 子目录 8）；
+#      清单声明下限 96」→「PASS py_compile 134/134 件全过，检出树零 bytecode」。
+#   ② bot-scrub：rc=0——「SCRUB: scanned=170 hits=0 exempted=150 uncovered=0
+#      verdict=clean（allowlist=tools/mirror-scan-allowlist.json state=ok
+#      entries=84）」。豁免 150 条 = 源码树 74（25 文件：G-13 57 / P-01 5 /
+#      G-02 3 / G-12 2 / P-04 2 / P-02、G-01、G-03、G-04、G-11 各 1，全部经
+#      2026-11-06 adjudication 逐条判读——探测串/夹具/机制代码非凭据，行钉，
+#      expires 2026-12-05）+ 豁免清单自身结构性自命中 76（reason 段引用命中行
+#      原文所致，按 10 模式族文件级条目覆盖）。
+#      收口前史（同口径留档）：15:01 快照 182 命中 / 60 文件 block；16:0x
+#      快照 74 命中 / 25 文件 block——出仓闸（01-建设方案.md §五 P0 ⑤）于
+#      16:58 终审 verdict=CLEAN（staging/scrub-verdict-factory-os-final.json，
+#      exempted=74）收口；本件自该版起带豁免面上线，而非零豁免硬红。
+#   ③ 对账判别力自证：rc=0，「selftest 25/25 过」。
+# =============================================================================
+name: gates
+
+on:
+  pull_request:
+    branches:
+      - main
+
+# 权限最小化：全链只读。
+permissions:
+  contents: read
+
+# 并发策略：同一 PR 分支重复推送只保最新一次验收。
+concurrency:
+  group: gates-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  # 作业名恒 `gates`——分支保护 required check 以作业名粒度挂载（§五 P1）。
+  gates:
+    runs-on: [anolis-heavy]
+    timeout-minutes: 45
+    steps:
+      - name: 分工声明（factory-os 判官面 PR 级反馈：语法/脱敏/对账判别力）
+        run: |
+          echo "gates.yml（factory-os）：L1 py_compile 全量 tools/ + bot-scrub 树扫 + 账本迁移对账门判别力自证"
+          echo "runner label: anolis-heavy（自托管）｜容器作业隔离：P2 留待项"
+
+      - name: 检出 PR 头树（零外部 action：手写 git clone；公开仓匿名即可）
+        env:
+          AF_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          AF_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          AF_HEAD_CLONE_URL: ${{ github.event.pull_request.head.repo.clone_url }}
+        run: |
+          set -eu
+          REF="${AF_HEAD_REF:-${GITHUB_HEAD_REF:-}}"
+          if [ -z "$REF" ]; then
+            echo "取不到 PR 头分支（事件上下文缺 pull_request.head.ref）" >&2
+            exit 1
+          fi
+          # PR 头可能在 fork 上 ⇒ 优先用 head.repo.clone_url，缺席回落本仓地址。
+          # 本仓公开（01-建设方案.md §一：全公开）⇒ 匿名 clone，零凭据落盘、
+          # 零凭据进 argv。若将来改私有，本步须改用 GITHUB_TOKEN 且不得打印。
+          URL="${AF_HEAD_CLONE_URL:-}"
+          [ -n "$URL" ] || URL="https://github.com/${GITHUB_REPOSITORY}.git"
+          SRC="src"
+          rm -rf "$SRC"
+          git clone --depth 1 --branch "$REF" "$URL" "$SRC"
+          cd "$SRC"
+          git --no-pager log --oneline -1
+          echo "检出 PR 头树：ref=$REF url=$URL 期望 head.sha=${AF_HEAD_SHA:-未提供}"
+
+      # ---- 剖面①：py_compile 全量 tools/（含子目录）+ 件数下限对账 ----------
+      - name: L1 · py_compile 全量 tools/（含子目录）+ 件数下限对账（内联 python）
+        run: |
+          set -eu
+          cd src
+          python3 -I - <<'PY'
+          import os
+          import pathlib
+          import py_compile
+          import re
+          import sys
+          import tempfile
+
+          sys.dont_write_bytecode = True   # 不在检出树留 __pycache__
+          root = pathlib.Path("tools")
+          if not root.is_dir():
+              sys.exit("FAIL tools/ 不在位——判官路径整族缺席（摘门保牌形态，判红）")
+
+          files = sorted(p for p in root.rglob("*.py")
+                         if p.is_file() and "__pycache__" not in p.parts)
+          top = sum(1 for p in files if p.parent == root)
+          sub = len(files) - top
+
+          # 件数下限判据源 = tools/test-manifest.list 的 #L1_PY_COUNT_MIN 声明
+          # （all-gates.sh:644 manifest_decl L1_PY_COUNT_MIN 同款读法；RT-E84③：
+          #  删门脚本并同步改清单声明也红——故下限只从清单现读，不在本件写死）
+          mf = root / "test-manifest.list"
+          if not mf.is_file():
+              sys.exit("FAIL tools/test-manifest.list 不在位——L1 件数下限无从对账")
+          floor = None
+          for ln in mf.read_text(encoding="utf-8").splitlines():
+              m = re.match(r"^#L1_PY_COUNT_MIN=(\d+)\s*$", ln.strip())
+              if m:
+                  floor = int(m.group(1))
+          if floor is None:
+              sys.exit("FAIL tools/test-manifest.list 缺 #L1_PY_COUNT_MIN 声明"
+                       "——件数下限不可解析（钉值不可读 ⇒ 门无从对账 ⇒ 红）")
+
+          print("L1 在册 py %d 件（tools/ 一级 %d + 子目录 %d）；清单声明下限 %d"
+                % (len(files), top, sub, floor))
+          if len(files) < floor:
+              sys.exit("FAIL 在册 py %d < 下限 %d——有门脚本被摘除（删件并同步改"
+                       "清单声明也红，RT-E84③）" % (len(files), floor))
+
+          # cfile 指到临时目录：编译产物不进检出树（不脏 PR 工作区、不留 bytecode）
+          tmp = tempfile.mkdtemp(prefix="factory-os-pycompile-")
+          bad = []
+          for i, p in enumerate(files):
+              try:
+                  py_compile.compile(str(p), cfile=os.path.join(tmp, "%05d.pyc" % i),
+                                     doraise=True)
+              except py_compile.PyCompileError as exc:
+                  bad.append("%s: %s" % (p, str(exc).strip().splitlines()[-1]))
+              except Exception as exc:            # 不可证不猜绿
+                  bad.append("%s: %s: %s" % (p, type(exc).__name__, exc))
+          if bad:
+              for b in bad:
+                  print("  [FAIL] %s" % b)
+              sys.exit("FAIL py_compile %d/%d 件红" % (len(bad), len(files)))
+          print("PASS py_compile %d/%d 件全过（cfile 落 %s，检出树零 bytecode）"
+                % (len(files), len(files), tmp))
+          PY
+
+      # ---- 剖面②：bot-scrub 树扫（scan_text 内核 + 仓内 adjudication 豁免）-----
+      - name: bot-scrub 树扫（fail-closed：未豁免命中或覆盖不全即红；内联 python）
+        run: |
+          set -eu
+          cd src
+          python3 -I - <<'PY'
+          import ast
+          import json
+          import os
+          import re
+          import sys
+          import time
+
+          # 扫描内核 = tools/mirror-disclose.sh 内嵌 python 段的 scan_text() 纯函数。
+          # 取法照抄 30-工件/外派-bot-试点/tool/bot-scrub.py 的 load_scan_text()：
+          #   切出 `<<'PYEOF'`…`PYEOF` 段 → ast 解析 → 只执行 scan_text/scan_g13
+          #   及其依赖闭包（COMPILED/G13_* 常量）→ 不跑它的 git/argparse/main 逻辑。
+          MIRROR = os.path.join("tools", "mirror-disclose.sh")
+          if not os.path.isfile(MIRROR):
+              sys.exit("FAIL %s 不在位——bot-scrub 扫描内核缺席（不可证不猜绿）" % MIRROR)
+
+          lines = open(MIRROR, "r", encoding="utf-8").readlines()
+          try:
+              start = next(i for i, l in enumerate(lines) if "<<'PYEOF'" in l)
+              end = next(i for i, l in enumerate(lines) if i > start and l.strip() == "PYEOF")
+          except StopIteration:
+              sys.exit("FAIL %s 里找不到内嵌 python 段（PYEOF）" % MIRROR)
+          src = "".join(lines[start + 1:end])
+          tree = ast.parse(src, filename=MIRROR + "#embedded")
+
+          wanted = {"scan_text", "scan_g13"}
+          defs, assigns = {}, {}
+          for node in tree.body:
+              if isinstance(node, ast.FunctionDef):
+                  defs[node.name] = node
+              elif isinstance(node, ast.Assign):
+                  for t in node.targets:
+                      if isinstance(t, ast.Name):
+                          assigns.setdefault(t.id, node)
+              elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                  assigns.setdefault(node.target.id, node)
+
+          BUILTINS = {"re", "bisect", "os", "sys", "json", "str", "len", "sorted",
+                      "set", "bytes", "int", "min", "max", "range", "sum", "open",
+                      "print", "enumerate", "isinstance", "dict", "list", "tuple",
+                      "any", "all", "zip", "map", "filter", "abs", "repr", "format",
+                      "True", "False", "None", "Exception", "ValueError", "TypeError"}
+
+          def load_names(node):
+              return {x.id for x in ast.walk(node)
+                      if isinstance(x, ast.Name) and isinstance(x.ctx, ast.Load)}
+
+          selected, frontier = set(), set(wanted)
+          while frontier:
+              name = frontier.pop()
+              if name in selected:
+                  continue
+              selected.add(name)
+              node = defs.get(name) or assigns.get(name)
+              if node is None:
+                  continue
+              for g in load_names(node):
+                  if g not in selected and g not in BUILTINS and (g in defs or g in assigns):
+                      frontier.add(g)
+
+          order = {}
+          for i, node in enumerate(tree.body):
+              if isinstance(node, ast.FunctionDef):
+                  order.setdefault(node.name, i)
+              elif isinstance(node, ast.Assign):
+                  for t in node.targets:
+                      if isinstance(t, ast.Name):
+                          order.setdefault(t.id, i)
+                          break
+              elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                  order.setdefault(node.target.id, i)
+          body = [defs.get(n) or assigns.get(n) for n in sorted(selected, key=lambda n: order.get(n, 10 ** 6))]
+          body = [b for b in body if b is not None]
+          ns = {"re": re, "bisect": __import__("bisect"), "os": os, "sys": sys}
+          exec(compile(ast.Module(body=body, type_ignores=[]), MIRROR, "exec"), ns)
+          if "scan_text" not in ns:
+              sys.exit("FAIL %s 内嵌段里找不到 scan_text" % MIRROR)
+          scan_text = ns["scan_text"]
+          npat = len(ns.get("COMPILED", []))
+
+          # ---- 豁免清单：tools/mirror-scan-allowlist.json（判据件，/tools/ 下受
+          #      CODEOWNERS 判官路径锁）。语义照抄 mirror-disclose.sh load_exempt：
+          #      pattern/file/reason/expires 四键缺一不认；缺件或解析失败 = 空白
+          #      清单（fail-closed——有命中即红）；expires 早于当天自动失效。
+          #      行钉（本件严于 mirror-disclose.sh）：条目带 line 时必须与命中行
+          #      同号——行漂移不豁免 ⇒ 源码一改逼重新 adjudication（判据漂移即红）。
+          #      文件级条目（不带 line）仅覆盖清单自身：专治本清单 reason 段原文
+          #      引用命中行所致的结构性自命中（同 mirror-disclose.sh 模式表族）。
+          ALLOW = os.path.join("tools", "mirror-scan-allowlist.json")
+          al_state, exempt = "missing", []
+          if os.path.isfile(ALLOW):
+              try:
+                  data = json.load(open(ALLOW, encoding="utf-8"))
+                  al_state = "ok"
+              except Exception:
+                  al_state, data = "parse-fail", []
+              today = time.strftime("%Y-%m-%d")
+              for e in (data if isinstance(data, list) else []):
+                  if not isinstance(e, dict):
+                      continue
+                  if not e.get("pattern") or not e.get("file") or not e.get("reason"):
+                      continue
+                  if str(e.get("expires", "")) < today:
+                      continue
+                  exempt.append(e)
+
+          def hit_exempt(pid, rel, ln):
+              base = os.path.basename(rel)
+              for e in exempt:
+                  if e["pattern"] != pid:
+                      continue
+                  if e["file"] not in (rel, "*", base):
+                      continue
+                  el = e.get("line")
+                  if el is not None and int(el) != ln:
+                      continue
+                  return True
+              return False
+
+          # 树扫（照抄 bot-scrub.py 的 scan()：逐文件预算 + 二进制/非 UTF-8 登记
+          #   为未覆盖，不静默跳过、不装作扫过）
+          TREE = "."
+          PER_FILE_BUDGET_S = 30.0
+          MAX_FILE_BYTES = 64 * 1024 * 1024
+          hits, exempted, scanned, uncovered = [], [], 0, []
+          for dirpath, dirnames, filenames in os.walk(TREE):
+              dirnames[:] = [d for d in dirnames if d != ".git"]
+              for fn in sorted(filenames):
+                  p = os.path.join(dirpath, fn)
+                  rel = os.path.relpath(p, TREE)
+                  try:
+                      size = os.path.getsize(p)
+                      if size > MAX_FILE_BYTES:
+                          uncovered.append({"file": rel, "reason": "oversize"})
+                          continue
+                      raw = open(p, "rb").read()
+                  except Exception as exc:
+                      hits.append({"file": rel, "pattern": "READ-FAIL", "ctx": str(exc)[:120]})
+                      continue
+                  scanned += 1
+                  if b"\x00" in raw[:8192]:
+                      uncovered.append({"file": rel, "reason": "binary"})
+                      continue
+                  try:
+                      txt = raw.decode("utf-8")
+                  except Exception:
+                      uncovered.append({"file": rel, "reason": "non-utf8"})
+                      continue
+                  t0 = time.time()
+                  try:
+                      recs = scan_text(txt)
+                  except Exception as exc:
+                      hits.append({"file": rel, "pattern": "SCAN-ERROR", "ctx": str(exc)[:120]})
+                      continue
+                  if time.time() - t0 > PER_FILE_BUDGET_S:
+                      hits.append({"file": rel, "pattern": "BUDGET-EXCEEDED"})
+                      continue
+                  for pid, ln in recs:
+                      if hit_exempt(pid, rel, ln):
+                          exempted.append({"file": rel, "pattern": pid, "line": ln})
+                      else:
+                          hits.append({"file": rel, "pattern": pid, "line": ln})
+
+          reasons = []
+          if hits:
+              reasons.append("hits")
+          if uncovered:
+              reasons.append("uncovered")
+          verdict = "block" if reasons else "clean"
+          rep = {"schema": "af.bot.scrub.v1", "tree": os.path.abspath(TREE),
+                 "scanner": MIRROR,
+                 "scanner_mode": "scan_text() 复用（18 模式 + G-13 线性内核）",
+                 "pattern_count": npat, "scanned_files": scanned,
+                 "allowlist": ALLOW, "allowlist_state": al_state,
+                 "allowlist_entries": len(exempt),
+                 "hits": hits, "exempted": exempted, "exempt_list": ALLOW,
+                 "uncovered": uncovered, "verdict": verdict, "block_reasons": reasons}
+          with open(os.environ.get("BOT_SCRUB_OUT", "bot-scrub-report.json"), "w",
+                    encoding="utf-8") as f:
+              f.write(json.dumps(rep, ensure_ascii=False, indent=2) + "\n")
+          print("SCRUB: scanned=%d hits=%d exempted=%d uncovered=%d verdict=%s "
+                "(allowlist=%s state=%s entries=%d)"
+                % (scanned, len(hits), len(exempted), len(uncovered), verdict,
+                   ALLOW, al_state, len(exempt)))
+          for h in hits[:25]:
+              print("  HIT %s:%s [%s]" % (h.get("file"), h.get("line", "?"), h.get("pattern")))
+          for u in uncovered[:25]:
+              print("  UNCOVERED %s (%s)" % (u["file"], u["reason"]))
+          if reasons:
+              sys.exit("FAIL bot-scrub verdict=block（%s）——出仓闸 fail-closed："
+                       "未豁免命中或覆盖不全一律拒" % ",".join(reasons))
+          print("PASS bot-scrub 零未豁免命中零未覆盖（豁免 %d 条，明细见报告 "
+                "exempted 段）" % len(exempted))
+          PY
+
+      # ---- 剖面③：账本迁移对账门判别力自证 --------------------------------
+      - name: 对账检查 · 账本迁移对账门判别力自证（tools/test-ledger-migration-recon.py --selftest）
+        run: |
+          set -eu
+          cd src
+          # 命令正本：tools/test-ledger-migration-recon.py docstring「用法」段
+          #   （--selftest = 内嵌夹具自测，零网络、零真台账读取）。
+          # 为什么不跑无参实跑：无参判据面（计划/研究组/红队终局轮-20261101/
+          #   逃逸问题台账.md 等）不在本仓 ⇒ PR 检出树上必 rc=2「不可证」，
+          #   那是环境缺席不是门的红。PR 面验的是判别力仍在（夹具含 tamper 反例）。
+          python3 -I tools/test-ledger-migration-recon.py --selftest

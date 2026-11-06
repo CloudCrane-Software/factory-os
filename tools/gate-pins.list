@@ -1,0 +1,140 @@
+# tools/gate-pins.list — 门本体钉桩面（权威值外置于门本体）
+#
+# 为什么有这份文件（2026-11-03 RT-CI门本体批，红队已确证发现）：
+#   tools/ 与工作区根都不在任何 git 仓内（git -C tools rev-parse → fatal: 不是 Git
+#   仓库），故门本体内硬编码的钉值（L2_MIN_ITEMS / L1_MIN_PY）此前是「零版本面、
+#   零完整性绑定」资产：改它既无版本面可查，也无任何机检消费其摘要；而门本体
+#   对它的自证立论「改门=纪律红线，门面 diff 即见」在本仓不成立（没有 diff 面）。
+#   攻击链（结构推演，本批已用沙箱负控实证）：改门内钉值 + 删 test-*.py + 删清单行
+#   + 下调清单声明 + 追加一行变更日志登记 → RT-E84②③ 两侧对账同时通过、exit=0；
+#   或把任一子探针改成恒 exit 0 → 全门无一处能红。
+#
+# 本文件是钉桩面（权威值在门本体之外），三面绑定：
+#   ① 本文件自身 sha256 须登记在 计划/变更日志.md（登记串：
+#      tools/gate-pins.list sha256=<64位hex>）——tools/ 唯一的版本面（RT-E84④ 同款口径）；
+#   ② 门本体 all-gates.sh 的 sha256 记在本文件内（改门 → 本文件失配 → 钉桩对账红）；
+#   ③ 每个被钉件的 sha256 记在本文件内（改探针 → 失配 → 红）。
+# 维护契约（缺一即红，改后跑一条命令重锚）：
+#   改门本体 / 改子探针 / 改钉值 → bash tools/gate-pins-refresh.sh
+#   （重算全部摘要 + 追加变更日志登记行 + 复验；勿手改本文件的 sha256 行）。
+#
+# 格式：
+#   KEY=VALUE 行          —— 门件件数下限等钉值
+#   sha256 <相对路径> <64位小写hex> 行 —— 被钉件摘要（相对工作区根）
+#   以 # 开头的行为注释
+PINS_FORMAT=1
+# --- 门件件数下限（RT-E84②③ 的「门内钉值」：原写在门本体硬编码常量里，本批外置）---
+# L2_MIN_ITEMS：L2 在列门件件数下限。有效下限 = max(本值, 清单声明 #L2_ITEMS_COUNT)。
+#   本值取 31 = 2026-11-03 05:5x 亲数（清单在列 31 件，与门本体原硬编码值同值，
+#   本批只搬位置不改语义）；新增/下线门件须同步本值 + 清单行 + 清单声明三处。
+L2_MIN_ITEMS=32
+# L1_MIN_PY：L1 在册 py_compile 件数下限。有效下限 = max(本值, 清单声明 #L1_PY_COUNT_MIN=96)。
+#   本值取 91 = 门本体原硬编码值（同值搬位，不改语义）。
+L1_MIN_PY=91
+# --- 被钉件摘要（改任一件 → 须跑 tools/gate-pins-refresh.sh 重锚，否则钉桩对账红）---
+sha256 tools/all-gates.sh 52bad50059e6f6c85eb4e71017acd20218b35d8f41513344e622b5d143bfc9ef
+sha256 tools/deploy-consistency-probe.sh a9a9b29c809f78d80b4b9d7656cd4746baefb2c595c7bd90350d9810c4985890
+sha256 tools/caddy-deploy-integrity-probe.sh dbcf72d156cfe869bf97a84c9a11472b60527a1117d92fa065816ce8425cb611
+sha256 tools/sil-verdict-probe.py 87be7627379526744dd3998faa5fd2014baaa4e3c33b344e4d66100779ed3b25
+sha256 tools/rate-limit-symmetry-probe.py e5fd4bcf9c3135719aed4ce58c3ec7cd37b31001aa7288c1a3056263e3dea74b
+sha256 tools/public-entry-registry-check.py 106c6ee0eb363e7bc19ee1d519c5258f46b79a12d58f65d01c4ee017f4beaf79
+sha256 tools/live-daemon-version-probe.py 72af44c8ba807f270af32fc6aea2e6b7d8e795a5e1834bcb407184f67e046a53
+sha256 tools/l5-deploy-gate-selftest.sh 1189af35d867957c5cadb7fd2c9bc3c0b9e4c6e27b7d454c7a5b7fab0b84910a
+sha256 tools/l6-deploy-gate-selftest.sh f6435ac0d7b40fcd64dfb349f0dee93ca1e67d26e082a0a1780179f4d8559ef3
+sha256 tools/publish-live-surface-probe.py 5c70a8ce433bfd18eb31d81f768d81e645ab1c118fba28fcca5638cc80828c5f
+sha256 tools/gate-pins-check.sh ce0c55b0964c597c731a307c63d9984c2ecf9a48fd3832a40a80e50d3dcda0df
+sha256 tools/gate-pins-refresh.sh 78bbbb7b09e06dfbfcefcd01f088c640c078368a4f595be1e9946ac4fff14ed4
+# --- 判据源本体（2026-11-03 SIL环「三面新完整性机制」批：红队确证洞，本行补上）---
+# tools/self-improve-loop.py 是 SIL 环的判据源本体，且是「自检+判据同一文件」（守护
+# --selftest 的 T18d 负控、mirror_source_ro_gate 判据均在件内）。本批前三面完整性
+# 机制对它集体失明：sil-verdict-probe.py 钉住自身 sha（上面一行）却 import 本件当
+# 唯一判据源（GATE_SRC / live_ro_gate 直调 mirror_source_ro_gate）；keepalive 版本钉
+# （factory-keepalive.py src_pin=tools/self-improve-loop.py）把本件盘上任意改动在
+# 一个 tick 内自动晋升在役；在役版本探针（live-daemon-version-probe.py）的对账盘面
+# 端也只读本件——改判据源＝钉桩全绿＋产出腿门绿（既证链）。纳入钉桩后：改本件 →
+# 本行失配 → gate-pins-check 红（all-gates.sh L3 常驻项），自动晋升不再静默；
+# 其自检件（test-sil-*.py 三件）已有版本面＝tools/test-manifest.list 在列 + 清单
+# sha256 变更日志登记（RT-E84④ 口径），不重复钉。改本件后唯一合规动作：
+# bash tools/gate-pins-refresh.sh。
+sha256 tools/self-improve-loop.py 9e0fbd146f4b8509d468aee94e06bae09b25e330a6a580ed6bc7c58216211bea
+# --- RT-L2身钉（2026-11-03，红队已确证发现修复批）：L2 门件身钉 ---
+# 发现：tools/ 全门 L2 层「同名替换成恒绿桩」无一处能红——本面此前的钉值全为
+# L3/L5/L6 探针与门本体（无一为 tools/test-*.py），名册（tools/test-manifest.list）
+# /自声明/件数三面对账只钉名与数、不钉身：把任一在册门件换成同名恒绿桩
+# （import sys; sys.exit(0)）照常注册、照常在列、桩 PASS、全门 exit=0（沙箱端到端实证）。
+# 修法（复用本钉桩面 + gate-pins-refresh.sh 重锚机制，同 af 仓 ci 门族「名册+sha 钉」先例）：
+# 在盘 test-*.py 全部落本面；消费面两处——
+#   ① all-gates.sh register_L2 新增「在列门件内容钉对账」：在列件缺钉行/钉值非法/
+#     实时摘要≠钉值 即红（fail-closed：无钉=无法证身，不猜绿）；
+#   ② gate-pins-check.sh（L3 常驻项）对本面全行同款摘要对账（双消费面）。
+# 维护契约：新增 tools/test-*.py → 清单行 + #L2_ITEMS_COUNT + L2_MIN_ITEMS + 本面钉行
+# 四处同步，改后跑 bash tools/gate-pins-refresh.sh 重锚登记；下线件反向同理（删行）。
+sha256 tools/test-bench-retire-obs-review-criteria.py a0fe6f33150b5922bf462ef7f5ae184a7f2adac5361a126096e1cc5a707ce0b3
+sha256 tools/test-bench-retire-obs-review.py 671672b29d94ab40c4b4096a44bb9d2b9875f25a0eaa659ada44ee8d6506efd1
+sha256 tools/test-cardtype-three-side-wiring.py e2b2a2735cbb4807dc422ced2b41d450967dd1b773fb2e3e9a31df77ebb4f3cf
+sha256 tools/test-claim-token-once.py 13bd38e861eb41ae83d8aa52009ff4deccada892f708d0997414c2fa0b3f4961
+sha256 tools/test-e32-crosscard-divergence-consume.py 90634268b3111ad76382774d887ce3272076bb181a0986102480edfce7430e74
+sha256 tools/test-e32-verified-uphold-recon.py 754d33405eaf7999a3b083ed400d20087991dba329b8421f5e12ef3dcf04c530
+sha256 tools/test-e67-qc-stock-recon.py 13c7088af4707d0a2932d2f94ffba5913908ff0ff05c322eb12dccfb0bd15f88
+sha256 tools/test-exp2-gate.py 186f41235b17dbcce3ebc201d67f3587e505de85bbcd75c760c6f1809c5efd86
+sha256 tools/test-exp2-repeat-registration.py f98df4a54b34cefc7ccbf3a7452074eae17c5080ff8f8fb2d5d46f4cc0255c31
+sha256 tools/test-gate-source-freshness.py 0cc12033316f9bd066f45cc8bb0806f109873e280841775c6962d4fb2c9c8174
+sha256 tools/test-kb-content-parity.py bf51ec057d04551a5619683370eb0371068939650834827c48af4b2c263301c6
+sha256 tools/test-kb-quote-integrity.py b4bb80d5842525e6c9b1746a56619943187fbe909d6b149859533ea7708447db
+sha256 tools/test-kvfix-verdicts-contract.py 818316d0ae53444e04579c862bc50c172cfc62abcc9dfb4541a3199da8a1daf0
+sha256 tools/test-ledger-migration-recon.py d4340e6e83147114f70e8f8abd47a78bc08a0215c08b0092673476b7cf080e8a
+sha256 tools/test-mes-queue-bad-cap.py a255a45b16a4db10680b9b22efed5833014ed90ca24b65a41c7125010f2fe3f2
+sha256 tools/test-mes-queue-strip-boundary.py 3097fe668a30124bad4550ce2547ee0411b31669d8bbef88d611a655eaebf382
+sha256 tools/test-minimax-dispatch-gate.py 3b15c69ad46c1567fbc97397a80fa5dc684d7d004b2b9b6cba8952e8abfd7187
+sha256 tools/test-otel-emit-visibility.py 5d929cba374c344678fbed6274bda546ede02353c17c7b69979a249f066932c4
+sha256 tools/test-path-traversal-404.py 6c91462ff3765a98a47b21c7a7c945e8f1420ce4d03522146dc7d06ecccbf8bc
+sha256 tools/test-portal-attack-surface.py c28ece3f739bcac246e3636ed95b9a0d12f65d41b537ae993163409f917da51d
+sha256 tools/test-publish-freeze-keys.py 05537b795cb7fd320d1a2c2001f3f064e51371086609ab62bc0f9d976dcad6a7
+sha256 tools/test-qc-leg-truth-gate.py 5976c88b7b0fbf301c1d5ec73f064615e01df36c592a83b9d09ff9972d74435e
+sha256 tools/test-quota-gate-criteria-parity.py 9a8de7cd0a134188daf79e536a2ad6dbef50d379dd0c94712af0d4db659e9b8c
+sha256 tools/test-registry-effect-class-audit.py 2aab409cfc854bf456864521d22c558a5cd0a1d761f931ad3e1644754efe6537
+sha256 tools/test-router-kb-ingest.py 9fa9e23d026569b16c778528c6187bf86205d4ecc7af362c733098d67bd39665
+sha256 tools/test-router-version-pin.py 67b5d00b3794f0538365ceaf2b3dbc916a70a003d874a806a66fb30862b976a7
+sha256 tools/test-sil-verdict-probe-outleg.py e01358502cdb92f96bca44047dfb36301c400f1fac2f2626afc4ad30e285c4d0
+sha256 tools/test-sil-verdict-probe.py 98e4c896c0ef2eb3b43eb8f1865aa2c400b7fdd31e525b18b3077b8e399aa226
+sha256 tools/test-sil-version-pin.py 05ff3ea3dc662436ba2ae06e0f439153abe18940eae5c1e899ae1c760e3a3d7a
+sha256 tools/test-tmp-write-admission.py 97d135874d73bc4b4cb6375a6cf47f645f3933ccb72aaffe326cffdf3c2b4ac1
+sha256 tools/test-vamp-verify-replicas.py 1c8d5f0b46b087c4c9a57590b40739ed9851a15c4675591d63ecdf3a0a09f146
+sha256 tools/test-verify-qc-truth-gate.py a6c2ff1a3a1eac054f6136d93a1833428f63c56c7ae8dc952e2a4e873ac1d13b
+# --- RT-E161（2026-11-06 部署窗）：供给活性对账门四态夹具身钉（新列名件同步四处）---
+# 新增在册门件 = tools/test-e161-supply-liveness.py（RT-E161 供给活性对账门回归，
+# 四态负正控；被测 = 正本 factory-scheduler.py，部署后自动切正本）。按维护契约
+# 四处同步：清单行 + #L2_ITEMS_COUNT=32 + 本面 L2_MIN_ITEMS=32 + 本钉行；
+# 改后唯一合规动作 bash tools/gate-pins-refresh.sh。
+sha256 tools/test-e161-supply-liveness.py bf0f8cd3faf9e77579113c233d8cefe9fb58268333e9521dae57dba445206974
+# --- 两处 tools/trigger-inbox.py 同源探针（2026-11-05 发布面接线批 ②P2）---
+# 探针本体 = af 仓版本受控正本 tools/trigger-inbox-src-parity-probe.py（前批落盘，
+# 随 origin/product/main 合线；本批挂载时**未改其一个字节**）。
+# 本行把**探针本体**纳入钉桩面：此前该本体**零完整性绑定**（改它＝把它改成恒绿桩
+# ⇒ 同源纪律静默失效，且无人能红）。挂载面＝tools/all-gates.sh 的 L3 族门项
+# 「trigger-inbox-src-parity-probe（两处 trigger-inbox.py 同源对账）」。
+# ★ 本体住在 **af 仓工作树**里（唯一一份 ⇒ 无「本体自身漂移」风险；A 侧正本与探针
+#   同域，与探针设计意图一致）⇒ 代价：af 仓工作树切到不含本体的分支时，钉桩对账
+#   与该 L3 门项**如实报红**（正本不在位＝不可证，不猜绿），需重锚/合线后复绿。
+sha256 af/tools/trigger-inbox-src-parity-probe.py ec43302ab4ed99ff9366e38337db73ff9d7b90d36f76444f06b7e35969da7f64
+# --- RT-E58（2026-11-05）：mes-ttl 审计消费腿机读核身钉 ---
+# 探针本体 = tools/mes-ttl-audit-consumer.py（工作区在役运行位；af 仓同名件为版本受控正本）。
+# 此前该消费腿不存在 ⇒ 审计红牌零完整性绑定。纳入钉桩后：改探针成恒 exit 0 未重锚即红。
+# 改后唯一合规动作：bash tools/gate-pins-refresh.sh。
+sha256 tools/mes-ttl-audit-consumer.py 6e70032f5831a7e61921dabf088dfc11110a9ab33cf0dace9b5ad98d8838754c
+# --- anolis 部署面一致性探针（2026-11-03 RT 批）：L5 anolis 腿本体身钉 ---
+# 红队确证：anolis 部署面（四件在役 ≡ 本地正本 + burn-runner/stream-tailer 两守护
+# 加载态）此前零常态机检，「修复落盘≠anolis 在役」复发无门能红。本行把探针本体
+# 纳入钉桩面：改探针（如改成恒 exit 0）未重锚即红（gate-pins-check.sh L3 双消费面）。
+# 改探针后唯一合规动作：bash tools/gate-pins-refresh.sh。
+sha256 tools/anolis-deploy-consistency-probe.sh 6f4fa860462c506c6ab0e8cd3a1de54ef872796170acd24b5f4a2b932eeada65
+# --- E92「未核=0」门（处置正本口径）本体身钉（2026-11-05 施工·E92门本体批·第二件）---
+# 门本体 = tools/anchor-uncheck-zero-gate.py（外派任务书「二、门本体落码」新建件）：
+# 跑 anchor-check 全量口径取未核两类计数，对账处置正本
+# 30-工件/门红面批-20261105/e92-disposition.json（逐条 kind/证据/expiry/真红登记）⇒
+# 净未处置未核数>0 或缺锚/过期/证据空 ⇒ 红。
+# 【2026-11-05 收卷批退役注记】原「与白名单口径门共存、互不覆盖」句失效：白名单门已拆线撤钉归档，本钉为本门（处置正本口径）独存身钉。
+# 处置正本面 e92-disposition.json **不钉**——它是登记面（逐条处置要改，改是常态；
+# 钉之即每次处置都要连带重锚门本体钉桩）；其完整性由门内逐条对账兜。
+# 改门后唯一合规动作：bash tools/gate-pins-refresh.sh。
+sha256 tools/anchor-uncheck-zero-gate.py c9e253fb383e8f90f1062eb86cc4ab08a3044cd6f3e26577f5279b3c9d790597

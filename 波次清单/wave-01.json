@@ -1,0 +1,227 @@
+{
+ "schema": "af.wave-manifest.v1",
+ "wave": "wave-01",
+ "created": "2026-11-06T00:30:00+0800",
+ "policy": "30-工件/波次自转器-20261106/制度-v1.md",
+ "budgets": {
+  "anolis_mem_cap_g": 45,
+  "local_mem_cap_g": 3,
+  "anolis_concurrency": 4
+ },
+ "preflight": [
+  "核销 HOLD 3 笔的活口核：v0.3-T5②/T6③ 的 ss 8765 活口查（trigger-inbox 已常驻化，应转绿→按 制度§三 合线范式补回写）；C5/RT-E223 待 all-gates 复跑第5红点名后做锚坐标回填",
+  "RT-E85 接续轨（dwfrun-06bb5b16）收卷→明早部署窗终审（gov T1 前置+正本换码，主代理在场）",
+  "feeder 撤 STOP 后真跑观察：若连续 2 轮仍落 0→re-arm STOP 并进异常队列"
+ ],
+ "cards": [
+  {
+   "task_id": "a3-stableid-forensic",
+   "debt": "RT-E138",
+   "async": true,
+   "channel": "bot-lane",
+   "title": "A3 stable_id 空键行 trio 取证（projector 空串半键/整单 fail-closed 连带/漂移探针 WARN 无消费面）",
+   "allowed_paths": [
+    "tools/otel/af-otel-projector.py",
+    "af/docs/adr/003-order-persistence.md"
+   ],
+   "acceptance": [
+    "bot-reclaim 门裁决 GREEN 或 STALE_RED（absorbed）",
+    "verdict 逐条带 file:line 证据"
+   ],
+   "merge_policy": "content-only（只读卡，无 patch 合线）",
+   "ledger": "30-工件/B清单·派生版 §二 注记",
+   "mem_budget_g": 0,
+   "depends_on": [
+    "RT-E138 占用已释放（开发波已收卷）"
+   ],
+   "state": "dispatched"
+  },
+  {
+   "task_id": "g10-window-verify",
+   "debt": "RT-E117",
+   "async": true,
+   "channel": "bot-lane",
+   "title": "G10 硬验收窗口核验（live 腿复数 33vs35 + 39 snapshot 腿无钉面审计 + 值钉补登提案）",
+   "allowed_paths": [
+    "tools/numbers-sota-check.py",
+    "tools/numbers-sota-check.pin.json"
+   ],
+   "acceptance": [
+    "门裁决 GREEN/STALE_RED",
+    "pin 提案逐键带值来源"
+   ],
+   "merge_policy": "content-only",
+   "ledger": "台账 RT-E117 行",
+   "mem_budget_g": 0,
+   "preflight_note": "若占用闸拦（RT-E117 在飞则换锚 RT-E98）",
+   "state": "dispatched"
+  },
+  {
+   "task_id": "rt94-pathstyle-l2",
+   "debt": "RT-E94",
+   "async": true,
+   "channel": "bot-lane",
+   "title": "RT-E238-L2 内容漂移 7 处只读核验回（D-3..D-10 逐处实读+现位候选+Δ，不改叙述）",
+   "allowed_paths": [
+    "计划/研究组/红队终局轮-20261101/逃逸问题台账.md"
+   ],
+   "acceptance": [
+    "门裁决 GREEN/STALE_RED",
+    "7 处逐条现位读数"
+   ],
+   "merge_policy": "content-only",
+   "ledger": "changelog-draft-e92-gate-landing.md §五",
+   "mem_budget_g": 0,
+   "depends_on": [
+    "rt94-pathstyle-completion 收割完成（防同锚并发）"
+   ],
+   "state": "dispatched"
+  },
+  {
+   "task_id": "otel-e2e-final-fix",
+   "debt": "RT-E230",
+   "async": false,
+   "channel": "anolis-build",
+   "title": "otel-e2e-check.py:266/275 两处 SELECT 补 FINAL（手术批登记后续，判据零改动）",
+   "allowed_paths": [
+    "tools/otel-e2e-check.py"
+   ],
+   "acceptance": [
+    "py_compile",
+    "工具 --selftest 若存在须过",
+    "全量 all-gates 该门项绿"
+   ],
+   "merge_policy": "单件直推（tools/ 非 af 仓：改前 .bak+钉桩重锚）",
+   "ledger": "变更日志行",
+   "mem_budget_g": 1,
+   "state": "ledgered",
+   "ledger_result": "主代理 inline 施工：:266/:275 两处 SELECT 补 FINAL（改前备份 otel-e2e-check.py.*-pre-FINAL补.bak，py_compile OK）"
+  },
+  {
+   "task_id": "fixverify-roster-batch",
+   "debt": "RT-E83",
+   "async": false,
+   "channel": "local-api",
+   "title": "fix-verify 名册批善后：在役树↔inflight-worktrees.list 对账登记+过期租约清理+门复绿",
+   "allowed_paths": [
+    "af/af-state/resources/inflight-worktrees.list"
+   ],
+   "acceptance": [
+    "fix-verify 门 rc=0",
+    "merge-base --is-ancestor 逐树留证"
+   ],
+   "merge_policy": "merge-check 范式（显式 refspec 取回）",
+   "ledger": {
+    "rows": [
+     {
+      "file": "计划/阶段欠账台账.md",
+      "row_key": "\\|\\s*RT-E83\\s*\\|",
+      "evidence": "〔2026-11-06 wave-01：fixverify 名册批合线+门复绿〕"
+     }
+    ]
+   },
+   "mem_budget_g": 2,
+   "note": "RT-E83 债本体（bot 已被拒）——厂内清偿",
+   "state": "ledgered",
+   "merge_result": "主代理拆卡 inline 清偿（名册=workspace 本地态不入 af 仓；16 树回收+名册三清+门判正本化+门复跑绿 5/0/0——变更日志 05:04 行）",
+   "ledger_result": "落账 1 行：计划/阶段欠账台账.md"
+  },
+  {
+   "task_id": "strategies17-supply-design",
+   "debt": "P3-B1",
+   "async": false,
+   "channel": "local-api",
+   "title": "strategies 17 条 not_applicable 供给面工程·设计批（逐条判定真注册/如实降级/跨面工程的边界+施工卡拆分）",
+   "allowed_paths": [
+    "af/strategies",
+    "crates/af-dsl",
+    "ci/strategies_check.py"
+   ],
+   "acceptance": [
+    "设计文档逐条坐标",
+    "产出 3-6 张实施卡入 wave-02"
+   ],
+   "merge_policy": "no-merge（文档批）",
+   "ledger": "台账 P3-B1 行",
+   "mem_budget_g": 0,
+   "accept_note": "产出设计稿（无 af 合线）；wave-02 据稿建施工卡",
+   "state": "ledgered",
+   "ledger_result": "设计稿落 30-工件/strategies17-供给面设计-20261106.md（17 条三分类+wave-02 建卡草案）；P3-B1 不翻✅（设计非清偿），wave-02 据稿施工"
+  },
+  {
+   "task_id": "exp1-repeats-backfill",
+   "debt": "P3-B1",
+   "async": false,
+   "channel": "local-api",
+   "title": "EXP-1 repeats 72 数据补齐（P3-B1 残项：补跑/口径登记二选一裁决执行）",
+   "allowed_paths": [
+    "af/poc",
+    "af/crates/af-dsl"
+   ],
+   "acceptance": [
+    "实验读数落盘",
+    "strategies_check 不劣化"
+   ],
+   "merge_policy": "merge-check 范式",
+   "ledger": {
+    "rows": [
+     {
+      "file": "计划/阶段欠账台账.md",
+      "row_key": "\\|\\s*P3-B1\\s*\\|",
+      "evidence": "〔2026-11-06 wave-01：EXP-1 repeats 72 补齐/口径登记合线〕"
+     }
+    ]
+   },
+   "mem_budget_g": 6,
+   "depends_on": [
+    "strategies17-supply-design 不冲突（文件集相交则串行）"
+   ],
+   "merge": {
+    "branches": [
+     {
+      "ref": "feature/exp1-repeats-backfill",
+      "msg": "merge(poc): EXP-1 repeats 72 数据补齐/口径登记（P3-B1 残项）"
+     }
+    ]
+   },
+   "state": "ledgered",
+   "mc_marker": "/data/bench/wave-markers/mc-exp1-repeats-backfill.gates",
+   "mc_wt": "/data/bench/wt-mc-exp1-repeats-backfill",
+   "mc_ref": "merge-check/exp1-repeats-backfill",
+   "merge_result": "FF push 478e988..04b5a5e；全量门绿",
+   "ledger_result": "台账 P3-B1 行✅"
+  },
+  {
+   "task_id": "kb-absorb-morning",
+   "debt": "RT-E32",
+   "async": false,
+   "channel": "local-api",
+   "title": "KB 清偿轨 verdicts absorb：批次 jsonl 复核→registry admit/demote 双库动作（fail-closed 依据路径校验）",
+   "allowed_paths": [
+    "kb-seed",
+    "tools/kb-*.py"
+   ],
+   "acceptance": [
+    "test-e32-verified-uphold-recon rc=0",
+    "逐批 absorb 留证"
+   ],
+   "merge_policy": "n/a（库操作）",
+   "ledger": "台账:35 RT-E32 行（318 存量消项）",
+   "mem_budget_g": 0,
+   "depends_on": [
+    "KB清偿轨 dwfrun-9d925ddd 完成"
+   ],
+   "hold_reason": "待 KB 清偿轨（dwfrun-9d925ddd）完成",
+   "state": "hold"
+  }
+ ],
+ "wave02_seed": [
+  "strategies17 实施卡×(3-6)",
+  "RT-E85 部署窗",
+  "旧 otel 表 DROP",
+  "rt-e83 台账行终态",
+  "镜像题供给扩池（stop_why=no_candidates 已可读后的下一步）"
+ ],
+ "_file": "wave-01.json",
+ "runner_touched_at": "2026-11-06T07:02:08+0800"
+}

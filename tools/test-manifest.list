@@ -1,0 +1,59 @@
+# tools/test-manifest.list — L2 单测门「在役 test-*.py 期望清单」（RT-E5b，2026-11-02）
+#
+# 用途：all-gates.sh register_L2 在 glob 注册之外，用本清单逐件对账——
+#   清单在列件只要有一个不在 tools/ 下实位，L2 即 FAIL 并点名该件
+#   （堵「删单个 test-*.py 静默绿」：glob 只能堵全删，堵不了单件摘除）。
+#   清单件自身被删也红（防「先删清单再删件」绕过）。
+#
+# 维护纪律（摘门必须显式对账）：
+#   · 新增 tools/test-*.py → 在本清单追加一行 + 同步改 #L2_ITEMS_COUNT（all-gates 会
+#     以 [提示] 提醒补录；在列行数与自声明数不符即红）。
+#   · 下线/摘除某件 → 必须同时从本清单删去该行、同步改 #L2_ITEMS_COUNT，并在变更日志
+#     留说明，缺件对账红才不会误报；未对账的单件摘除一律红。
+#   · 本清单任何改动（增删行、改声明、改注释）都必须把新 sha256 登记到变更日志
+#     （RT-E84④ 机检面）：all-gates.sh 会核对本文件的 sha256 是否已登记在
+#     计划/变更日志.md（登记串格式：test-manifest.list sha256=<64位hex>）——未登记即红。
+#     理由：本目录不在任何 git 仓内（git rev-parse fatal），清单改动若无版本面可审计，
+#     「删件 + 同时删清单行」两侧同缩即可静默绿（RT-E84 确证：PASS 12→11、零红、exit=0）。
+#   · 行格式：每行一个文件名（tools/ 下 basename）；空行与 # 开头行忽略。
+#
+# RT-E84②③（2026-11-02）新增的声明行（「件数入同一清单」的机检面）：
+#   #L2_ITEMS_COUNT=<n>    本清单在列 L2 门件数（必须 == 在列行数；摘要表 PASS 数下限
+#                          从此数出——删件并删清单行后本行若被同步下调，变更日志留痕
+#                          对账即红）。
+#   #L1_PY_COUNT_MIN=<n>   L1 py_compile 在册件数下限（tools/*.py + tools/otel/*.py）；
+#                          少一件即红——删门脚本并同步改本声明也红（RT-E84③）。
+#L2_ITEMS_COUNT=32
+#L1_PY_COUNT_MIN=96
+test-bench-retire-obs-review-criteria.py
+test-bench-retire-obs-review.py
+test-cardtype-three-side-wiring.py
+test-kb-content-parity.py
+test-kvfix-verdicts-contract.py
+test-registry-effect-class-audit.py
+test-router-kb-ingest.py
+test-vamp-verify-replicas.py
+test-mes-queue-bad-cap.py
+test-verify-qc-truth-gate.py
+test-e32-verified-uphold-recon.py
+test-e32-crosscard-divergence-consume.py
+test-mes-queue-strip-boundary.py
+test-kb-quote-integrity.py
+test-sil-verdict-probe.py
+test-sil-verdict-probe-outleg.py
+test-sil-version-pin.py
+test-exp2-gate.py
+test-otel-emit-visibility.py
+test-tmp-write-admission.py
+test-e67-qc-stock-recon.py
+test-ledger-migration-recon.py
+test-portal-attack-surface.py
+test-claim-token-once.py
+test-path-traversal-404.py
+test-publish-freeze-keys.py
+test-quota-gate-criteria-parity.py
+test-qc-leg-truth-gate.py
+test-gate-source-freshness.py
+test-minimax-dispatch-gate.py
+test-router-version-pin.py
+test-e161-supply-liveness.py
