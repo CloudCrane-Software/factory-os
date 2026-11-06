@@ -74,6 +74,19 @@
             （D-112/factory-os#80，夜轨C2 红队分诊 H4：18 臂 exists=false
             全零 + scheduler alive=true、alarms 仅 A4/A7 amber——人无法分辨
             退役 vs 死了；本灯+三态字段即收口该盲区）
+  red   A10  /data 停手线触顶后恢复动作腿（D-113，夜轨C2 红队分诊 H3；**只增，
+            既有臂判定一律不动**）：img-gc 停手线（≥88%）触顶后，tools/img-gc.py
+            产「可 GC 候选清单+预估回收量」**只读报告件**（img-gc-evidence.jsonl
+            kind=recovery 行，code=gc-recovery）；本灯把该读数抬进安灯+latest.json。
+            判据：末条 recovery 证据 tier∈{L1,L2,L3}，或末次 apply 为停手线回报
+            却无 recovery 证据（D-113 之前的旧形态＝触顶后零自动恢复动作）。
+            H3 实录：354 行证据里 197 条 apply 仅 2 条 ok=true、峰值 use_pct=100
+            （2026-11-04 13:30:57，HALT 拒绝），11-06 gc-watch 红 ×17。
+  amber A11  /data 回落无留痕（D-113）：现值低于「末次成功 apply 之后的未解释
+            峰值」≥5pp，且该落差不能由成功 apply 的事后水位解释 ⇒ 回落来源既非
+            img-gc 路径亦无 recovery 证据行，须人工核定并登记。一次性/episode：
+            每个未解释峰值只报一次（闩锁落 watch-state），chronic 真相由快照
+            gc_recovery 段每轮承载。H3 实录：93%→70% 回落零留痕。
 
 容错：bench-fix1-* 目录尚未生成/工厂重启后空目录/结果行有空行或坏 JSON（逐行
       try/except 跳过并计数 n_bad_lines，不整文件失败、不漏坏行之后的所有行——
@@ -156,6 +169,28 @@ ARM_RETIRE_AFTER_S = 14 * 86400          # exists=false 持续 ≥14 天 → ret
 # CLOSE——低于它自动拦新，安灯负责在闸线之前叫人。
 A4L_TMP_WARN_MB = 2662
 A4L_TMP_GATE_MB = 2252
+# ---- D-113（factory-os#81，夜轨C2 红队分诊 H3）：/data 水位恢复腿 + 回落留痕 ----
+# 缺口实录（卡面复核留证，2026-11-07 分诊，全部命令重跑留证）：
+#   img-gc-evidence.jsonl 354 行、峰值 use_pct=100（2026-11-04 13:30:57，reason=HALT
+#   哨兵在场拒绝执行）；11-06 gc-alarm-sent 红 ×17，末条 message「删 0 张/rmi-fail 0，
+#   /data 93%→None%，reason=use_pct 93% ≥ 停手线 88%，只 plan 停手回报」——
+#   **停手线触顶后零自动恢复动作**（197 条 apply 仅 2 条 ok=true，全在 10-22）；
+#   现值 /data 69-70%（anolis `df -P /data` 实测）而 93%→70% 回落无任何 img-gc/
+#   安灯留痕。/data=订单生产真值根（/data/bench/af-p3-state/orders 末条
+#   A0897-report-glm-cp mtime 2026-11-05 23:17:03 实测）。
+# 收口（只增不改，全部落在本文件安灯/快照侧；判据/判官件零改动）：
+#   ① A10：停手线触顶后 img-gc.py 产「可 GC 候选清单+预估回收量」只读报告件
+#      （kind=recovery 证据行，code=gc-recovery）——本件把它抬进安灯+latest.json；
+#   ② A11：/data 回落（非 img-gc 路径）留痕灯——回落不能由成功 apply 解释即报。
+GC_EVIDENCE = f"{WS}/状态观测/img-gc-evidence.jsonl"   # img-gc 双写耐久件（与 keepalive 同源）
+GC_RECOVERY_CODE = "gc-recovery"                       # 停手线恢复腿专码（A10）
+GC_FALLBACK_CODE = "gc-recovery-fallback-untraced"     # 回落无留痕专码（A11）
+GC_PEAK_WINDOW_S = 7 * 86400        # 峰值回看窗（与 img-gc warm-cache TTL 同源 7 天）
+GC_FALLBACK_MIN_DROP_PP = 5         # 回落幅度阈（百分点；<此值视为正常抖动）
+GC_FALLBACK_LATCH_KEY = "gc_fallback_reported_peak"    # watch-state 闩锁键（一次性/episode）
+# img-gc 停手线（apply 现场复核 use_pct≥此值即只 plan 停手回报；第二道闸）——
+# 与 tools/img-gc.py STOP_PCT 同值。本件只读消费该口径，不另设闸。
+STOP_LINE_PCT = 88
 # A4W 本机 /tmp 实际写入门径（2026-11-02 RT 收尾 DEB57）：A4L 量的是 statvfs
 # f_bavail——「全机剩余空间」那一本账；实际拒绝写入的是 tmpfs 每用户配额
 # （usrquota）那一本账，两本账不是一本。2026-11-02 10:37 实测：f_bavail 报
@@ -301,6 +336,9 @@ def load_state():
     # 一次性 bench-arm-vanished 的 episode 判据；臂复活即除，再消失算新 episode）
     st.setdefault("arm_missing_seen", {})
     st.setdefault("proc_miss_streak", 0)
+    # D-113：{peak_epoch} 已报过「/data 回落无留痕」的未解释峰值（一次性/episode
+    # 闩锁；新峰值出现即重报）。0=从未报过。
+    st.setdefault(GC_FALLBACK_LATCH_KEY, 0)
     return st
 
 
@@ -643,8 +681,143 @@ def scan_local_images(state, t):
     return n
 
 
-# ---------- ④ 中继连败解析 ----------
+# ---------- ③-b D-113 /data 恢复腿与回落留痕判据（只读 img-gc 耐久证据） ----------
 
+def read_gc_recovery_state(now):
+    """读 img-gc 耐久证据，产出 /data 水位恢复腿与回落留痕判据（**只读**）。
+
+    返回 dict（缺文件/坏行 ⇒ 各字段 None，fail-closed：不明不报绿也不假红）：
+      last_apply     末条 apply 记录（epoch/ok/use_pct/use_pct_after/reason）
+      last_recovery  末条 kind=recovery 记录（D-113 恢复腿读数）
+      baseline_pct   末次**成功** apply 的 use_pct_after（成功 GC 的事后水位）
+      peak_pct/peak_epoch  窗内 use_pct 峰值（**仅统计末次成功 apply 之后**的记录——
+                     成功 GC 已把该次水位解释掉，不能再算进「未解释的峰值」）
+      （回落判据不在此函数内裁决——由 gc_recovery_alarm_inputs 纯函数判，
+        避免「 reader 里算一半、arm 里算一半」两处口径漂移）
+
+    峰值窗 GC_PEAK_WINDOW_S 之外的记录不参与（远古峰值不驱动当期告警）。
+    """
+    out = {"last_apply": None, "last_recovery": None, "baseline_pct": None,
+           "peak_pct": None, "peak_epoch": None,
+           "n_records": 0, "read_err": None, "stop_line_hits": 0}
+    try:
+        with open(GC_EVIDENCE, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    except FileNotFoundError:
+        return out                      # 无 GC 历史：不报绿也不假红
+    except Exception as e:
+        out["read_err"] = f"{type(e).__name__}: {e}"
+        return out
+
+    recs = []
+    for ln in lines:
+        try:
+            r = json.loads(ln)
+        except Exception:
+            continue
+        if isinstance(r, dict):
+            recs.append(r)
+    out["n_records"] = len(recs)
+
+    # 第一遍：末条 apply / 末次成功 apply（baseline）/ 停手线命中计数
+    last_success_epoch = 0.0
+    for r in recs:
+        ep = r.get("epoch") or 0
+        if r.get("kind") == "apply":
+            prev = out["last_apply"] or {}
+            if ep >= (prev.get("epoch") or 0):
+                out["last_apply"] = {
+                    "epoch": ep, "ts": r.get("ts"), "ok": bool(r.get("ok")),
+                    "use_pct": r.get("use_pct"), "use_pct_after": r.get("use_pct_after"),
+                    "reason": r.get("reason"), "deleted": r.get("deleted")}
+            if r.get("ok") and ep >= last_success_epoch:
+                last_success_epoch = ep
+                out["baseline_pct"] = r.get("use_pct_after")
+            if "停手线" in str(r.get("reason") or ""):
+                out["stop_line_hits"] += 1
+        elif r.get("kind") == "recovery":
+            prev = out["last_recovery"] or {}
+            if ep >= (prev.get("epoch") or 0):
+                out["last_recovery"] = {
+                    "epoch": ep, "ts": r.get("ts"), "tier": r.get("tier"),
+                    "use_pct": r.get("use_pct"), "L1_n": r.get("L1_n"),
+                    "L1_est_reclaim_bytes": r.get("L1_est_reclaim_bytes"),
+                    "L2_n": r.get("L2_n"), "report_path": r.get("report_path"),
+                    "auto_delete": r.get("auto_delete")}
+
+    # 第二遍：未解释峰值 = 末次成功 apply 之后的记录里的 use_pct 最大值
+    for r in recs:
+        if r.get("kind") not in ("apply", "plan"):
+            continue
+        ep = r.get("epoch") or 0
+        if ep <= last_success_epoch or now - ep > GC_PEAK_WINDOW_S:
+            continue
+        p = r.get("use_pct")
+        if isinstance(p, int) and (out["peak_pct"] is None or p > out["peak_pct"]):
+            out["peak_pct"], out["peak_epoch"] = p, ep
+    return out
+
+
+def gc_recovery_alarm_inputs(gc, cur_pct, t):
+    """D-113 两腿判据（纯函数，便于夹具自检）。返回 dict：
+
+      a10 / a10_why   停手线触顶后恢复动作腿（red）
+      a11 / a11_why   /data 回落无留痕（amber）
+      stop_active     停手线**当前**是否算触顶（现值≥停手线，或窗内刚被停手线拒过）
+
+    A10 是**活条件**而非永久红：停手线触顶（现值≥88 或窗内刚被拒）时，若恢复腿
+    未对该次触顶产出分级档位（L1/L2/L3）即报红；触顶过去且恢复腿确有档位读数则不报
+    （避免「水已退、红灯常亮」的告警疲劳——chronic 真相由快照 gc_recovery 段承载）。
+    """
+    out = {"a10": False, "a10_why": "", "a11": False, "a11_why": "",
+           "stop_active": False}
+    if not gc:
+        out["a10_why"] = out["a11_why"] = "gc 判据缺席（fail-closed：不报绿也不假红）"
+        return out
+    la = gc.get("last_apply") or {}
+    lr = gc.get("last_recovery") or {}
+    stop_hit = bool(la.get("reason") and "停手线" in str(la.get("reason"))
+                    and not la.get("ok"))
+    fresh_hit = stop_hit and (t - (la.get("epoch") or 0)) <= GC_PEAK_WINDOW_S
+    live_hit = isinstance(cur_pct, int) and cur_pct >= STOP_LINE_PCT
+    out["stop_active"] = bool(fresh_hit or live_hit)
+    leg_responded = bool(lr.get("tier") in ("L1", "L2", "L3")
+                         and (lr.get("epoch") or 0) >= (la.get("epoch") or 0))
+    if out["stop_active"] and not leg_responded:
+        out["a10"] = True
+        if lr.get("tier") is None and lr.get("epoch"):
+            out["a10_why"] = (f"恢复腿已跑但档位=None（use_pct={lr.get('use_pct')}"
+                              f"<停手线 {STOP_LINE_PCT}%，常水位不启动）——对本次触顶"
+                              f"未产出 L1/L2/L3 分级档位")
+        elif not lr.get("epoch"):
+            out["a10_why"] = ("**无 kind=recovery 证据行**——恢复腿未启动或未落码"
+                              "（D-113 之前的旧形态：触顶后零自动恢复动作）")
+        else:
+            out["a10_why"] = f"恢复腿档位不可识别：{lr.get('tier')!r}"
+    elif leg_responded:
+        out["a10"] = True
+        out["a10_why"] = (f"恢复腿档位 {lr.get('tier')}（use_pct={lr.get('use_pct')}，"
+                          f"L1 候选 {lr.get('L1_n')} 项/预估回收 "
+                          f"{lr.get('L1_est_reclaim_bytes')}B）")
+    else:
+        out["a10_why"] = "停手线未触顶（现值<停手线且窗内无停手线回报）——A10 不判"
+    peak = gc.get("peak_pct")
+    if peak is not None and isinstance(cur_pct, int) \
+            and peak - cur_pct >= GC_FALLBACK_MIN_DROP_PP:
+        out["a11"] = True
+        out["a11_why"] = (
+            f"未解释峰值 {peak}%"
+            f"（{time.strftime('%F %T', time.localtime(gc.get('peak_epoch') or 0))}）"
+            f"→ 现值 {cur_pct}%，落差 {peak - cur_pct}pp ≥{GC_FALLBACK_MIN_DROP_PP}pp，"
+            f"且末次成功 apply 事后水位 {gc.get('baseline_pct')}% 不解释该落差")
+    else:
+        out["a11"] = False
+        out["a11_why"] = (f"回落可由成功 apply 解释（baseline={gc.get('baseline_pct')}%）"
+                          f"或落差 <{GC_FALLBACK_MIN_DROP_PP}pp")
+    return out
+
+
+# ---------- ④ 中继连败解析 ----------
 RELAY_END_RE = re.compile(r"\] 结束 (relay-\S+): (ok|FAILED\S*)")
 
 
@@ -1158,7 +1331,7 @@ def probe_tmp_write_admission(path=None):
 
 
 def build_alarms(arms, sched, anolis, relay, plan, state, t, extras=None, archived=None,
-                 portal=None, trigger_liveness=None):
+                 portal=None, trigger_liveness=None, gc=None):
     alarms = []
 
     def add(level, code, key, message, first_seen):
@@ -1345,6 +1518,38 @@ def build_alarms(arms, sched, anolis, relay, plan, state, t, extras=None, archiv
             f"retired 态；本码每个消失 episode 只报一次（chronic 真相以臂态"
             f"字段承载）。scheduler alive 与臂在案性无关，勿据 alive 推断臂在跑", t)
 
+    # ---- D-113 /data 水位恢复腿 + 回落留痕（红队分诊 H3；**只增，既有臂不动**）----
+    # 判据面 = img-gc 耐久证据（状态观测/img-gc-evidence.jsonl），本件只读消费。
+    # gc=None（旧调用路径/单测桩未传）⇒ 两腿全不判——不猜绿也不假红。
+    if gc is not None:
+        cur_pct = ((anolis.get("disk") or {}).get("/data") or {}).get("use_pct")
+        gi = gc_recovery_alarm_inputs(gc, cur_pct, t)
+        if gi["a10"]:
+            lr = gc.get("last_recovery") or {}
+            la = gc.get("last_apply") or {}
+            if lr.get("tier") in ("L1", "L2", "L3"):
+                detail = (f"恢复腿档位 {lr.get('tier')}；L1 白名单候选 "
+                          f"{lr.get('L1_n')} 项、预估回收 "
+                          f"{lr.get('L1_est_reclaim_bytes')} B；L2 腾挪建议 "
+                          f"{lr.get('L2_n')} 项（不自动执行）；报告件 "
+                          f"{lr.get('report_path')}")
+            else:
+                detail = (f"末次 apply：/data {la.get('use_pct')}%（{la.get('ts')}），"
+                          f"reason={la.get('reason')}；{gi['a10_why']}")
+            add("red", GC_RECOVERY_CODE, GC_RECOVERY_CODE,
+                f"/data 停手线触顶后恢复动作腿：{detail}。"
+                f"——停手线触顶后零自动恢复动作即本次收口的病灶（197 条 apply 仅 "
+                f"2 条 ok=true，峰值 use_pct=100）；报告件只读、不自动删，"
+                f"删除仍走既有 apply 通道（HALT 解除且 <停手线）", t)
+        if gi["a11"] and state.get(GC_FALLBACK_LATCH_KEY) != gc.get("peak_epoch"):
+            # 一次性/episode：每个「未解释峰值」只报一次（闩锁记 watch-state），
+            # chronic 真相由快照 gc_recovery 段每轮承载，不靠本灯复报刷屏。
+            state[GC_FALLBACK_LATCH_KEY] = gc.get("peak_epoch")
+            add("amber", GC_FALLBACK_CODE, GC_FALLBACK_CODE,
+                f"/data 回落无留痕：{gi['a11_why']}。回落来源既非 img-gc 成功 apply "
+                f"亦无 kind=recovery 分级证据行——/data=订单生产真值根，须人工核定"
+                f"回落来源并在变更日志/安灯登记；读数为 img-gc 耐久证据（只读）", t)
+
     # since 持续性：条件消失即清；持续则沿用首次时刻
     open_keys = {}
     for al in alarms:
@@ -1378,7 +1583,7 @@ def log_alarms(alarms, state, t):
 # ---------- 汇总快照 ----------
 
 def build_snapshot(arms, plan, sched, anolis, relay, alarms, mode, extras=None, archived=None,
-                   portal=None, trigger_liveness=None):
+                   portal=None, trigger_liveness=None, gc=None):
     totals = {
         "n_total": sum(a["n_total"] for a in arms),
         "n_reward_true": sum(a["n_reward_true"] for a in arms),
@@ -1443,6 +1648,16 @@ def build_snapshot(arms, plan, sched, anolis, relay, alarms, mode, extras=None, 
         # （此前 latest.json 无安灯读数＝安灯响了没人抬得起来）。**只读**判据文件，
         # 不写它；陈旧判据一律报 stale/missing，**绝不报 green**。
         "trigger_liveness": trigger_liveness,
+        # D-113 /data 恢复腿读数（红队分诊 H3 收口）：**只读** img-gc 耐久证据的
+        # 机器可读投影——停手线触顶后的恢复腿档位/L1 候选/预估回收量、未解释峰值
+        # 与回落判据。安灯响了要有机器可读面把它抬起来（268h 静默前科的结构性成因）。
+        "gc_recovery": (dict(gc) | {"alarm_codes": [GC_RECOVERY_CODE, GC_FALLBACK_CODE],
+                                    "current_use_pct":
+                                        ((anolis.get("disk") or {}).get("/data")
+                                         or {}).get("use_pct"),
+                                    "fallback_min_drop_pp": GC_FALLBACK_MIN_DROP_PP,
+                                    "peak_window_s": GC_PEAK_WINDOW_S}
+                        if gc is not None else None),
         "totals": totals,
         "cost": cost,
         "archived_arms": {
@@ -1587,6 +1802,29 @@ def render_report(s):
                  + ("　★安灯腿失活：判据陈旧，读数不得当成活"
                     if tl.get("stale") else ""))
 
+    # D-113 /data 恢复腿 + 回落留痕（红队分诊 H3；只读 img-gc 耐久证据投影）
+    gr = s.get("gc_recovery")
+    if isinstance(gr, dict):
+        lr = gr.get("last_recovery") or {}
+        la = gr.get("last_apply") or {}
+        peak = gr.get("peak_pct")
+        peak_s = (time.strftime("%F %T", time.localtime(gr.get("peak_epoch")))
+                  if gr.get("peak_epoch") else "-")
+        L.append(f"[gc-recovery] /data 现值 {gr.get('current_use_pct')}%｜"
+                 f"未解释峰值 {peak}%（{peak_s}，窗 {gr.get('peak_window_s') // 86400} 天）｜"
+                 f"末次成功 apply 事后水位 {gr.get('baseline_pct')}%｜"
+                 f"停手线命中 {gr.get('stop_line_hits')} 次｜证据 {gr.get('n_records')} 行")
+        if lr.get("tier"):
+            L.append(f"  恢复腿档位 {lr.get('tier')}（use_pct={lr.get('use_pct')}）："
+                     f"L1 白名单候选 {lr.get('L1_n')} 项、预估回收 "
+                     f"{lr.get('L1_est_reclaim_bytes')} B；L2 {lr.get('L2_n')} 项"
+                     f"（不自动执行）｜报告件 {lr.get('report_path')}")
+        else:
+            L.append(f"  恢复腿未启动｜末次 apply：/data {la.get('use_pct')}% "
+                     f"ok={la.get('ok')} reason={la.get('reason') or '-'}")
+        if gr.get("read_err"):
+            L.append(f"  ★证据读取失败（fail-closed）：{gr.get('read_err')}")
+
     al = s["alarms"]
     n_red = sum(1 for x in al if x["level"] == "red")
     n_amb = sum(1 for x in al if x["level"] == "amber")
@@ -1612,6 +1850,17 @@ def render_report(s):
 
 # ---------- 主流程 ----------
 
+def public_snapshot(snap):
+    """公网发布面投影：剥**只进本地 latest.json** 的键（trigger_liveness / gc_recovery）。
+
+    发布面顶层键集 = publish-scrub-gate.py DATA_TOP **人工审定冻结集**；未审新键会被
+    --freeze-keys 拦＝整轮拒发＝公网看板停更。故活性安灯读数段（2026-11-04 批）与
+    D-113 /data 恢复腿读数段（gc_recovery）一律只进本地全量快照，不进公网 data.json。
+    """
+    return {k: v for k, v in snap.items()
+            if k not in ("trigger_liveness", "gc_recovery")}
+
+
 def one_round(state, mode):
     t = time.time()
     arms = scan_all_arms(state, t)
@@ -1625,14 +1874,18 @@ def one_round(state, mode):
     # ⑦ 活性安灯聚合段（风险#7 收口批 2026-11-04）：**只读**安灯判据文件
     # （写入方=event-router），把安灯读数抬进机器可读全量快照。
     trigger_liveness = scan_trigger_liveness(t)
+    # D-113：/data 恢复腿与回落留痕判据（**只读** img-gc 耐久证据；写入方=img-gc.py，
+    # 本件只消费）——停手线触顶后的恢复腿档位/L1 候选/预估回收量、未解释峰值与
+    # 回落判据，抬进安灯（A10/A11）与本地全量快照。
+    gc = read_gc_recovery_state(t)
     archived, _active = classify_archived(arms, sched, extras, t)
     # D-112：臂态三态标注（与 classify_archived 边界对齐）+ 缺失 episode 计时
     # （arm_missing_seen 落 watch-state，重启不重报一次性码）
     classify_arm_states(arms, archived, state, t)
     alarms = build_alarms(arms, sched, anolis, relay, plan, state, t, extras, archived,
-                          portal=portal, trigger_liveness=trigger_liveness)
+                          portal=portal, trigger_liveness=trigger_liveness, gc=gc)
     snap = build_snapshot(arms, plan, sched, anolis, relay, alarms, mode, extras, archived,
-                          portal=portal, trigger_liveness=trigger_liveness)
+                          portal=portal, trigger_liveness=trigger_liveness, gc=gc)
 
     write_atomic(LATEST, json.dumps(snap, ensure_ascii=False, indent=1))
     # P0-2（2026-10-28）：data.json=公网发布物 → K/O scrub 后落盘；
@@ -1640,10 +1893,11 @@ def one_round(state, mode):
     # 本地 latest.json 与 alarms.log 不受影响（运维面保留原文）。
     # 键集冻结（publish-scrub-gate.py DATA_TOP）：公网发布面顶层键集是**人工审定
     # 冻结项**，未审新键会被 --freeze-keys 拦＝整轮拒发＝公网看板停更；本批禁改
-    # 该闸（新键入冻结集须人工审定 + 重锚钉桩 + 变更日志登记），故安灯段**只进本地
-    # 全量快照 latest.json**，不进发布面 data.json（发布面键集与既有键内容零变化）。
+    # 该闸（新键入冻结集须人工审定 + 重锚钉桩 + 变更日志登记），故安灯段与 D-113
+    # 恢复腿读数段**只进本地全量快照 latest.json**，不进发布面 data.json（与
+    # trigger_liveness 同纪律；发布面键集与既有键内容零变化）。
     try:
-        pub = {k: v for k, v in snap.items() if k != "trigger_liveness"}
+        pub = public_snapshot(snap)
         write_atomic(DASH_DATA, json.dumps(scrub_public(pub), ensure_ascii=False))
     except Exception as e:
         print(f"[{now_s()}] data.json 脱敏失败，保留上一版: {e}", flush=True)
@@ -1657,6 +1911,229 @@ def one_round(state, mode):
 
 
 # ---------- D-112 三态夹具自检（--selftest：零生产副作用） ----------
+
+def _selftest_d113(PASS, FAIL, check, sandbox, T):
+    """D-113（factory-os#81）/data 恢复腿+回落留痕夹具自检。
+
+    夹具面（形态照抄 img-gc-evidence.jsonl 实录 2026-11-07 复核）：
+      · 10-22 两条成功 apply（77→71 / 85→43，deleted 8/82）= baseline 来源
+      · 11-04~11-06 停手线/HALT 拒绝 apply（use_pct 91~100）= 未解释峰值来源
+      · 11-07 两条 kind=recovery（L1 / L3）= 恢复腿读数来源
+    零生产副作用：GC_EVIDENCE 重定向沙箱；不跑真实 watch 轮。
+    """
+    global GC_EVIDENCE
+    import importlib.util
+    saved_gc_ev = GC_EVIDENCE
+    ev = os.path.join(sandbox, "img-gc-evidence.jsonl")
+    rows = [
+        # 10-22 两次成功 GC（baseline=43）
+        {"kind": "apply", "ts": "2026-10-22 04:16:59", "epoch": T - 16 * 86400,
+         "host": "anolis", "use_pct": 77, "use_pct_after": 71, "ok": True, "deleted": 8},
+        {"kind": "apply", "ts": "2026-10-22 21:48:38", "epoch": T - 15 * 86400 - 3600,
+         "host": "anolis", "use_pct": 85, "use_pct_after": 43, "ok": True, "deleted": 82},
+        # 11-04 HALT 拒绝（峰值 100）
+        {"kind": "apply", "ts": "2026-11-04 13:30:57", "epoch": T - 3 * 86400,
+         "host": "anolis", "use_pct": 100, "ok": False,
+         "reason": "HALT 哨兵在场，拒绝执行（人工停手）"},
+        # 11-06 停手线回报 ×2（93 / 100）
+        {"kind": "apply", "ts": "2026-11-06 06:20:09", "epoch": T - 86400,
+         "host": "anolis", "use_pct": 100, "ok": False,
+         "reason": "use_pct 100% ≥ 停手线 88%，只 plan 停手回报"},
+        {"kind": "apply", "ts": "2026-11-06 10:42:35", "epoch": T - 3600,
+         "host": "anolis", "use_pct": 93, "ok": False,
+         "reason": "use_pct 93% ≥ 停手线 88%，只 plan 停手回报"},
+        # D-113 恢复腿证据（L1 档：8 候选/33.48GB）
+        {"kind": "recovery", "card": "D-113", "ts": "2026-11-07 06:09:35",
+         "epoch": T - 600, "host": "anolis", "use_pct": 93, "tier": "L1",
+         "tier_reason": "L1 白名单候选 8 项", "L1_n": 8,
+         "L1_est_reclaim_bytes": 33480000000, "L2_n": 20,
+         "report_path": "/sandbox/recovery-x.json", "auto_delete": False, "ok": True},
+    ]
+    with open(ev, "w", encoding="utf-8") as f:
+        for r in rows:
+            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+    GC_EVIDENCE = ev
+    try:
+        # ---- 读数 ----
+        gc = read_gc_recovery_state(T)
+        check("D-113 读数：证据 6 行全解析", gc["n_records"] == 6, f"got {gc['n_records']}")
+        check("D-113 读数：baseline=末次成功 apply 事后水位 43",
+              gc["baseline_pct"] == 43, f"got {gc['baseline_pct']}")
+        check("D-113 读数：未解释峰值=100（11-04 HALT 拒绝那次）",
+              gc["peak_pct"] == 100 and gc["peak_epoch"] == T - 3 * 86400,
+              f"got {gc['peak_pct']}@{gc['peak_epoch']}")
+        check("D-113 读数：停手线命中 2 次（不含 HALT 拒绝）",
+              gc["stop_line_hits"] == 2, f"got {gc['stop_line_hits']}")
+        check("D-113 读数：末条 recovery 档位 L1/候选 8/预估 33.48GB",
+              gc["last_recovery"]["tier"] == "L1"
+              and gc["last_recovery"]["L1_n"] == 8
+              and gc["last_recovery"]["L1_est_reclaim_bytes"] == 33480000000,
+              f"got {gc['last_recovery']}")
+
+        # ---- A10/A11 判据（纯函数夹具）----
+        gi = gc_recovery_alarm_inputs(gc, 70, T)
+        check("D-113 A10：停手线触顶（窗内刚被拒）+ 恢复腿档位 L1 ⇒ 触发",
+              gi["a10"] and gi["stop_active"], gi["a10_why"])
+        check("D-113 A11：未解释峰值 100→现值 70（落差 30pp≥5pp）⇒ 触发",
+              gi["a11"], gi["a11_why"])
+        gi_b = gc_recovery_alarm_inputs(gc, 100, T)
+        check("D-113 A11 负例：现值=峰值 100（零回落）⇒ 不触发",
+              not gi_b["a11"], gi_b["a11_why"])
+        # A10 活条件：停手线触顶已久（超出回看窗）+ 现值低于停手线 + 恢复腿无档位
+        # ⇒ 不报红（避免「水已退、红灯常亮」的告警疲劳；chronic 真相由快照段承载）
+        _stale_apply = dict(gc["last_apply"], epoch=T - GC_PEAK_WINDOW_S - 7200)
+        gi_stale = gc_recovery_alarm_inputs(
+            dict(gc, last_recovery=None, last_apply=_stale_apply), 70, T)
+        check("D-113 A10 负例：停手线触顶超窗+现值<停手线 ⇒ 不报红（活条件非永久红）",
+              not gi_stale["a10"] and not gi_stale["stop_active"], gi_stale["a10_why"])
+        # A10 活条件：现值≥停手线（现场正触顶）即便上次 apply 已旧 ⇒ 报红
+        gi_live = gc_recovery_alarm_inputs(
+            dict(gc, last_recovery=None, last_apply=_stale_apply), 93, T)
+        check("D-113 A10 活条件：现值 93≥停手线 88 ⇒ 报红（现场正触顶）",
+              gi_live["a10"] and gi_live["stop_active"], gi_live["a10_why"])
+        # A10 活条件：恢复腿**确有档位**且触顶仍新鲜 ⇒ 报红并带候选清单
+        gi_tier = gc_recovery_alarm_inputs(gc, 93, T)
+        check("D-113 A10：恢复腿档位 L1 + 现场触顶 ⇒ 报红且带候选清单",
+              gi_tier["a10"] and "L1 候选 8 项" in gi_tier["a10_why"], gi_tier["a10_why"])
+        # 回落被**峰值之后**的成功 apply 解释 ⇒ 未解释峰值清空 ⇒ 不触发
+        with open(ev, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"kind": "apply", "ts": "2026-11-07 06:00:00",
+                                "epoch": T - 300, "host": "anolis", "use_pct": 93,
+                                "use_pct_after": 70, "ok": True, "deleted": 8},
+                               ensure_ascii=False) + "\n")
+        gc_explained = read_gc_recovery_state(T)
+        check("D-113 A11 负例：峰值后成功 apply ⇒ 未解释峰值清空、不触发",
+              gc_explained["peak_pct"] is None
+              and not gc_recovery_alarm_inputs(gc_explained, 70, T)["a11"],
+              f"peak={gc_explained['peak_pct']}")
+        # 峰值超出回看窗（远古）⇒ 不驱动当期告警
+        with open(ev, "w", encoding="utf-8") as f:
+            for r in rows[:2] + [dict(rows[2], epoch=T - (GC_PEAK_WINDOW_S + 86400))]:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+        gc_stale = read_gc_recovery_state(T)
+        check("D-113 A11 负例：峰值超出 7 天回看窗 ⇒ 不触发",
+              gc_stale["peak_pct"] is None
+              and not gc_recovery_alarm_inputs(gc_stale, 70, T)["a11"],
+              f"peak={gc_stale['peak_pct']}")
+        # 复原夹具件（后续断言用）
+        with open(ev, "w", encoding="utf-8") as f:
+            for r in rows:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+        gc = read_gc_recovery_state(T)
+        gi_c = gc_recovery_alarm_inputs(gc, 97, T)
+        check("D-113 A11 负例：落差 3pp<5pp ⇒ 不触发（正常抖动）",
+              not gi_c["a11"], gi_c["a11_why"])
+        check("D-113 A10 负例：gc=None ⇒ 两腿全不判（fail-closed 不猜绿）",
+              gc_recovery_alarm_inputs(None, 70, T)["a10"] is False
+              and gc_recovery_alarm_inputs(None, 70, T)["a11"] is False)
+
+        # ---- 旧形态（无 recovery 证据）⇒ A10 仍须报（回归探测器）----
+        gc_old = dict(gc, last_recovery=None)
+        gi_d = gc_recovery_alarm_inputs(gc_old, 70, T)
+        check("D-113 A10 旧形态：停手线回报且零 recovery 证据 ⇒ 仍触发",
+              gi_d["a10"] and "无 kind=recovery 证据行" in gi_d["a10_why"], gi_d["a10_why"])
+        gc_none = dict(gc, last_recovery=None,
+                       last_apply={"epoch": T - 10, "ok": True, "use_pct": 40,
+                                   "use_pct_after": 39, "reason": None})
+        check("D-113 A10 负例：末次 apply 成功且无停手线 ⇒ 不触发",
+              not gc_recovery_alarm_inputs(gc_none, 39, T)["a10"])
+        # 恢复腿跑了但档位=None（常水位）+ 触顶已久 + 现值<停手线 ⇒ 不报红
+        gc_tier_none = dict(gc,
+                            last_apply=dict(gc["last_apply"],
+                                            epoch=T - GC_PEAK_WINDOW_S - 7200),
+                            last_recovery=dict(gc["last_recovery"], tier=None,
+                                               use_pct=69))
+        gi_e = gc_recovery_alarm_inputs(gc_tier_none, 70, T)
+        check("D-113 A10 负例：恢复腿已跑但档位=None 且触顶已久 ⇒ 不报红",
+              not gi_e["a10"] and "停手线未触顶" in gi_e["a10_why"], gi_e["a10_why"])
+        # 同形状但**现场正触顶**（现值 93）⇒ 仍须报红（腿没对这次触顶产出档位）
+        gi_f = gc_recovery_alarm_inputs(gc_tier_none, 93, T)
+        check("D-113 A10 活条件：档位=None 但现场正触顶 ⇒ 仍报红",
+              gi_f["a10"] and "档位=None" in gi_f["a10_why"], gi_f["a10_why"])
+
+        # ---- build_alarms 接线（含一次性闩锁）----
+        st = {"alarm_open": {}, "alarm_logged": {}, "sweb_img_hist": [],
+              GC_FALLBACK_LATCH_KEY: 0}
+        anolis = {"ok": True, "disk": {"/data": {"use_pct": 70, "size": "308G",
+                                                "used": "215G", "avail": "92G"}},
+                  "sweb_images": 118, "image_target": 120, "ollama": "ok",
+                  "load": {"m1": 13.57, "m5": 8.02, "m15": 7.06}}
+        al = build_alarms(
+            [], {"status_file_exists": True, "mtime_stale": False,
+                 "proc_confirmed_down": False, "alive": False, "running_arms": []},
+            anolis, {"consecutive_failures": 0, "last_event": "-"}, [], st, T,
+            extras=None, archived=None, portal=None, trigger_liveness=None, gc=gc)
+        a10_al = [x for x in al if x["code"] == GC_RECOVERY_CODE]
+        a11_al = [x for x in al if x["code"] == GC_FALLBACK_CODE]
+        check("D-113 build_alarms：A10 专码 gc-recovery 落 alarms 面（red）",
+              len(a10_al) == 1 and a10_al[0]["level"] == "red", f"got {a10_al}")
+        check("D-113 build_alarms：A11 回落无留痕落 alarms 面（amber）",
+              len(a11_al) == 1 and a11_al[0]["level"] == "amber", f"got {a11_al}")
+        check("D-113 A11 一次性：同峰值第二轮不重报（闩锁落 watch-state）",
+              st[GC_FALLBACK_LATCH_KEY] == gc["peak_epoch"]
+              and not [x for x in build_alarms(
+                  [], {"status_file_exists": True, "mtime_stale": False,
+                       "proc_confirmed_down": False, "alive": False,
+                       "running_arms": []},
+                  anolis, {"consecutive_failures": 0, "last_event": "-"}, [], st, T,
+                  extras=None, archived=None, portal=None, trigger_liveness=None,
+                  gc=gc) if x["code"] == GC_FALLBACK_CODE])
+        check("D-113 负例：gc=None 时 build_alarms 零 D-113 码（旧调用路径不崩）",
+              not [x for x in build_alarms(
+                  [], {"status_file_exists": True, "mtime_stale": False,
+                       "proc_confirmed_down": False, "alive": False,
+                       "running_arms": []},
+                  anolis, {"consecutive_failures": 0, "last_event": "-"}, [],
+                  {"alarm_open": {}, "alarm_logged": {}, "sweb_img_hist": []}, T,
+                  extras=None, archived=None, portal=None, trigger_liveness=None)
+                  if x["code"] in (GC_RECOVERY_CODE, GC_FALLBACK_CODE)])
+
+        # ---- 快照接线 + render_report 呈现 ----
+        snap = build_snapshot(
+            [], {"D1": 40, "D2": 40, "D3": 40},
+            {"status_file_exists": True, "alive": False, "pids": [],
+             "mtime_age_s": None, "summary": None},
+            anolis, {"consecutive_failures": 0, "last_event": "-"}, al, "once",
+            extras=None, archived=None, portal=None, trigger_liveness=None, gc=gc)
+        gr = snap.get("gc_recovery")
+        check("D-113 快照：gc_recovery 段进本地 latest.json（机器可读投影）",
+              isinstance(gr, dict) and gr["peak_pct"] == 100
+              and gr["current_use_pct"] == 70
+              and GC_RECOVERY_CODE in gr["alarm_codes"], f"got {gr}")
+        # 发布面冻结集对账（真源=publish-scrub-gate.py DATA_TOP；真源缺席则 SKIP 不猜）
+        _gate_top = None
+        try:
+            _gs = importlib.util.spec_from_file_location(
+                "af_publish_gate_d113_top",
+                os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             "publish-scrub-gate.py"))
+            _gm = importlib.util.module_from_spec(_gs)
+            _gs.loader.exec_module(_gm)
+            _gate_top = set(_gm.DATA_TOP)
+        except Exception:  # noqa: BLE001
+            _gate_top = None
+        if _gate_top is None:
+            print("SKIP D-113 发布面冻结对账（publish-scrub-gate.py 真源缺席）")
+        else:
+            check("D-113 快照：gc_recovery 不在 DATA_TOP 冻结集且被 pub 投影剥除",
+                  "gc_recovery" not in _gate_top
+                  and set(public_snapshot(snap)) == _gate_top,
+                  f"in_top={'gc_recovery' in _gate_top}")
+        rep = render_report(snap)
+        check("D-113 报告：[gc-recovery] 行含现值/未解释峰值/恢复腿档位",
+              "[gc-recovery]" in rep and "恢复腿档位 L1" in rep
+              and "预估回收 33480000000 B" in rep, rep[-600:])
+
+        # ---- 证据文件缺席 ⇒ fail-closed（不报绿也不假红）----
+        GC_EVIDENCE = os.path.join(sandbox, "no-such-evidence.jsonl")
+        gc_missing = read_gc_recovery_state(T)
+        check("D-113 负例：证据件缺席 ⇒ 全字段 None 且零报警判据",
+              gc_missing["last_apply"] is None and gc_missing["peak_pct"] is None
+              and not gc_recovery_alarm_inputs(gc_missing, 70, T)["a10"]
+              and not gc_recovery_alarm_inputs(gc_missing, 70, T)["a11"])
+    finally:
+        GC_EVIDENCE = saved_gc_ev
+
 
 def _selftest():
     """D-112（factory-os#80）臂态三态显式化自检：在跑/自然退役/目录消失三态
@@ -1820,9 +2297,10 @@ def _selftest():
         if _gate_top is None:
             print("SKIP data.json 顶层键集冻结对账（publish-scrub-gate.py 真源缺席）")
         else:
-            # 对账面=发布面 pub（one_round 同款剥离 trigger_liveness——该键只进
-            # 本地 latest.json，不进公网 data.json，2026-11-04 活性安灯批既定）
-            pub_top = {k for k in snap if k != "trigger_liveness"}
+            # 对账面=发布面 pub（one_round 同款剥离 trigger_liveness/gc_recovery
+            # ——这两键只进本地 latest.json，不进公网 data.json：前者 2026-11-04
+            # 活性安灯批既定，后者 D-113 恢复腿读数同纪律）
+            pub_top = set(public_snapshot(snap))
             check("data.json：顶层键集≡DATA_TOP 冻结集（零新顶层键）",
                   pub_top == set(_gate_top),
                   f"extra={sorted(pub_top - set(_gate_top))}")
@@ -1848,12 +2326,14 @@ def _selftest():
                                        "pids": [], "mtime_age_s": None, "summary": None},
                   {"ok": False, "error": "stub"},
                   {"consecutive_failures": 0, "last_event": "-"}, [], "once")))
+
+        # ---- D-113 /data 恢复腿 + 回落留痕夹具（同沙箱，GC_EVIDENCE 重定向）----
+        _selftest_d113(PASS, FAIL, check, sandbox, T)
     finally:
         shutil.rmtree(sandbox, ignore_errors=True)
 
     print(f"\n{'ALL PASS' if not FAIL else 'HAS FAIL'} ({len(PASS)}/{len(PASS) + len(FAIL)})")
     return 0 if not FAIL else 1
-
 
 def main():
     ap = argparse.ArgumentParser()
