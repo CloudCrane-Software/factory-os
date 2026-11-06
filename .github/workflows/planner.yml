@@ -831,7 +831,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 -I - <<'PY'
-          import json, os, re, sys
+          import fnmatch, glob, json, os, re, subprocess, sys
           from datetime import datetime, timezone, timedelta
 
           errors, warnings = [], []
@@ -839,6 +839,102 @@ jobs:
           board = json.load(open("board-state.json", encoding="utf-8"))
           ledger = json.load(open("ledger-summary.json", encoding="utf-8"))
           inputs = json.load(open("planner-inputs.json", encoding="utf-8"))
+
+          # ══ D-84（factory-os#20）step 08 补强判据面：M-1/M-2/M-3/M-4/M-7/M-8 六项机检
+          #    ＋M-5/M-6 判据注释标桩。方向只收紧（禁项置顶：缺项任一硬红 ⇒ invalid
+          #    fail-closed；不给既有十校验加豁免口）══
+          # ── M-8 词汇正本：板面 label 分类法（2026-11-06 api.github.com
+          #    /repos/CloudCrane-Software/factory-os/labels 实读 25 枚中的板面词；
+          #    状态机与 .github 治理仓 docs/labels.md wave/* 同构、板面挂 state:*；
+          #    GitHub 默认件（bug/enhancement/question…）非板面词汇不入集）──
+          BOARD_VOCAB = {
+              "wave", "perm/requested",
+              "state:queued", "state:running", "state:verifying", "state:merged",
+              "state:rejected", "blocked", "legacy",
+              "quality:A", "quality:B", "quality:C", "quality:D",
+              "ticket:needs-human", "ticket:requested", "ticket:revoked",
+          }
+          # ── M-4 判官面双源：① CODEOWNERS 派生面（运行时实读 factory-os/CODEOWNERS，
+          #    = judge-paths.md §二「仓级锁面」的机器正本）；② judge-paths.md 静态派生族
+          #    （定义源 .github 治理仓 docs/judge-paths.md §一/§二/§三：含 factory-os
+          #    CODEOWNERS 派生缺口行 .github/workflows/gates.yml（该件 §二表 :82 行注）
+          #    与 af 仓 ci/** 判官族/判据钉面）。命中 ⇒ 硬红 invalid——收紧：原仅 warning
+          #    不硬红（rt-e82/83 双案拒收主因 = 本次补强直接动机）──
+          JUDGE_KEYWORD = re.compile(
+              r"(all-gates\.sh|gate-pins\.list|gate-pins-refresh|gate_inputs|subgates\.list"
+              r"|mirror-scan-allowlist|clippy-baseline|scorechain-manifest|CODEOWNERS"
+              r"|judge|判官|判据)")
+          AF_JUDGE_FAMILY = re.compile(
+              r"(?:^|[:/`])(ci/|proofs/|strategies/|packages/reportkit/"
+              r"|crates/af-execline/src/judge\.rs|(?:[^\s`]*/)?crates/.*/tests/"
+              r"|numbers\.json|deliverables\.yaml|doc-claims\.txt"
+              r"|rust-toolchain\.toml|Cargo\.toml|Cargo\.lock)")
+          JUDGE_STATIC_FACTORYOS = (".github/workflows/gates.yml",)
+          # ── M-2 跨仓/工作区裸前缀（本环只检出 factory-os；af/厂内工作区树件读不到
+          #    ⇒ warning 不假红；不可证不等于证明在场）──
+          CROSS_TREE_BARE = ("af/", "crates/", "ci/", "proofs/", "strategies/",
+                             "packages/", "poc/", "kb-seed", "计划/", "30-工件/",
+                             "staging/", "外派", "状态/")
+
+          def entry_repo_path(ent):
+              """「repo: 路径（注记）」→ (repo, path)；裸路径 → ("", path)。"""
+              s = str(ent).strip().strip("`")
+              m = re.match(r"^([A-Za-z0-9._-]+)\s*:\s*(.+)$", s)
+              repo = ""
+              if m:
+                  repo, s = m.group(1), m.group(2)
+              s = s.split("（")[0].split("(")[0].strip().strip("`\"'")
+              return repo, (s or None)
+
+          def codeowners_patterns():
+              pats = []
+              co = os.path.join("factory-os", "CODEOWNERS")
+              if os.path.exists(co):
+                  with open(co, encoding="utf-8") as f:
+                      for ln in f:
+                          ln = ln.strip()
+                          if not ln or ln.startswith("#") or ln.startswith("★"):
+                              continue
+                          parts = ln.split()
+                          if len(parts) >= 2 and parts[1].startswith("@"):
+                              pats.append(parts[0])
+              else:
+                  warnings.append("M-4: factory-os/CODEOWNERS 缺场——判官面①源退化，仅余②静态族")
+              return pats
+
+          def codeowners_hit(rel, pats):
+              rn = "/" + rel.lstrip("/")
+              for p in pats:
+                  pn = p.lstrip("/")
+                  if pn.endswith("/"):
+                      if rn.startswith("/" + pn) or rn == "/" + pn.rstrip("/"):
+                          return p
+                  elif any(ch in pn for ch in "*?["):
+                      if fnmatch.fnmatch(rn, "/" + pn) or fnmatch.fnmatch(rel, pn):
+                          return p
+                  elif rn == "/" + pn or rn.startswith("/" + pn + "/"):
+                      return p
+              return None
+
+          def judge_hit(ent, pats):
+              """allowed_paths 条目 × 判官面双源；返回命中描述或 None。"""
+              m = JUDGE_KEYWORD.search(str(ent))
+              if m:
+                  return "关键词族[%s]" % m.group(1)
+              repo, rel = entry_repo_path(ent)
+              if not rel:
+                  return None
+              af = AF_JUDGE_FAMILY.search(rel)
+              if af:
+                  return "judge-paths.md af 族[%s]" % af.group(1)
+              for st in JUDGE_STATIC_FACTORYOS:
+                  if rel == st or rel.startswith(st + "/"):
+                      return "judge-paths.md factory-os 派生缺口[%s]" % st
+              if repo in ("", "factory-os"):
+                  p = codeowners_hit(rel, pats)
+                  if p:
+                      return "CODEOWNERS[%s]" % p
+              return None
 
           # ── schema v1.1（2026-11-06；只增不改）：三可选键常量 ──
           # 出处：沙箱研究 D-1（repo/env_precondition，§3.2 M-5/M-6）＋ CI L-08
@@ -897,6 +993,29 @@ jobs:
               elif inputs.get("allowed_base_shas") and base_sha not in inputs["allowed_base_shas"]:
                   errors.append("base_sha 必须等于输入钉桩基线 %s（禁编造；实得 %s）"
                                 % (inputs["allowed_base_shas"], base_sha))
+          # ── M-3：pinned base 对仓实读存活（git ls-remote 形态——远端 heads/tags/PR-refs
+          #    实读集内全 SHA 命中或前缀命中（兼容仓内 wave-03 形制的缩位 base）；远端
+          #    不可读 ⇒ fail-closed 硬红，禁「不可证=过」）──
+          if base_sha:
+              try:
+                  ls = subprocess.run(
+                      ["git", "-C", "factory-os", "ls-remote", "origin",
+                       "refs/heads/*", "refs/tags/*", "refs/pull/*/head"],
+                      capture_output=True, text=True, timeout=60)
+                  if ls.returncode != 0:
+                      errors.append("M-3: git ls-remote 实读失败 rc=%d——pinned base 存活性"
+                                    "不可证，fail-closed：%s"
+                                    % (ls.returncode, ls.stderr.strip()[:120]))
+                  else:
+                      remote_shas = {ln.split("\t")[0]
+                                     for ln in ls.stdout.splitlines() if "\t" in ln}
+                      if not any(s == base_sha or s.startswith(base_sha)
+                                 for s in remote_shas):
+                          errors.append("M-3: pinned base %s 于远端实读集（heads/tags/pull"
+                                        " refs 共 %d 枚 SHA）零命中——钉桩不存活，禁编造基线"
+                                        % (base_sha, len(remote_shas)))
+              except subprocess.TimeoutExpired:
+                  errors.append("M-3: git ls-remote 超时——pinned base 存活性不可证，fail-closed")
           cards = man.get("cards")
           if not isinstance(cards, list):
               errors.append("cards 必须为数组")
@@ -905,6 +1024,9 @@ jobs:
               errors.append("单波卡片上限 %s（实得 %d）" % (os.environ.get("MAX_CARDS_PER_WAVE"), len(cards)))
 
           # ── 防双解占用证据集（板 open 卡 ∪ 历史波次非终态卡）──
+          # （M-6 判据面：防双解占用——占用闸/波内重复/台账锚点禁重复立项三件均为
+          #   十校验既有在役件；本批仅补判据注释＋错误消息 M-x 标桩，零判定逻辑变更。
+          #   危害序映射按卡面语序推定，如与 Q1 §3.2 缺项清单正本有出入以正本为准。）
           occ_anchors = set(board.get("occupied_debt_anchors") or [])
           occ_tasks = set(board.get("in_flight_task_ids") or [])
           for c in ledger.get("non_terminal_cards") or []:
@@ -915,6 +1037,11 @@ jobs:
           done_anchors = {a["id"] for a in (ledger.get("anchors") or []) if a.get("done")}
           all_anchors = {a["id"] for a in (ledger.get("anchors") or [])}
           CHANNELS = {"anolis-build", "local-api", "bot-lane"}
+          # 判官面①源一次性装载（M-4）；M-7 预算（同波 task 全集、台账锚全集、同波依赖边）
+          co_pats = codeowners_patterns()
+          task_ids_all = {c.get("task_id") for c in cards if isinstance(c, dict)}
+          ledger_anchor_ids = {a.get("id") for a in (ledger.get("anchors") or [])}
+          same_wave_deps = {}
           seen_task, seen_debt = set(), set()
           sum_anolis = sum_local = n_anolis = n_bot = 0
           # v1.1 取证面：候选卡字段名并集（wave-XX.json 字段集对照「零丢失」用）
@@ -931,22 +1058,22 @@ jobs:
               if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{2,63}", tid):
                   errors.append("%s task_id 形制非法：%r" % (tag, tid))
               if tid in seen_task:
-                  errors.append("%s task_id 波内重复：%s" % (tag, tid))
+                  errors.append("M-6: %s task_id 波内重复：%s" % (tag, tid))
               seen_task.add(tid)
               if tid in occ_tasks:
-                  errors.append("%s task_id 已在板/历史波次在飞（双解）：%s" % (tag, tid))
+                  errors.append("M-6: %s task_id 已在板/历史波次在飞（双解）：%s" % (tag, tid))
               debt = c.get("debt") or ""
               if not debt:
                   errors.append("%s debt 不得为空" % tag)
               if debt in seen_debt:
-                  errors.append("%s debt 波内重复（双解）：%s" % (tag, debt))
+                  errors.append("M-6: %s debt 波内重复（双解）：%s" % (tag, debt))
               seen_debt.add(debt)
               if debt in occ_anchors:
-                  errors.append("%s debt 已被占用（板 open 卡或历史非终态卡；换锚或改 depends_on）：%s" % (tag, debt))
+                  errors.append("M-6: %s debt 已被占用（板 open 卡或历史非终态卡；换锚或改 depends_on）：%s" % (tag, debt))
               if debt in done_anchors:
-                  errors.append("%s debt 已 \u2705 终态，禁重复立项：%s" % (tag, debt))
+                  errors.append("M-6: %s debt 已 \u2705 终态，禁重复立项：%s" % (tag, debt))
               if all_anchors and debt not in all_anchors and not tid.startswith("register-debt-"):
-                  errors.append("%s debt 无台账行（占用闸 fail-closed；先产 register-debt-* 登记卡或换锚）：%s" % (tag, debt))
+                  errors.append("M-6: %s debt 无台账行（占用闸 fail-closed；先产 register-debt-* 登记卡或换锚）：%s" % (tag, debt))
               ch = c.get("channel")
               if ch not in CHANNELS:
                   errors.append("%s channel 必须 ∈ %s（GLM/start-plan 免费窗 EXPIRED 不派；实得 %r）"
@@ -958,6 +1085,9 @@ jobs:
                   errors.append("%s bot-lane 卡必须 async=true（先登记后发布）" % tag)
               if is_async is True and ch != "bot-lane":
                   errors.append("%s async=true 只允许派 bot-lane（实得 channel=%r）" % (tag, ch))
+              # ── M-5 判据面：单卡 mem_budget_g 通道界（anolis[6,10]/local≤2/bot=0）——
+              #    十校验既有在役件；本批仅补判据注释＋M-x 标桩，零判定逻辑变更（危害序
+              #    映射按卡面语序推定，如与 Q1 §3.2 缺项清单正本有出入以正本为准）──
               mem = c.get("mem_budget_g")
               if not isinstance(mem, int) or isinstance(mem, bool) or mem < 0:
                   errors.append("%s mem_budget_g 必须为非负整数" % tag)
@@ -966,21 +1096,48 @@ jobs:
                       sum_anolis += mem
                       n_anolis += 1
                       if not (6 <= mem <= 10):
-                          errors.append("%s anolis-build 单卡 mem_budget_g 须 ∈[6,10]（制度 §二.1；实得 %s）" % (tag, mem))
+                          errors.append("M-5: %s anolis-build 单卡 mem_budget_g 须 ∈[6,10]（制度 §二.1；实得 %s）" % (tag, mem))
                   elif ch == "local-api":
                       sum_local += mem
                       if mem > 2:
-                          errors.append("%s local-api 单卡 mem_budget_g ≤2（本机 API 轨+门禁 ≈2G；实得 %s）" % (tag, mem))
+                          errors.append("M-5: %s local-api 单卡 mem_budget_g ≤2（本机 API 轨+门禁 ≈2G；实得 %s）" % (tag, mem))
                   elif ch == "bot-lane":
                       n_bot += 1
                       if mem != 0:
-                          errors.append("%s bot-lane 只读卡 mem_budget_g 必须为 0（实得 %s）" % (tag, mem))
+                          errors.append("M-5: %s bot-lane 只读卡 mem_budget_g 必须为 0（实得 %s）" % (tag, mem))
               ap = c.get("allowed_paths")
               if not isinstance(ap, list) or not ap or not all(isinstance(x, str) and x.strip() for x in ap):
                   errors.append("%s allowed_paths 必须为非空字符串数组" % tag)
+              # ── M-2：指向文件存在性（factory-os 前缀/裸路径在账面检出树实读：件本体、
+              #    glob 命中、或父目录在场（卡拟新建件的合法形态）三者其一 ⇒ 过；三者皆无
+              #    ⇒ 硬红；跨仓/厂内工作区指向本环读不到 ⇒ warning 不假红）──
+              elif isinstance(ap, list):
+                  for j, ent in enumerate(ap):
+                      repo, rel = entry_repo_path(ent)
+                      if not rel:
+                          continue
+                      if repo not in ("", "factory-os") or rel.startswith(CROSS_TREE_BARE):
+                          warnings.append("M-2: %s allowed_paths[%d] 跨仓/厂内工作区指向本环不可核"
+                                          "（检出树只有 factory-os）——沙箱/执行侧自核：%s"
+                                          % (tag, j, str(ent)[:60]))
+                          continue
+                      p = os.path.join("factory-os", rel)
+                      parent = os.path.dirname(rel)
+                      if (glob.glob(p) or os.path.exists(p)
+                              or (parent and os.path.exists(os.path.join("factory-os", parent)))):
+                          continue
+                      errors.append("M-2: %s allowed_paths[%d] 指向在 factory-os 检出树缺场"
+                                    "（件/glob/父目录三者皆无——禁幻指）：%s" % (tag, j, rel))
               ac = c.get("acceptance")
               if not isinstance(ac, list) or not ac or not all(isinstance(x, str) and x.strip() for x in ac):
                   errors.append("%s acceptance 必须为非空字符串数组（可执行命令 + 退出码/期望串）" % tag)
+              # ── M-1：验收命令期望退出码形制（沙箱派发契约 §一 要件6「验收命令集+期望
+              #    退出码」；每条须含「→ rc=N」期望形制，缺 ⇒ 硬红 fail-closed）──
+              elif isinstance(ac, list):
+                  for j, a in enumerate(ac):
+                      if not re.search(r"→\s*rc\s*=\s*\d+", a):
+                          errors.append("M-1: %s acceptance[%d] 缺期望退出码形制「→ rc=N」"
+                                        "（契约要件6）：%r" % (tag, j, a[:60]))
               if not (isinstance(c.get("merge_policy"), str) and c["merge_policy"].strip()):
                   errors.append("%s merge_policy 不得为空" % tag)
               led = c.get("ledger")
@@ -991,14 +1148,77 @@ jobs:
                   errors.append("%s ledger 坐标不得为空（str 或 {rows:[…]}）" % tag)
               if c.get("state") != "queued":
                   errors.append("%s state 必须为 queued（状态机起点；占用闸由 runner 把）" % tag)
+              # ── M-8：label 词汇对齐板面正本（BOARD_VOCAB 2026-11-06 板面实读正本；
+              #    卡面 state 须能映射 state:* 板面词汇；卡面自带 labels 字段（若有）
+              #    逐枚 ∈ 正本）──
+              if ("state:%s" % c.get("state")) not in BOARD_VOCAB:
+                  errors.append("M-8: %s state %r 无法映射板面正本词汇（state:* 五态）：%s"
+                                % (tag, c.get("state"),
+                                   sorted(s for s in BOARD_VOCAB if s.startswith("state:"))))
+              if isinstance(c.get("labels"), list):
+                  for lb in c["labels"]:
+                      if lb not in BOARD_VOCAB:
+                          errors.append("M-8: %s labels 词汇越出板面正本：%r（正本=%s）"
+                                        % (tag, lb, sorted(BOARD_VOCAB)))
               dep = c.get("depends_on")
               if dep is not None and (not isinstance(dep, list) or not all(isinstance(x, str) for x in dep)):
                   errors.append("%s depends_on 必须为字符串数组" % tag)
+              # ── M-7：depends_on 可解析＋指向有效（三形：同波 task_id 引用｜台账锚号
+              #    引用｜repo#n 板号引用；同波引用须指向本波 cards 内在卡（环检测见波后）；
+              #    不可解析或悬空指向 ⇒ 硬红 fail-closed）──
+              elif isinstance(dep, list):
+                  for j, d in enumerate(dep):
+                      head = d.split()[0].strip("，。；、") if d.split() else ""
+                      if head in task_ids_all:
+                          same_wave_deps.setdefault(tid, []).append(head)
+                          continue
+                      if head in ledger_anchor_ids:
+                          continue
+                      if re.fullmatch(r"([A-Za-z0-9._-]+)?#\d+", head):
+                          continue
+                      errors.append("M-7: %s depends_on[%d] 不可解析（须 同波task_id｜台账锚号｜"
+                                    "repo#n 板号 三形之一）：%r" % (tag, j, d[:60]))
               if "title" not in c:
                   warnings.append("%s 缺 title（建议补，进 Issue 标题）" % tag)
-              judge_pat = re.compile(r"(all-gates\.sh|gate-pins\.list|CODEOWNERS|judge|\u5224\u636e)")
-              if isinstance(ap, list) and any(judge_pat.search(x) for x in ap):
-                  warnings.append("%s allowed_paths 疑似判官/门禁件——仓级 CODEOWNERS 锁 @feasy898 将拒 PR；只读卡应走 content-only" % tag)
+              # ── M-4：allowed_paths × 判官面双源（CODEOWNERS 运行时实读派生 ∪
+              #    judge-paths.md 静态派生族）求交非空 ⇒ 硬红 invalid。收紧：原仅 warning
+              #    不硬红（rt-e82/83 双案拒收主因＝疑似警告不硬红）；判官/门/判据件一改
+              #    即拒收，禁入 allowed_paths——判据变更走「裁决＋同批重钉」正路 ──
+              if isinstance(ap, list):
+                  for j, ent in enumerate(ap):
+                      hit = judge_hit(ent, co_pats)
+                      if hit:
+                          errors.append("M-4: %s allowed_paths[%d] 命中判官面（%s）——禁入白名单"
+                                        "（仓级 CODEOWNERS 锁 @feasy898，改了合不进去）：%s"
+                                        % (tag, j, hit, str(ent)[:80]))
+
+          # ── M-8 板面漂移探针：板面实读状态词汇越出正本 ⇒ warning（板/治理面漂移，
+          #    治理面同批修——不责本 manifest，fail-loud 留痕）──
+          for lb in (board.get("by_state_label") or {}):
+              if lb not in BOARD_VOCAB:
+                  warnings.append("M-8: 板面实读状态词汇越出正本：%s（板面/治理面漂移，同批修）" % lb)
+
+          # ── M-7 环检测（Kahn 拓扑）：同波 task_id 依赖图必须无环（自依赖即环）──
+          indeg = {t: 0 for t in task_ids_all if t}
+          adj = {t: [] for t in indeg}
+          for frm, lst in same_wave_deps.items():
+              for to in lst:
+                  if frm in indeg and to in indeg:
+                      adj[frm].append(to)
+                      indeg[to] += 1
+          q = [t for t, d in indeg.items() if d == 0]
+          seen_n = 0
+          while q:
+              n2 = q.pop()
+              seen_n += 1
+              for m2 in adj[n2]:
+                  indeg[m2] -= 1
+                  if indeg[m2] == 0:
+                      q.append(m2)
+          if seen_n != len(indeg):
+              cyc = sorted(t for t, d in indeg.items() if d > 0)
+              errors.append("M-7: depends_on 同波依赖成环/悬空（拓扑余点 %d）：%s"
+                            % (len(cyc), ",".join(str(x) for x in cyc[:8])))
 
               # ── v1.1 可选字段（只增不改；有值才校验——缺席合法，不触碰十字段必填性）──
               # 出处：沙箱研究 D-1（repo/env_precondition，§3.2 M-5/M-6）＋ CI L-08
@@ -1040,12 +1260,14 @@ jobs:
                   v11_completed.append({"card": tid or tag, "added_keys": _missing})
 
           # ── 波次数学（OOM 准入 + 并发）──
+          # （M-5 判据面续：波级 OOM 准入数学——十校验既有在役件；本批仅补判据注释＋
+          #   M-x 标桩，零判定逻辑变更；与单卡通道界同族记 M-5，危害序映射推定同前注。）
           if sum_anolis > 45:
-              errors.append("Σmem_budget(anolis-build)=%dG > 45G（OOM 准入：anolis 125G 的 36%%）" % sum_anolis)
+              errors.append("M-5: Σmem_budget(anolis-build)=%dG > 45G（OOM 准入：anolis 125G 的 36%%）" % sum_anolis)
           if sum_local > 3:
-              errors.append("Σmem_budget(local-api)=%dG > 3G（本机 14G·cargo 永禁）" % sum_local)
+              errors.append("M-5: Σmem_budget(local-api)=%dG > 3G（本机 14G·cargo 永禁）" % sum_local)
           if n_anolis > 4:
-              errors.append("anolis-build 卡数=%d > 并发 4（制度 §二.1/§五）" % n_anolis)
+              errors.append("M-5: anolis-build 卡数=%d > 并发 4（制度 §二.1/§五）" % n_anolis)
 
           # ── 安全扫描（禁凭据形态入 git）──
           secret_pat = re.compile(
@@ -1063,6 +1285,10 @@ jobs:
 
           outcome = "invalid" if errors else ("idle" if idle else "plan")
           new_cards = 0 if (errors or idle) else sum(1 for c in cards if c.get("task_id") not in occ_tasks)
+          # D-84（factory-os#20）：缺项各记 M-x 进 manifest-validation.json——逐项可数，
+          # 任一硬红项已使 outcome=invalid（fail-closed 上文 errors 判定，此处只补读数）
+          missing_items = {k: sum(1 for e in errors if e.startswith(k + ":"))
+                           for k in ("M-1", "M-2", "M-3", "M-4", "M-5", "M-6", "M-7", "M-8")}
           report = {
               "checked_at": datetime.now(timezone(timedelta(hours=8))).isoformat(timespec="seconds"),
               "outcome": outcome,
@@ -1072,6 +1298,7 @@ jobs:
               "new_cards": new_cards,
               "mem": {"anolis_sum_g": sum_anolis, "local_sum_g": sum_local,
                       "anolis_cards": n_anolis, "bot_cards": n_bot},
+              "missing_items": missing_items,
               "errors": errors,
               "warnings": warnings,
               # ── schema v1.1 取证段（只增；wave-XX.json 字段集对照零丢失的回读位）──
@@ -1233,7 +1460,15 @@ jobs:
               L.append("- 禁 --force / force-push / reset --hard / 改历史记录（01-建设方案 §八）")
               L.append("- 禁双解：同债号在板另有非终态卡不得开工（占用闸 fail-closed；台账无行的债号先登记债行或换锚）")
               L.append("- 禁 secret 入 git（只记指纹+路径；推送前过 bot-scrub fail-closed）")
-              L.append("- 本地禁 cargo（14G 机 OOM 史）；anolis cargo 必须剥离代理环境变量")
+              # ── M-9 通道分支（D-84 · factory-os#20）：禁项块只按通道删「机舱矛盾项」，
+              #    安全禁项（判官面/force/双解/secret）任何通道零删改。bot-lane 卡运行于
+              #    外部沙箱（自有大盘、可 cargo、零厂内网络）——「本地禁 cargo（14G 机
+              #    OOM 史）」与「anolis cargo 剥代理」均为机舱/anolis 通道约束，写进
+              #    bot-lane 卡面即机舱矛盾（沙箱研究 B-1；Q1 §3.2 M-9）；anolis-build /
+              #    local-api 卡面本行原文保留。prompt 侧（planner-prompt §3.3.4）措辞
+              #    对齐由 .github 治理仓 #7 同批处理，不在本卡 allowed_paths 内。──
+              if c.get("channel") != "bot-lane":
+                  L.append("- 本地禁 cargo（14G 机 OOM 史）；anolis cargo 必须剥离代理环境变量")
               L.append("")
               L.append("【波次】%s　【状态机起点】`state:queued`" % man["wave"])
               L.append("状态机：queued→(占用闸)→dispatched→running→verifying→(绿)merge-check→merged→ledgered；任一步红→parked+异常队列")
