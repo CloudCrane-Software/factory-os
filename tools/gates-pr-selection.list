@@ -1,0 +1,46 @@
+# tools/gates-pr-selection.list — factory-os PR 剖面 L2/L3 点选门清单（D-103，2026-11-07 新建）
+#
+# 定位（卡面 [wave-07][D-103] factory-os#35）：
+#   CI L-25 前半（Q2 G-7）——factory-os PR 剖面原先只含 L1 py_compile + bot-scrub +
+#   账本迁移对账门判别力自证，all-gates.sh 的 L2–L6 门族未进 PR 面。本件是
+#   gates.yml「点选机制步」的唯一点选面：把 all-gates.sh 既有 L2/L3 门位按卡点选
+#   进 PR 剖面（禁全量塞入——anolis 水位，卡面禁项）。
+#
+# 判据路径锁：本件在 /tools/ 下，归 CODEOWNERS「1. 工具面在役件」段判官锁
+#   （改本件=改门，rt-e82/83 双案口径：判官/门/判据件一改即拒收）。
+#
+# 语义（A-1 SKIP 语义 + 卡面禁项，逐条对齐）：
+#   · 点选门依赖件不在检出树 ⇒ 机制步 rc=2 显式红（不可证不猜绿；禁 SKIP 冒充）。
+#   · 点选门实跑非零 ⇒ rc=1 显式红（all-gates.sh 状态语义：非零即红）。
+#   · 未点选门零静默：job summary 列 SKIP 清单，逐条带原因 + 对账人（谁对账它）。
+#   · 点选名须能解析到 all-gates.sh 既有门位（L2=register_L2 glob 门位、命令模板
+#     照 all-gates.sh:757 `add_item L2 "$base" "$tmo" "python3 '$f'"`；L3=
+#     register_L3 add_item 行）——解析不到即红，防本清单漂移成第二真源。
+#
+# 行格式（TAB 分隔；# 开头与空行忽略）：
+#   门名 <TAB> 族 <TAB> 命令 <TAB> 依赖件(仓根相对,逗号分隔) <TAB> 备注
+#   · 族：L2/L3=从 all-gates.sh 既有门位解析命令（命令列填 -）；
+#         L2X/L3X=L2/L3 族但门位在 all-gates.sh 之外（仓内件、crontab 巡检族），
+#         命令列显式给出，备注须写明门位出处与对账人。
+#   · 依赖件：该门在 PR 检出树上可判所必需的文件/目录（判据面全列，不缺列）。
+#
+# —— 2026-11-07 D-103 首验点选（卡面步1/4：L2/L3 各点一入门先验证）—————————
+#   L2：test-bench-retire-obs-review-criteria.py（register_L2 glob 门位；stdlib 零
+#       依赖、沙箱夹具实跑、生产零触碰；本地实测 18/18 rc=0）。
+#   L3：publish-scrub-gate.py --selftest（register_L3 add_item 门位，all-gates.sh:918；
+#       内嵌夹具判别力自证——clean 绿 / 12 tamper 红 / 键集冻结正反例；本地实测 rc=0）。
+test-bench-retire-obs-review-criteria.py	L2	-	tools/test-bench-retire-obs-review-criteria.py,tools/bench-retire-obs-review.py	L2 门位=register_L2 glob（all-gates.sh:724-757）；判据面=本件+被载入件 tools/bench-retire-obs-review.py，均在仓
+publish-scrub-gate.py --selftest	L3	-	tools/publish-scrub-gate.py	L3 门位=register_L3 add_item（all-gates.sh:918）；判据面=门件本体（内嵌夹具，零网络零外部件）
+
+# —— 2026-11-07 负控实录（卡面验收#2；PR 首提交 check-run 回读后本行注释化）—————
+#   卡面步4 首验点选门：ledger-face-recon-gate（卡面称 L2 族；门位在 all-gates.sh
+#   之外——crontab `37 * * * *` 账本面每小时巡检承接，登记见 账本/阶段欠账台账.md:77
+#   RT-E164 行「crontab ledger-face-recon 命中 rc=0」）。其判据面（计划/系统目标台账.md
+#   等 org 工作区件）不在 factory-os 仓 ⇒ 按卡面禁项「缺件显式判红」，点选即 rc=2。
+#   首提交实测：机制步 rc=2、逐条点名缺失依赖（见 PR #<待填> check-run 日志）。
+#   红读回读后本行注释化，该门转入 job summary SKIP 面（原因+对账人=crontab 巡检），
+#   PR 剖面回归全绿——负控取证与终态绿化分离，两读数为真、互不冒充。
+# ledger-face-recon-gate	L2X	python3 tools/ledger-face-recon-gate.py	tools/ledger-face-recon-gate.py,计划/系统目标台账.md,计划/阶段欠账台账.md,计划/研究组/红队终局轮-20261101/逃逸问题台账.md,计划/研究组/红队终局轮-20261101/目的-监测项映射.md,计划/方法论-持续改进-20261031.md,计划/研究组/方法论批-20261031,计划/技术债登记.md,计划/研究组/OBS回头批-20261031,30-工件/账本面对账门批-20261105/gate-registry.json,30-工件/剩余欠账总表-20261104/剩余欠账总表.md,状态观测/alarms.log	卡面步4 首验点选；判据面=P_* 常量全集（tools/ledger-face-recon-gate.py:176-190），org 工作区件不在仓
+
+# —— 显式 SKIP 声明（A-1：SKIP 必带原因且声明谁对账它；仅用于 all-gates.sh 名册之外的仓内门）——
+SKIP	ledger-face-recon-gate	判据面（计划/系统目标台账.md 等 org 工作区件）不在 factory-os 仓，PR 检出树不可证；2026-11-07 D-103 负控实测点选即 rc=2 显式红（PR #72 负控提交 acc82ab 的 gates run 42274621817（job 128087731243））	crontab `37 * * * *` 账本面每小时巡检承接（leg-E109 消费面，登记见 账本/阶段欠账台账.md:77）
