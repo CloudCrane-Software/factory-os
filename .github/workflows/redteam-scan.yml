@@ -84,6 +84,7 @@ jobs:
         run: |
           set -eu
           REP="${GITHUB_WORKSPACE}/redteam-report.json"
+          export REP
           if [ ! -f "$REP" ]; then
             echo "FAIL 报告缺席（扫描步未产出）——fail-loud" >&2
             exit 1
