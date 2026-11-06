@@ -826,6 +826,7 @@ jobs:
             git show "HEAD:${target}" > /tmp/existing-manifest.json
             if diff -q /tmp/existing-manifest.json ../manifest-candidate.json >/dev/null; then
               echo "manifest 已在 main 且无变化（幂等重跑）——跳过"
+              echo "skipped=true" >> "$GITHUB_OUTPUT"
               exit 0
             fi
             echo "波次文件 ${target} 已在 main 且内容不同——波次号冲突，fail-closed（禁改历史 manifest）" >&2
@@ -844,17 +845,19 @@ jobs:
             fi
           fi
           git push origin "HEAD:refs/heads/${branch}"
+          echo "skipped=false" >> "$GITHUB_OUTPUT"
           echo "committed: ${target} -> ${branch}"
 
       # ── 两段式第二段：开 PR → 轮询 gates → 绿后 squash 合入 main ──
       - name: '09b · 开 PR 并 gates 绿后 squash 合入 main'
         id: merge_pr
-        if: steps.quota.outputs.plan_allowed == 'true' && steps.validate.outputs.outcome == 'plan' && inputs.dry_run != 'true'
+        if: steps.quota.outputs.plan_allowed == 'true' && steps.validate.outputs.outcome == 'plan' && inputs.dry_run != 'true' && steps.commit.outputs.skipped != 'true'
         env:
           WAVE: ${{ steps.validate.outputs.wave }}
           NEW_CARDS: ${{ steps.validate.outputs.new_cards }}
         run: |
           set -euo pipefail
+          cd factory-os   # 每步工作目录重置回 runner 根；git 操作须回到账面检出树
           branch="planner/${WAVE}"
           target="${WAVE_DIR}/${WAVE}.json"
           # 幂等：同分支已有 open PR 则复用（重跑不重复开）
