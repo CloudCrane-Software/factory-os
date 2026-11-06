@@ -33,7 +33,15 @@
 /账本/                                @feasy898
 
 # —— 3. 波次清单与自转制度（append-only 制度面）——————————————————————
-# 波次清单/制度-v1.md = 波次自转制度正本；wave-01/02/03.json + wave-03-draft.md
-# = 波次清单件（wave-runner.py 消费面）。制度文档与清单同锁（docs/judge-paths.md
-# §二末行「制度文档」）。
-/波次清单/                             @feasy898
+# 波次清单/制度-v1.md = 波次自转制度正本；wave-03-draft.md = 草稿文档。
+# 制度文档仍锁（docs/judge-paths.md §二末行「制度文档」）。
+#
+# ★ 2026-11-06 P4 口径修正（是修正不是弱化）：/波次清单/wave-*.json 移出判官锁。
+#   理由：manifest 是规划产物——planner 环定时产、推 planner/<wave> 分支、开 PR、
+#   gates 绿后 squash 合线（两段式）；非判据件。判据件定义不变（tools/ 门本体、
+#   账本三件套、制度文档）。
+#   不排除的后果：planner 自动 PR 触碰 /波次清单/ 即需 code owner 批准 ⇒
+#   factory-os main 分支保护（PR + required check gates + enforce_admins）下
+#   0 批准自动合线不成立，规划环首波即卡死。锁 *.md 保住制度面，放行 *.json
+#   规划面；后续若 manifest 被赋予判据属性，回锁须同批重钉并登记依据。
+/波次清单/*.md                         @feasy898
