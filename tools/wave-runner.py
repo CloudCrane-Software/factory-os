@@ -81,6 +81,87 @@ ENV_CHECK_PREFIX = "bash %s || exit 2; " % ENV_CHECK
 # --selftest 干跑桩（DRY["on"]=True 时 sh/ssh_anolis 全走桩，零生产触达）
 DRY = {"on": False, "ssh_fn": None, "sh_fn": None}
 
+# ─────────────────────────────────────────── 准入账本扩 GPU 列（D-100·GPUbroker P2）
+# Q6 §3.1 GPU 类起步值（改值须 D-11 裁定并同步登记本声明行，同 D-94 纪律）：
+#   单票 GPU ≤2 卡·时/mem≤16G/disk≤20G/timeout≤120min；每沙箱 ≤1 张在飞票；
+#   全局 ≤8 卡·时/日。anolis Σmem≤45G/并发≤4 **硬顶复用不新设**
+#   （制度-v1.md:39，见上方 ANOLIS_MEM_CAP_G）——GPU 票在飞即占 anolis 内存/
+#   并发位，施工卡准入时把 GPU 在飞票计入同一 Σ45G 分子（三科目同账本：
+#   施工卡/bench 判分腿/GPU 票，账本 af.resource-ledger.v2 schema 行登记，
+#   见 tools/gpu-broker-execute.py 头注）。
+#   GPU 票自身准入（单票上限/每沙箱≤1 在飞/日限/超限拒发）由 broker 执行器
+#   tools/gpu-broker-execute.py 五条机检 fail-closed，不经本件；本件只把
+#   GPU 在飞态读进施工卡准入分子（Q6 §3.2「GPU 排队即 wave-runner 准入骨架」）。
+# 账本路径可经 AF_GPU_LEDGER 覆盖（af 工作区部署未见 factory-os 账本件时）：
+#   件缺席 ⇒ 该部署 GPU 列不可见记 0（无经其发放的 GPU 票；权威准入在 broker
+#     侧 fail-closed——已知部署间可视性差，登记于此不装作全局真源）；
+#   件在场但不可读/坏行 ⇒ None ⇒ 调用方 fail-closed 不派（宁停不猜）。
+GPU_LEDGER = os.environ.get("AF_GPU_LEDGER", os.path.join(WS, "账本", "resource-ledger.jsonl"))
+GPU_TICKET_TYPE = "gpu-anolis"
+
+
+def _gpu_ledger_rows():
+    """账本逐行严格解析（与 resource-ticket-check.load_jsonl_strict 同语义）。
+    返回 list[dict]；不可读/坏行/非对象 ⇒ None（不可证 ⇒ 调用方 fail-closed）。"""
+    try:
+        with open(GPU_LEDGER, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+    except OSError:
+        return None
+    rows = []
+    for i, raw in enumerate(lines, 1):
+        s = raw.strip()
+        if not s:
+            continue
+        try:
+            obj = json.loads(s)
+        except ValueError:
+            return None
+        if not isinstance(obj, dict):
+            return None
+        rows.append(obj)
+    return rows
+
+
+def gpu_inflight():
+    """GPU 科目在飞票（event=issue ∧ ticket_type=gpu-anolis ∧ 无匹配 revoke 行）。
+    返回 [{ticket_id, mem_budget_g, gpu_cards, card_hours}]；账本缺席 ⇒ []；
+    不可证 ⇒ None（fail-closed）。"""
+    if not os.path.isfile(GPU_LEDGER):
+        return []
+    rows = _gpu_ledger_rows()
+    if rows is None:
+        return None
+    revoked = {r.get("ticket_id") for r in rows
+               if r.get("event") == "revoke" and r.get("ticket_id")}
+    out = []
+    for r in rows:
+        if r.get("event") != "issue" or r.get("ticket_type") != GPU_TICKET_TYPE:
+            continue
+        if r.get("ticket_id") in revoked:
+            continue
+        am = r.get("amount") if isinstance(r.get("amount"), dict) else {}
+        try:
+            out.append({"ticket_id": r.get("ticket_id"),
+                        "mem_budget_g": float(am.get("mem_budget_g") or 0),
+                        "gpu_cards": int(am.get("gpu_cards") or 0),
+                        "card_hours": float(am.get("card_hours") or 0)})
+        except (TypeError, ValueError):
+            return None
+    return out
+
+
+def gpu_inflight_mem_sum():
+    """GPU 在飞票 mem 合计（G，计入 Σ45G 分子）；None=不可证（fail-closed）。"""
+    fl = gpu_inflight()
+    return None if fl is None else sum(x["mem_budget_g"] for x in fl)
+
+
+def gpu_inflight_count():
+    """GPU 在飞票数（并发位）；None=不可证（fail-closed）。"""
+    fl = gpu_inflight()
+    return None if fl is None else len(fl)
+
 
 def sh(cmd, timeout=120):
     if DRY["on"] and DRY["sh_fn"]:
@@ -502,7 +583,13 @@ def advance(c, waves):
             if avail is None:
                 exc(c["task_id"], "admission", "anolis free 读不到（fail-closed 不派）")
                 c["state"] = "parked"; return
-            if running_mem_sum(waves) + float(c.get("mem_budget_g") or 8) > ANOLIS_MEM_CAP_G:
+            # D-100 GPU 列：在飞 GPU 票 mem 计入 Σ45G 分子（同一准入账本三科目）；
+            # 账本在场不可证 ⇒ fail-closed 不派（宁停不猜，同 anolis free 读不到语义）
+            gpu_mem = gpu_inflight_mem_sum()
+            if gpu_mem is None:
+                exc(c["task_id"], "admission", "GPU 准入账本不可读（fail-closed 不派）")
+                c["state"] = "parked"; return
+            if running_mem_sum(waves) + gpu_mem + float(c.get("mem_budget_g") or 8) > ANOLIS_MEM_CAP_G:
                 return  # 排队等下轮
             ok, ev = dispatch_anolis(c)
             c["state"] = "running" if ok else "parked"
@@ -664,6 +751,7 @@ def selftest():
     """--selftest：构造 3 卡同组 JSON + 单卡/在飞/负例/推一次 全干跑（桩传输、沙箱树名，
     不触生产 wt/targets/anolis）。全过 rc=0，任一不过 rc=1。"""
     global EXC
+    global GPU_LEDGER
     import tempfile
     import shutil
     results = []
@@ -818,6 +906,45 @@ def selftest():
         check("neg:step0漂移逐卡异常入队", len(nexc4) == n_exc0 + 2
               and {e["task_id"] for e in nexc4[n_exc0:]} == {c["task_id"] for c in scards})
         mock.step0_drift = False
+
+        # ③' 准入账本 GPU 列（D-100）：在飞 GPU 票计入 Σ45G 分子；坏行 ⇒ None
+        #    （fail-closed 不派）；账本缺席 ⇒ 0（本部署 GPU 列不可见）
+        old_gpu_ledger = GPU_LEDGER
+        gl = os.path.join(tmp, "resource-ledger.jsonl")
+        with open(gl, "w", encoding="utf-8") as f:
+            f.write(json.dumps({"ts": "2026-11-07T00:00:00Z", "event": "ledger-open",
+                                "schema": "af.resource-ledger.v2"}) + "\n")
+            f.write(json.dumps({"ts": "2026-11-07T00:01:00Z", "event": "issue",
+                                "ticket_id": "gpu-01", "ticket_type": GPU_TICKET_TYPE,
+                                "task_ref": "factory-os#32", "requester": "w",
+                                "consumer": "gpu-exec-fp", "key_fp": "fp0000000000",
+                                "amount": {"max_req": 0, "max_input_tokens": 0, "gpu_cards": 1,
+                                           "card_hours": 0.5, "mem_budget_g": 8,
+                                           "disk_budget_g": 5, "timeout_min": 10},
+                                "ttl_s": 7200, "expires_at": "2026-11-07T02:01:00Z"}) + "\n")
+            f.write(json.dumps({"ts": "2026-11-07T00:02:00Z", "event": "issue",
+                                "ticket_id": "gpu-02", "ticket_type": GPU_TICKET_TYPE,
+                                "task_ref": "factory-os#32", "requester": "w",
+                                "consumer": "gpu-exec-fp2", "key_fp": "fp0000000001",
+                                "amount": {"max_req": 0, "max_input_tokens": 0, "gpu_cards": 1,
+                                           "card_hours": 0.5, "mem_budget_g": 16,
+                                           "disk_budget_g": 5, "timeout_min": 10},
+                                "ttl_s": 7200, "expires_at": "2026-11-07T02:02:00Z"}) + "\n")
+            f.write(json.dumps({"ts": "2026-11-07T00:03:00Z", "event": "revoke",
+                                "ticket_id": "gpu-02", "ticket_type": GPU_TICKET_TYPE,
+                                "reason": "gpu-executed-complete"}) + "\n")
+        GPU_LEDGER = gl
+        check("gpu:在飞票mem合计=8（已 revoke 的 16G 不计）", gpu_inflight_mem_sum() == 8,
+              str(gpu_inflight_mem_sum()))
+        check("gpu:在飞票数=1", gpu_inflight_count() == 1, str(gpu_inflight_count()))
+        with open(gl, "a", encoding="utf-8") as f:
+            f.write("{oops\n")   # 坏行注入
+        check("gpu:坏行⇒None（fail-closed 不派）",
+              gpu_inflight_mem_sum() is None and gpu_inflight_count() is None)
+        GPU_LEDGER = os.path.join(tmp, "no-such-ledger.jsonl")
+        check("gpu:账本缺席⇒0（本部署 GPU 列不可见）",
+              gpu_inflight_mem_sum() == 0 and gpu_inflight_count() == 0)
+        GPU_LEDGER = old_gpu_ledger
 
         # 波次 JSON 落盘剥离内部键
         out = {k: v for k, v in wave.items() if not k.startswith("_")}
