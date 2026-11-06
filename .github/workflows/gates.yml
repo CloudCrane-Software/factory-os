@@ -133,6 +133,7 @@ jobs:
           AF_HEAD_CLONE_URL: ${{ github.event.pull_request.head.repo.clone_url }}
         run: |
           set -eu
+          set -o pipefail
           REF="${AF_HEAD_REF:-${GITHUB_HEAD_REF:-}}"
           if [ -z "$REF" ]; then
             echo "取不到 PR 头分支（事件上下文缺 pull_request.head.ref）" >&2
@@ -145,10 +146,63 @@ jobs:
           [ -n "$URL" ] || URL="https://github.com/${GITHUB_REPOSITORY}.git"
           SRC="src"
           rm -rf "$SRC"
-          git clone --depth 1 --branch "$REF" "$URL" "$SRC"
+          # ★ 三级兜底链（2026-11-06 卡#43；只动本步，门语义零改动）：
+          #   L1 github.com 直连 clone（现状原样）失败 → L2 经代理 clone →
+          #   L3 codeload tarball 解包（树与 clone 等价——后续门全为文件面
+          #   检查，不依赖 .git）。每级失败留日志痕迹；三级皆败 fail-closed
+          #   判红，不吞红、不放宽。
+          VIA=""
+          if git clone --depth 1 --branch "$REF" "$URL" "$SRC"; then
+            VIA="L1-git-clone-direct"
+          else
+            echo "[fallback] L1 github.com 直连 clone 失败——转 L2 代理 clone" >&2
+            PROXY="${https_proxy:-${HTTPS_PROXY:-${http_proxy:-${HTTP_PROXY:-}}}}"
+            if [ -n "$PROXY" ]; then
+              attempt=0
+              until [ "$attempt" -ge 3 ]; do
+                rm -rf "$SRC"
+                if git -c http.proxy="$PROXY" clone --depth 1 --branch "$REF" "$URL" "$SRC"; then
+                  VIA="L2-git-clone-proxy"
+                  break
+                fi
+                attempt=$((attempt + 1))
+                echo "[fallback] L2 代理 clone 失败（第 $attempt/3 次）——5s 后重试" >&2
+                sleep 5
+              done
+            else
+              echo "[fallback] L2 无代理变量可取（runner env 缺 http(s)_proxy）——跳过转 L3" >&2
+            fi
+          fi
+          if [ -z "$VIA" ]; then
+            echo "[fallback] L2 代理 clone 不可用/均失败——转 L3 codeload tarball" >&2
+            ORGREPO="${URL#https://github.com/}"
+            ORGREPO="${ORGREPO%.git}"
+            TARURL="https://codeload.github.com/${ORGREPO}/tar.gz/refs/heads/${REF}"
+            attempt=0
+            until [ "$attempt" -ge 3 ]; do
+              rm -rf "$SRC" && mkdir -p "$SRC"
+              # --noproxy '*'：L3 刻意直连 codeload（第三条路由），不受 L2
+              # 同源代理变量牵连——代理死时 tarball 路仍活（卡#43 实测形态）。
+              if curl -fsSL --noproxy '*' --connect-timeout 15 --max-time 300 "$TARURL" | tar -xz -C "$SRC" --strip-components=1; then
+                VIA="L3-codeload-tarball"
+                break
+              fi
+              attempt=$((attempt + 1))
+              echo "[fallback] L3 codeload tarball 失败（第 $attempt/3 次）——5s 后重试" >&2
+              sleep 5
+            done
+          fi
+          if [ -z "$VIA" ]; then
+            echo "[fallback] 三级皆失败（直连 clone/代理 clone/codeload tarball）——fail-closed 判红" >&2
+            exit 1
+          fi
           cd "$SRC"
-          git --no-pager log --oneline -1
-          echo "检出 PR 头树：ref=$REF url=$URL 期望 head.sha=${AF_HEAD_SHA:-未提供}"
+          if [ -d .git ]; then
+            git --no-pager log --oneline -1
+          else
+            echo "（L3 tarball 检出无 .git——文件面等价，跳过 git log）"
+          fi
+          echo "检出 PR 头树：ref=$REF url=$URL 期望 head.sha=${AF_HEAD_SHA:-未提供}｜经=$VIA"
 
       # ---- 剖面①：py_compile 全量 tools/（含子目录）+ 件数下限对账 ----------
       - name: L1 · py_compile 全量 tools/（含子目录）+ 件数下限对账（内联 python）
