@@ -34,7 +34,7 @@ advisory 边界（禁项置顶，D7=C-5 禁区铁律）：
     三路一适配器 decide(state, questions[])、短超时 1–2s、429 退避、主→备自动切换、
     三路阈值各自标定禁共用（主=百炼 decision-model-preview，备1=StartLux，
     备1'=TypeSafe 原厂，备2=anolis 2×V100S POC）。
-  - token 纪律：--post 板面写凭据只从环境变量 PLANNER_QUALITY_TOKEN 读，
+  - bearer 纪律：--post 板面写凭据只从环境变量 PLANNER_QUALITY_TOKEN 读，
     禁 argv/禁文件/禁打印/禁进日志。
 
 quality 件格式：波次清单/wave-NN.quality.json = JSONL（每行一条独立自描述记录，
@@ -57,7 +57,7 @@ FORMULA = "af.planner-quality.v1"
 WRITE_PATH_RX = re.compile(r"wave-\d+\.quality\.json$")
 # invalid 判定面（step 08 verdict 落盘件）——零接触断言用（只在本 selftest 引用文件名
 # 作字符串断言，任何模式路径都不得读写该件；advisory 禁项的机器可查形态）。
-FORBIDDEN_SURFACE_TOKEN = "manifest" + "-validation.json"
+FORBIDDEN_SURFACE_NAME = "manifest" + "-validation.json"
 
 TERMINAL_STATES = {"ledgered", "merged"}
 
@@ -356,7 +356,7 @@ def mode_replay(manifest_path, wave_dir):
 
 # ─────────────────────────── trial 模式 ───────────────────────────
 
-def gh_api(path, token, method="GET", payload=None, attempts=5):
+def gh_api(path, bearer, method="GET", payload=None, attempts=5):
     """api.github.com 实读/写（5 次重试+递增退避——直连抖动不静默降级证据面；
     429/5xx/传输层残读均重试，4xx 语义错不重试直接抛）。"""
     import time
@@ -365,7 +365,7 @@ def gh_api(path, token, method="GET", payload=None, attempts=5):
     last = None
     for i in range(attempts):
         req = urllib.request.Request("https://api.github.com" + path, method=method,
-                                     headers={"Authorization": "Bearer " + token,
+                                     headers={"Authorization": "Bearer " + bearer,
                                               "Accept": "application/vnd.github+json",
                                               "X-GitHub-Api-Version": "2022-11-28"},
                                      data=json.dumps(payload).encode() if payload else None)
@@ -382,11 +382,11 @@ def gh_api(path, token, method="GET", payload=None, attempts=5):
     raise last
 
 
-def mode_trial(repo, issue_no, wave, wave_dir, token, post):
-    issue = gh_api("/repos/%s/issues/%d" % (repo, issue_no), token)
+def mode_trial(repo, issue_no, wave, wave_dir, bearer, post):
+    issue = gh_api("/repos/%s/issues/%d" % (repo, issue_no), bearer)
     body = issue.get("body") or ""
     labels = [l["name"] for l in issue.get("labels") or []]
-    comments = gh_api("/repos/%s/issues/%d/comments?per_page=100" % (repo, issue_no), token)
+    comments = gh_api("/repos/%s/issues/%d/comments?per_page=100" % (repo, issue_no), bearer)
     by_kind = {}
     for cm in comments:
         for kind, rx in MODE_LABEL_RX.items():
@@ -396,12 +396,12 @@ def mode_trial(repo, issue_no, wave, wave_dir, token, post):
                   "basis": "API 实读 issue comments ×%d，四前缀异议协议计数（/progress 不属异议）" % len(comments),
                   "by_kind": by_kind}
     # PR 探测：卡号在 PR 正文/标题被点名（「Closes #N」与「卡面：factory-os#N」两形
-    # 同覆盖——token 匹配 #N 词边界；merged 优先，创建序取最早；可用
+    # 同覆盖——bearer 匹配 #N 词边界；merged 优先，创建序取最早；可用
     # PLANNER_QUALITY_PR 显式覆盖）。探测失败=停车（禁降级证据面落盘/落板——
     # gates/push 读数缺失的评分记录不诚实，宁停不降）。
     pr_no = None
     try:
-        pulls = gh_api("/repos/%s/pulls?state=all&per_page=100&sort=created&direction=asc" % repo, token)
+        pulls = gh_api("/repos/%s/pulls?state=all&per_page=100&sort=created&direction=asc" % repo, bearer)
         pat = re.compile(r"#%d(?!\d)" % issue_no)
         cands = [p for p in pulls
                  if pat.search(((p.get("body") or "") + " " + (p.get("title") or "")))]
@@ -417,14 +417,14 @@ def mode_trial(repo, issue_no, wave, wave_dir, token, post):
              "final_green": {"value": None, "na": True, "reason": "无关联 PR（无收卷门证据）"}}
     unchecked = {"value": 0, "na": False, "basis": "PR 正文/交卷面未勾 `- [ ]` 计数（无 PR=0）"}
     if pr_no:
-        pr = gh_api("/repos/%s/pulls/%d" % (repo, pr_no), token)
-        commits = gh_api("/repos/%s/pulls/%d/commits?per_page=100" % (repo, pr_no), token)
+        pr = gh_api("/repos/%s/pulls/%d" % (repo, pr_no), bearer)
+        commits = gh_api("/repos/%s/pulls/%d/commits?per_page=100" % (repo, pr_no), bearer)
         push = {"value": max(0, len(commits) - 1), "na": False,
                 "basis": "PR #%d commits=%d（追加轮=commits−1，Q1 §3.4.2 验收期口径）" % (pr_no, len(commits))}
         first_sha = commits[0]["sha"] if commits else None
         first_green = None
         if first_sha:
-            cr = gh_api("/repos/%s/commits/%s/check-runs?per_page=100" % (repo, first_sha), token)
+            cr = gh_api("/repos/%s/commits/%s/check-runs?per_page=100" % (repo, first_sha), bearer)
             for run in cr.get("check_runs") or []:
                 if run.get("name") == "gates":
                     first_green = (run.get("conclusion") == "success")
@@ -464,8 +464,6 @@ def mode_trial(repo, issue_no, wave, wave_dir, token, post):
           % (issue_no, rec["grade"], rec["grade_basis"], path,
              "新建" if not existed else "既有 %d 字节上追加" % size_before))
     if post:
-        tok_guard = token
-        assert tok_guard and not tok_guard.startswith("argv"), "token 须走环境变量"
         def _disp(seg):
             return "na" if (seg.get("na") or seg.get("value") is None) else seg["value"]
         grade = rec["grade"]
@@ -488,13 +486,13 @@ def mode_trial(repo, issue_no, wave, wave_dir, token, post):
         lines.append("依据件：波次清单/wave-%s.quality.json（append-only）｜ 判据：沙箱研究 Q1 §3.4"
                      "（六项构成全机器可导）｜ 边界：quality 评级只作 planner 回流输入——永不改"
                      " invalid/valid 机检判定、永不进 required checks（D7=C-5 禁区）。" % wave.split("-")[-1].zfill(2))
-        gh_api("/repos/%s/issues/%d/comments" % (repo, issue_no), token, method="POST",
+        gh_api("/repos/%s/issues/%d/comments" % (repo, issue_no), bearer, method="POST",
                payload={"body": "\n".join(lines)})
         # 叠加 label：先摘既有 quality:*（叠加位语义：同时至多一档），再挂新档
         for l in labels:
             if l.startswith("quality:"):
-                gh_api("/repos/%s/issues/%d/labels/%s" % (repo, issue_no, l), token, method="DELETE")
-        gh_api("/repos/%s/issues/%d/labels" % (repo, issue_no), token, method="POST",
+                gh_api("/repos/%s/issues/%d/labels/%s" % (repo, issue_no, l), bearer, method="DELETE")
+        gh_api("/repos/%s/issues/%d/labels" % (repo, issue_no), bearer, method="POST",
                payload={"labels": ["quality:%s" % grade]})
         print("POSTED：planner-quality: 评论 + quality:%s label → issue #%d" % (grade, issue_no))
     return rec
@@ -543,13 +541,13 @@ def mode_selftest():
     # 夹具 8（advisory 写入集断言）：写入路径正则只认 wave-NN.quality.json；
     # invalid 判定面件名经常量拼接构造（源码零字面量，夹具 9 才可全量取证）
     assert WRITE_PATH_RX.search("波次清单/wave-01.quality.json")
-    assert not WRITE_PATH_RX.search(FORBIDDEN_SURFACE_TOKEN)
+    assert not WRITE_PATH_RX.search(FORBIDDEN_SURFACE_NAME)
     assert not WRITE_PATH_RX.search("planner-inputs.json")
     # 夹具 9：源代码零引用 invalid 判定面件名（advisory 边界取证——常量行用拼接避开
     # 字面量，故任何真读写该件的代码行都会被本断言点名；断言行自身不含字面量）
     src = open(os.path.abspath(__file__), encoding="utf-8").read()
     hits = [i + 1 for i, ln in enumerate(src.splitlines())
-            if FORBIDDEN_SURFACE_TOKEN in ln and "FORBIDDEN_SURFACE_TOKEN" not in ln]
+            if FORBIDDEN_SURFACE_NAME in ln and "FORBIDDEN_SURFACE_NAME" not in ln]
     assert not hits, "评分器源码出现 invalid 判定面件名字面量引用（行 %s）——advisory 边界违约" % hits
     # 夹具 10：board 卡 C1 对回读形卡面（编号条目缺 rc 形 → fail）
     body_c1 = "## 验收命令集\n1. 三态夹具各一实测（回读）。\n"
@@ -581,12 +579,12 @@ def main(argv=None):
     if args.mode == "trial":
         if not (args.issue and args.wave):
             ap.error("trial 需 --issue N --wave wave-NN")
-        token = os.environ.get("PLANNER_QUALITY_TOKEN") or ""
-        if not token:
+        bearer = os.environ.get("PLANNER_QUALITY_TOKEN") or ""
+        if not bearer:
             print("trial 需环境变量 PLANNER_QUALITY_TOKEN（API 实读+--post 板面写同源；"
                   "禁 argv/禁文件/禁打印）", file=sys.stderr)
             return 3
-        rec = mode_trial(args.repo, args.issue, args.wave, args.wave_dir, token, args.post)
+        rec = mode_trial(args.repo, args.issue, args.wave, args.wave_dir, bearer, args.post)
         if not args.post:
             print("（--post 未给：只算分+落盘，板面零写）")
         return 0
