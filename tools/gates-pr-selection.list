@@ -43,4 +43,4 @@ publish-scrub-gate.py --selftest	L3	-	tools/publish-scrub-gate.py	L3 门位=regi
 # ledger-face-recon-gate	L2X	python3 tools/ledger-face-recon-gate.py	tools/ledger-face-recon-gate.py,计划/系统目标台账.md,计划/阶段欠账台账.md,计划/研究组/红队终局轮-20261101/逃逸问题台账.md,计划/研究组/红队终局轮-20261101/目的-监测项映射.md,计划/方法论-持续改进-20261031.md,计划/研究组/方法论批-20261031,计划/技术债登记.md,计划/研究组/OBS回头批-20261031,30-工件/账本面对账门批-20261105/gate-registry.json,30-工件/剩余欠账总表-20261104/剩余欠账总表.md,状态观测/alarms.log	卡面步4 首验点选；判据面=P_* 常量全集（tools/ledger-face-recon-gate.py:176-190），org 工作区件不在仓
 
 # —— 显式 SKIP 声明（A-1：SKIP 必带原因且声明谁对账它；仅用于 all-gates.sh 名册之外的仓内门）——
-SKIP	ledger-face-recon-gate	判据面（计划/系统目标台账.md 等 org 工作区件）不在 factory-os 仓，PR 检出树不可证；2026-11-07 D-103 负控实测点选即 rc=2 显式红（PR #<待填> 首提交 check-run）	crontab `37 * * * *` 账本面每小时巡检承接（leg-E109 消费面，登记见 账本/阶段欠账台账.md:77）
+SKIP	ledger-face-recon-gate	判据面（计划/系统目标台账.md 等 org 工作区件）不在 factory-os 仓，PR 检出树不可证；2026-11-07 D-103 负控实测点选即 rc=2 显式红（PR #72 负控提交 acc82ab 的 gates run 42274621817（job 128087731243））	crontab `37 * * * *` 账本面每小时巡检承接（leg-E109 消费面，登记见 账本/阶段欠账台账.md:77）
