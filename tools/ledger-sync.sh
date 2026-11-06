@@ -270,10 +270,21 @@ def scan_file(path, redact=False):
 
 # ---- 计划：工作区正本 vs 仓内基线 → 追加/状态列变更/禁改区比对 ---------------
 def make_plan(source_path, base_path):
-    ws = open(source_path, encoding="utf-8").read().splitlines()
+    """对账基准=正本的 P-04 脱敏投影（推送面投影函数确定性；逐 span 留痕于
+    projection_redactions；正本本身零改动）。既有行禁改区比对亦以投影面为准——
+    否则基线内已投影行（如 D-114）与正本原文将永久禁改区失配。"""
+    ws_raw = open(source_path, encoding="utf-8").read().splitlines()
+    ws, projection_redactions = [], []
+    for i, l in enumerate(ws_raw):
+        new, n = redact_p04(l)
+        if n:
+            projection_redactions.append({"source_lineno": i + 1, "count": n,
+                                          "pattern": P04, "before": l, "after": new})
+        ws.append(new)
     base = open(base_path, encoding="utf-8").read().splitlines()
     plan = {"source": source_path, "base": base_path,
             "base_lines": len(base), "source_lines": len(ws),
+            "projection_redactions": projection_redactions,
             "appends": [], "status_updates": [], "forbidden": [],
             "verdict": "ok"}
     base_ids, base_idx = [], {}
@@ -432,6 +443,13 @@ def selftest():
     neg4 = hdr + "| NEG | 负例 | x | y | 批0 | 网关 " + probe_ip + " |\n"
     sr4 = scan_file(wf("neg4.md", neg4), redact=True)
     ck("S12 P-04 自动脱敏后清零", sr4["verdict"] == "clean" and sr4.get("redaction_count") == 1)
+    # S14 投影语义：基线行=已投影（脱敏）版，正本=含内网地址原文 → 判未触行（不进禁改区失配）
+    base_p = hdr + "| A-1 | 网关 [内网地址P-04已脱敏]:8080 实测 | x | y | 批1 | 未开始 |\n"
+    ws_p = hdr + "| A-1 | 网关 " + probe_ip + ":8080 实测 | x | y | 批1 | 未开始 |\n"
+    p14 = make_plan(wf("ws14.md", ws_p), wf("base14.md", base_p))
+    ck("S14 P-04 投影对账（禁改区免疫）", p14["verdict"] == "ok"
+       and not p14["status_updates"] and not p14["append_block"]
+       and len(p14["projection_redactions"]) == 1)
     # S13 本件源码自净（树扫预演：0 命中）
     sr_self = scan_file(SCRIPT_PATH)
     ck("S13 本件源码零命中", sr_self["verdict"] == "clean")
@@ -555,11 +573,36 @@ UPDATE_COUNT="$(python3 -I -c "import json;print(len(json.load(open('$RUN_DIR/pl
 HAS_DIFF="$(python3 -I -c "import json;print(json.load(open('$RUN_DIR/plan.json'))['has_diff'])")"
 echo "[sync] plan: append=$APPEND_COUNT update=$UPDATE_COUNT"
 
-# ---- 步骤 3：幂等门——无 diff ⇒ 零动作零 PR ----------------------------------
-if [ "$HAS_DIFF" != "True" ]; then
+# ---- 步骤 2b：同步腿本体未落状态检测（自更新通道；相对 origin/main 判定）------
+SELF_ONLY=0
+MAIN_SCRIPT="$RUN_DIR/main-ledger-sync.sh"
+GIT_ST="$(git -C "$CLONE" status --porcelain -- tools/ledger-sync.sh || true)"
+SCRIPT_DIFFERS_MAIN=0
+if git -C "$CLONE" show origin/main:tools/ledger-sync.sh > "$MAIN_SCRIPT" 2>/dev/null; then
+  cmp -s "$SCRIPT_PATH" "$MAIN_SCRIPT" || SCRIPT_DIFFERS_MAIN=1
+else
+  SCRIPT_DIFFERS_MAIN=1   # main 上尚无本件（首落）
+fi
+if [ -n "$GIT_ST" ] || [ "$SCRIPT_DIFFERS_MAIN" = 1 ]; then
+  if [ "$SCRIPT_PATH" != "$CLONE/tools/ledger-sync.sh" ] && ! cmp -s "$SCRIPT_PATH" "$CLONE/tools/ledger-sync.sh"; then
+    cp "$SCRIPT_PATH" "$CLONE/tools/ledger-sync.sh"
+  fi
+  SYNC_SCRIPT_IN_TREE=1
+  engine scan --file "$CLONE/tools/ledger-sync.sh" \
+    || fatal 3 "scrub-self" "同步腿本体未过 scrub——先清洗再落"
+else
+  SYNC_SCRIPT_IN_TREE=0
+fi
+
+# ---- 步骤 3：幂等门——无任何 diff（账本+本体）⇒ 零动作零 PR -------------------
+if [ "$HAS_DIFF" != "True" ] && [ "$SYNC_SCRIPT_IN_TREE" = 0 ]; then
   log_append "- **no-diff** 零动作零 PR（幂等）｜base=$BASE_SHA｜正本=$(wc -l < "$SRC_LEDGER") 行＝仓内账本 $(wc -l < "$RUN_DIR/base-ledger.md") 行"
   echo "[sync] no-diff, zero action"
   exit 0
+fi
+if [ "$HAS_DIFF" != "True" ]; then
+  SELF_ONLY=1            # 无账本 diff、仅同步腿本体更新 → 单独开门本体更新 PR
+  echo "[sync] self-only update (no ledger diff)"
 fi
 
 # ---- 步骤 4：合并构造 + P-04 机械脱敏 + scrub 预扫（0 命中才继续）------------
@@ -575,13 +618,17 @@ PY
 engine scan --file "$RUN_DIR/merged-raw.md" --redact --out "$RUN_DIR/scrub-merged.json" \
   || fatal 3 "scrub" "SCRUB 必过门拦截（读数 $RUN_DIR/scrub-merged.json）——不推"
 RED_N="$(python3 -I -c "import json;print(json.load(open('$RUN_DIR/scrub-merged.json')).get('redaction_count',0))")"
+PROJ_N="$(python3 -I -c "import json;print(len(json.load(open('$RUN_DIR/plan.json')).get('projection_redactions',[])))")"
 if [ "$RED_N" -gt 0 ]; then
+  # 兜底（投影后理应为 0；若再命中=投影面意外残留，仍按机械脱敏处理并留痕）
   python3 -I -c "
 import json
 r=json.load(open('$RUN_DIR/scrub-merged.json'))
 assert 'redacted_text' in r, '报告无脱敏正文'
 open('$RUN_DIR/merged-final.md','w',encoding='utf-8').write(r['redacted_text'])"
-  SCRUB_NOTE="P-04 机械脱敏 ${RED_N} span 后 0 命中（正本零改动，置换仅落推送面）"
+  SCRUB_NOTE="P-04 机械脱敏 ${RED_N} span 后 0 命中（正本零改动）"
+elif [ "$PROJ_N" -gt 0 ]; then
+  SCRUB_NOTE="P-04 计划面投影 ${PROJ_N} span（确定性投影函数，正本零改动）→ 推送面扫描 0 命中"
 else
   SCRUB_NOTE="0 命中"
 fi
@@ -623,31 +670,36 @@ if [ "$DRY" = "1" ]; then
   exit 0
 fi
 
-# ---- 步骤 6：同步腿本体自扫（若相对 git 有未落状态）+ 组提交 -------------------
-SYNC_SCRIPT_IN_TREE=0
-GIT_ST="$(git -C "$CLONE" status --porcelain -- tools/ledger-sync.sh || true)"
-if [ -n "$GIT_ST" ]; then
-  if [ "$SCRIPT_PATH" != "$CLONE/tools/ledger-sync.sh" ] && ! cmp -s "$SCRIPT_PATH" "$CLONE/tools/ledger-sync.sh"; then
-    cp "$SCRIPT_PATH" "$CLONE/tools/ledger-sync.sh"
-  fi
-  SYNC_SCRIPT_IN_TREE=1
-  engine scan --file "$CLONE/tools/ledger-sync.sh" \
-    || fatal 3 "scrub-self" "同步腿本体未过 scrub——先清洗再落"
-fi
+# ---- 步骤 6：组提交（账本 diff 与/或同步腿本体）--------------------------------
 engine scan --file "$RUN_DIR/merged-final.md" >/dev/null \
   || fatal 3 "scrub-merged-final" "终版账本未过 scrub"
 
-BRANCH="task/ledgersync-$(python3 -I -c "import hashlib;print(hashlib.sha256(open('$RUN_DIR/merged-final.md','rb').read()).hexdigest()[:8])")"
-git -C "$CLONE" checkout --quiet -B "$BRANCH" origin/main
-cp "$RUN_DIR/merged-final.md" "$CLONE/账本/阶段欠账台账.md"
-COMMIT_TITLE="ledgersync(夜轨C3): 账本缺行追加 ${APPEND_COUNT} 行（${UPDATE_COUNT} 处状态列）$( [ "$SYNC_SCRIPT_IN_TREE" = 1 ] && echo "＋同步腿 tools/ledger-sync.sh 首落" )"
-COMMIT_BODY="正本=工作区 计划/阶段欠账台账.md → 仓内 账本/阶段欠账台账.md（断点4：登记→planner 可见）
+if [ "$SELF_ONLY" = 1 ]; then
+  BRANCH="task/ledgersync-self-$(python3 -I -c "import hashlib;print(hashlib.sha256(open('$SCRIPT_PATH','rb').read()).hexdigest()[:8])")"
+else
+  BRANCH="task/ledgersync-$(python3 -I -c "import hashlib;print(hashlib.sha256(open('$RUN_DIR/merged-final.md','rb').read()).hexdigest()[:8])")"
+fi
+cp "$SCRIPT_PATH" "$RUN_DIR/script-payload.sh"   # 载荷真相源先存（checkout -f 不丢）
+git -C "$CLONE" checkout -f --quiet -B "$BRANCH" origin/main
+if [ "$SELF_ONLY" != 1 ]; then
+  cp "$RUN_DIR/merged-final.md" "$CLONE/账本/阶段欠账台账.md"
+  git -C "$CLONE" add 账本/阶段欠账台账.md
+fi
+cp "$RUN_DIR/script-payload.sh" "$CLONE/tools/ledger-sync.sh"
+if [ "$SELF_ONLY" = 1 ]; then
+  COMMIT_TITLE="ledgersync-selfupdate: 同步腿本体修复/改进（无账本 diff）"
+  COMMIT_BODY="tools/ledger-sync.sh 自更新通道：无账本 diff 而本体相对 origin/main 有改动时，单独开门本体更新 PR（cron 无账本 diff 期间也能落本体修复）。
+base=origin/main ${BASE_SHA}
+夜轨C3-20261107 · ledger-sync.sh"
+else
+  COMMIT_TITLE="ledgersync(夜轨C3): 账本缺行追加 ${APPEND_COUNT} 行（${UPDATE_COUNT} 处状态列）$( [ "$SYNC_SCRIPT_IN_TREE" = 1 ] && echo "＋同步腿 tools/ledger-sync.sh 首落/更新" )"
+  COMMIT_BODY="正本=工作区 计划/阶段欠账台账.md → 仓内 账本/阶段欠账台账.md（断点4：登记→planner 可见）
 base=origin/main ${BASE_SHA}
 diff 形态=追加行 ${APPEND_COUNT}＋状态列变更 ${UPDATE_COUNT}（append-only：禁改区=既有行前 5 格，逐行 sha 对账过，读数见 PR）
 SCRUB 预扫=${SCRUB_NOTE}（内核=tools/mirror-disclose.sh 内嵌 scan_text，与 gates.yml 剖面②同源）
 夜轨C3-20261107 · ledger-sync.sh"
-git -C "$CLONE" add 账本/阶段欠账台账.md
-[ "$SYNC_SCRIPT_IN_TREE" = 1 ] && git -C "$CLONE" add tools/ledger-sync.sh
+fi
+git -C "$CLONE" add tools/ledger-sync.sh
 engine scan --file <(printf '%s\n%s\n' "$COMMIT_TITLE" "$COMMIT_BODY") >/dev/null 2>&1 \
   || fatal 3 "scrub-commitmsg" "提交题/体未过 scrub"
 git -C "$CLONE" \
@@ -709,6 +761,18 @@ unset_GH_PROXY
 echo "[sync] pushed $BRANCH"
 
 # ---- 步骤 9：PR 体（scrub 预扫）→ App 开门 ------------------------------------
+if [ "$SELF_ONLY" = 1 ]; then
+  PR_TITLE="ledgersync-selfupdate: 同步腿本体更新（无账本 diff）"
+  PR_BODY="## 同步腿本体自更新（夜轨C3-20261107）
+
+- 本 PR 只改 tools/ledger-sync.sh（同步腿本体），**账本零 diff**（plan: 追加 0 行＋状态列 0 处，见 run 证据 plan.json has_diff=false）。
+- 自更新通道：无账本 diff 期间本体修复/改进也能落库，cron 无账本 diff 轮不再携带过期本体。
+- 判据/判官件零改动：不触 tools/ 既有件、allowlist、gates.yml/planner.yml。
+- SCRUB 预扫：本体 0 命中（内核=tools/mirror-disclose.sh 内嵌 scan_text，与 gates.yml 剖面②同源）。
+
+---
+run 证据: $RUN_DIR · 留痕: 30-工件/夜轨C3-20261107/sync-log.md"
+else
 SUMMARY="$(python3 -I - "$RUN_DIR/plan.json" "$RUN_DIR/verify.json" "$RUN_DIR/scrub-merged.json" <<'PY'
 import json, sys
 plan = json.load(open(sys.argv[1], encoding="utf-8"))
@@ -716,9 +780,9 @@ v = json.load(open(sys.argv[2], encoding="utf-8"))
 s = json.load(open(sys.argv[3], encoding="utf-8"))
 rows = ", ".join(plan["append_row_ids"]) or "（无）"
 upds = ", ".join(plan["update_row_ids"]) or "0 处"
-red = s.get("redactions") or []
+red = plan.get("projection_redactions") or []
 rednote = "；".join(
-    f"行{r['line']} {r['pattern']} span 级置换为「[内网地址P-04已脱敏]」（正本零改动）"
+    f"正本行{r['source_lineno']} {r['pattern']} span 级置换为「[内网地址P-04已脱敏]」（正本零改动，投影确定性）"
     for r in red[:3]) if red else "无"
 print(f"""## 账本同步腿·首落与首跑（夜轨C3-20261107）
 
@@ -730,8 +794,8 @@ print(f"""## 账本同步腿·首落与首跑（夜轨C3-20261107）
 - append-only 对账：PASS（基线 {v['base_lines']} 行 + 追加 {plan['append_count']} = {v['merged_lines']} 行；未触行逐行 sha 全等 {v['untouched_equal']}/{v['untouched_equal']}；既有行前 5 格（禁改区）零改动）
 
 **SCRUB 必过门（推送前本地预扫，内核=gates.yml 剖面②同源）**
-- 合并后账本全文：{s.get('verdict')}，机械脱敏 {s.get('redaction_count', 0)} span（P-04 内网 CGNAT 地址，仅命中的 span 置换为「[内网地址P-04已脱敏]」并留痕 {rednote}；正本零改动）
-- 同步腿本体 tools/ledger-sync.sh（本 PR 新增件）：预扫 0 命中
+- 对账基准=正本的 P-04 脱敏投影（内网 CGNAT 地址不得外流；投影函数确定性、逐 span 留痕）：{rednote}
+- 合并后账本全文扫描：{s.get('verdict')}（0 命中才推送）；同步腿本体预扫 0 命中
 
 **判据/判官件零改动**：不触 tools/ 既有件、allowlist、gates.yml/planner.yml。
 """)
@@ -740,9 +804,10 @@ PY
 PR_BODY="$SUMMARY
 ---
 run 证据: $RUN_DIR · 留痕: 30-工件/夜轨C3-20261107/sync-log.md"
+PR_TITLE="ledgersync(夜轨C3): 账本缺行追加 ${APPEND_COUNT} 行（断点4闭合·append-only 对账过）"
+fi
 printf '%s\n' "$PR_BODY" > "$RUN_DIR/pr-body.md"
 engine scan --file "$RUN_DIR/pr-body.md" >/dev/null || fatal 3 "scrub-prbody" "PR 体未过 scrub"
-PR_TITLE="ledgersync(夜轨C3): 账本缺行追加 ${APPEND_COUNT} 行（断点4闭合·append-only 对账过）"
 export_GH_PROXY
 PR_JSON="$(curl -sS -m 60 -K "$CF_APP" -X POST \
   "https://api.github.com/repos/$REPO_SLUG/pulls" \
@@ -803,6 +868,26 @@ done
 [ "$GATES" = "success" ] || fatal 6 "gates" "gates 等待超时（末值=$GATES，PR #$PR_NUM）"
 echo "[sync] gates=success"
 
+# ---- 步骤 11b：全检查排空等待（防快合竞速：gates 绿后礼貌等其余检查收尾，
+#      避免 anolis 排队 job 在合线删分支后 clone 落空 → 结构性 exit 2 假红）------
+DRAIN=""
+for i in $(seq 1 30); do   # 30×20s=10min 上界；到界即继续（required gates 已绿）
+  export_GH_PROXY
+  CRALL="$(curl -sS -m 60 -K "$CF_PAT" "https://api.github.com/repos/$REPO_SLUG/commits/$HEAD_SHA/check-runs?per_page=100" 2>/dev/null || echo '{}')"
+  unset_GH_PROXY
+  DRAIN="$(printf '%s' "$CRALL" | python3 -I -c "
+import json,sys
+try:
+  d=json.load(sys.stdin)
+  runs=d.get('check_runs',[])
+  print('done' if all(r.get('status')=='completed' for r in runs) else 'pending')
+except Exception:
+  print('done')")"
+  [ "$DRAIN" = "done" ] && break
+  sleep 20
+done
+echo "[sync] drain=$DRAIN（上界到即继续：required gates 已绿）"
+
 # ---- 步骤 12：squash 合线（PUT 非 POST）+ 删远端分支 ----------------------------
 export_GH_PROXY
 MRG_CODE="$(curl -sS -m 60 -K "$CF_PAT" -X PUT \
@@ -840,11 +925,16 @@ print(f'{len(ids)}/{len(plan[\"append_row_ids\"])}')")"
 echo "[sync] readback: main=$NEW_SHA 新行在盘=$NEW_ON_DISK"
 
 # ---- 步骤 14：留痕 ---------------------------------------------------------------
-log_append "- **SYNCED** base=$BASE_SHA → main=$NEW_SHA（PR #$PR_NUM squash）
+if [ "$SELF_ONLY" = 1 ]; then
+  log_append "- **SELFUPDATE** base=$BASE_SHA → main=$NEW_SHA（PR #$PR_NUM squash）｜同步腿本体更新（账本零 diff）｜SCRUB 本体 0 命中
+- run 证据: $RUN_DIR"
+else
+  log_append "- **SYNCED** base=$BASE_SHA → main=$NEW_SHA（PR #$PR_NUM squash）
 - diff: 追加 ${APPEND_COUNT} 行〔$(python3 -I -c "import json;print(', '.join(json.load(open('$RUN_DIR/plan.json'))['append_row_ids']))")〕＋状态列 ${UPDATE_COUNT} 处〔$(python3 -I -c "import json;print(', '.join(json.load(open('$RUN_DIR/plan.json'))['update_row_ids']) or '无')")〕
 - append-only 对账: PASS（$RUN_DIR/verify.json：未触行 sha 全等、禁改区零改动、追加块=正本）
 - SCRUB 预扫: ${SCRUB_NOTE}（$RUN_DIR/scrub-merged.json；正本零改动）
 - 回读: origin/main 账本新行在盘 ${NEW_ON_DISK}＝断点4闭合证据（$RUN_DIR/readback-verify.json）
 - run 证据: $RUN_DIR"
+fi
 echo "[sync] DONE log=$SYNC_LOG"
 exit 0
