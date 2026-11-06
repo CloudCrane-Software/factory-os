@@ -1,0 +1,979 @@
+# ============================================================================
+# planner.yml —— P4 规划环定时化（黑灯工厂 · GitHub 协作平面）
+# 草案 v1 · 2026-11-06
+# 依据：01-建设方案.md（§二 身份与权限模型 / §四 规划环上云 / §八 执行约束）、
+#       03-主会话交接.md（§三.2 P4）、00-盘点.md（配额与三机现实）、
+#       30-工件/波次自转器-20261106/制度-v1.md（§二 四通道 / §五 OOM 准入 / §六 已知坑）、
+#       30-工件/波次自转器-20261106/wave-01.json（af.wave-manifest.v1 字段真源）、
+#       状态/模型配额停用-20261105.json（2026-11-06 09:25 版配额现实）。
+#
+# 【部署注记 · P4 落地前必读】
+# 1. 运行仓 = factory-os。schedule 触发器只能位于运行仓默认分支；Actions 内置
+#    GITHUB_TOKEN 按仓作用域。本环全部读写落在 factory-os：读板（issues/labels）、
+#    读账面（波次清单 + 欠账台账）、commit manifest、建 Issue——一 Token 闭环，
+#    与 01-建设方案 §二「规划环 = Actions 内置 GITHUB_TOKEN，无需 App/PAT」一致。
+#    本文件是 .github 治理仓的母本（staging/planner/planner.yml）；P4 部署动作 =
+#    复制为 factory-os/.github/workflows/planner.yml。.github 侧继续持有母本 +
+#    提示词模板（planner/planner-prompt.md）+ 配额状态副本（planner/quota-status.json），
+#    由本工作流只读拉取。若要求母本直接在 .github 仓运行，跨仓写须改用
+#    Repo-Writer App installation token——与 §二 相违，不取。
+# 2. 板 = factory-os 的 issues/labels 状态机（label 分类法随 .github 治理面 P1
+#    建立：wave + state:queued/dispatched/running/verifying/merge-check/merged/
+#    ledgered/parked + legacy）。若运营者裁定板落 af 仓：BOARD_REPO 改 af 且
+#    planner 须改跑 af 仓（manifest 随之落 af）或整体改用 App token——P4 上线前
+#    定论，禁两仓双板。
+# 3. STEP_API_KEY 配于 factory-os 的 repo secret 或 org secret。钥匙源头 openBao
+#    secret/stepfun（状态/openBao.md:55）。纪律：明文只进 secret；禁入 git、禁打印、
+#    禁进 artifact（01-建设方案 §八）。
+# 4. Runner = ubuntu-latest（GitHub 托管；公开仓免费分钟前提见 02-清单 ④）。
+#    anolis-heavy 自托管（P2）只服务 gates.yml——规划环不吃算力、不碰 cargo。
+# 5. 配额现实（状态/模型配额停用-20261105.json · 2026-11-06 09:25 版）：
+#    rank1 唯一主通道 = new-provider/step-5-preview（key 2026-12-05 20:00 过期）；
+#    GLM 全账户停用至 2026-11-06 18:00、start-plan 免费窗 09:00 EXPIRED、
+#    minimax 周额度 EXHAUSTED（禁用至周重置）⇒ 通道集仅 anolis-build / local-api /
+#    bot-lane；GLM/start-plan 通道在 quota-status.json 解禁前一律不派。
+# 6. 调用预算：cron 每小时 :05 一次 ⇒ 稳态 1 次/h；单跑硬顶 2 次（首发 + 1 重试）；
+#    workflow_dispatch 手动跑同样计数（跨跑守卫见 03a/03b/03c，Actions cache
+#    best-effort——cache 可能 miss/evict，故单跑硬顶才是主闸）。
+# 7. factory-os main 若启用「要求 PR」分支保护，planner 直推会被拒——P4 前须裁定：
+#    factory-os main 对 planner（GITHUB_TOKEN）放开直推，或改走
+#    「planner/<wave> 分支 + auto-merge」两段式（pull-requests:write 已在权限内）。
+#    本稿取直推（append-only 只增不改，见 factory-os README §二）。
+# 8. GITHUB_TOKEN 的 push 默认不触发其它工作流——不会形成 gates 重跑环。
+#
+# 【模型与配额实读口径（注释留证；密钥绝不硬编码）】
+#   provider_id = new-provider（阶跃星辰）　model_id = step-5-preview
+#   base_url    = https://api.stepfun.com/step_plan/v1（OpenAI 兼容 /chat/completions）
+#   实读来源（2026-11-06）：
+#     ① 本机 ~/.zcode/v2/provider_config.json：new-provider.api.baseUrl 同上，
+#        api.type = openai-chat-completions，personalModelIds 含 step-5-preview；
+#     ② 仓内同值钉扎：30-工件/外派/g3-manifest-review/r2-scratch/crates/af-bench/
+#        src/main.rs:240（key_ref = stepfun-plan）等多处一致；
+#     ③ 状态/openBao.md:55：openBao secret/ 命名空间含 stepfun（钥匙在位证据）；
+#     ④ 状态/模型配额停用-20261105.json priority[0]：rank1 唯一主通道、key 过期日。
+#   机器可读副本：.github 仓 planner/quota-status.json（P4 上线前由主代理从
+#   状态/模型配额停用-*.json 同步；该状态件按 factory-os README §三 不入 factory-os）。
+# ============================================================================
+
+name: planner
+
+on:
+  schedule:
+    # 每小时 :05：错开整点峰值；01-建设方案 §四「schedule cron（每小时）」
+    - cron: '5 * * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'true = 只规划+校验+artifact，不 commit 不建 Issue（演练）'
+        required: false
+        default: 'false'
+      wave_number:
+        description: '覆盖波次号（如 07；留空 = 现有最大波次 + 1）'
+        required: false
+        default: ''
+      reason:
+        description: '手动触发事由（进 run 摘要与 Issue 回执）'
+        required: false
+        default: 'manual-dispatch'
+
+permissions:
+  issues: write          # 按卡建 Issue（状态机起点 state:queued）
+  contents: write        # commit wave manifest 到 factory-os（append-only）
+  pull-requests: write   # 预留：P5 起自动合线腿（本工作流不开 PR、不合线）
+
+concurrency:             # 单写者：禁重叠跑双解（与防双解占用规则同向）
+  group: planner
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  ORG: 'CloudCrane-Software'
+  BOARD_REPO: 'factory-os'
+  GOVERNANCE_REPO: '.github'
+  # 任务书口径「factory-os/波次/」= 仓内实况 波次清单/（staging/factory-os/README.md §一）
+  WAVE_DIR: '波次清单'
+  LEDGER_FILE: '账本/阶段欠账台账.md'
+  # —— step-5-preview 实读口径（见文件头注释；密钥只走 secret STEP_API_KEY）——
+  STEP_BASE_URL: 'https://api.stepfun.com/step_plan/v1'
+  STEP_MODEL: 'step-5-preview'
+  # —— 硬配额与预算（= 制度-v1 §五 + wave-01.json budgets 真源）——
+  MAX_API_CALLS_PER_HOUR: '2'
+  MAX_CARDS_PER_WAVE: '20'
+  ANOLIS_MEM_CAP_G: '45'
+  LOCAL_MEM_CAP_G: '3'
+  ANOLIS_CONCURRENCY: '4'
+  ANOLIS_CARD_MIN_G: '6'
+  ANOLIS_CARD_MAX_G: '10'
+  RUN_REASON: ${{ inputs.reason || 'cron' }}
+  DRY_RUN: ${{ inputs.dry_run || 'false' }}
+  WAVE_OVERRIDE: ${{ inputs.wave_number || '' }}
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # gh api 全程只用内置 Token（01-建设方案 §二）
+    steps:
+      - name: '00 · 运行参数回显（禁打印任何密钥）'
+        run: |
+          {
+            echo "### planner · P4 规划环"
+            echo "- run_id=${GITHUB_RUN_ID} · trigger=${GITHUB_EVENT_NAME} · reason=${RUN_REASON}"
+            echo "- dry_run=${DRY_RUN} · wave_override=${WAVE_OVERRIDE:-<auto>}"
+            echo "- board=${ORG}/${BOARD_REPO} · wave_dir=${WAVE_DIR}"
+            echo "- model=${STEP_MODEL} @ ${STEP_BASE_URL}（key 走 secret STEP_API_KEY，不回显）"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # ── 双仓落盘：.github 治理面（模板+配额副本）与 factory-os（账面+板）──
+      - name: '01 · checkout 治理面（.github：提示词模板 + 配额状态副本）'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.ORG }}/${{ env.GOVERNANCE_REPO }}
+          path: governance
+          sparse-checkout: |
+            planner
+          persist-credentials: false
+
+      - name: '02 · checkout 账面（factory-os：波次清单 + 账本，板同仓）'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          path: factory-os
+          token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: true
+
+      # ── 调用账本（配额计数）：cache best-effort，供 03b 跨跑守卫 ──
+      - name: '03a · 恢复调用账本（best-effort；cache 可能 miss/evict）'
+        uses: actions/cache/restore@v4
+        continue-on-error: true
+        with:
+          path: planner-call-log.json
+          key: planner-call-log-${{ github.run_id }}
+          restore-keys: |
+            planner-call-log-
+
+      # ── 配额闸 + 调用预算守卫：不满足即空转（skip 不是失败，artifact 留证）──
+      - name: '03b · 配额闸 + 调用预算守卫（fail-closed）'
+        id: quota
+        run: |
+          set -euo pipefail
+          touch planner-call-log.json
+          python3 -I - <<'PY'
+          import json, os, re, sys
+          from datetime import datetime, timezone, timedelta
+
+          TZ8 = timezone(timedelta(hours=8))
+          now = datetime.now(TZ8)
+          gov = "governance/planner/quota-status.json"
+          result = {
+              "checked_at": now.isoformat(timespec="seconds"),
+              "quota_file": gov,
+              "checks": [],
+              "plan_allowed": False,
+              "skip_reason": None,
+              "warnings": [],
+          }
+
+          def finish():
+              with open("planner-quota.json", "w", encoding="utf-8") as f:
+                  json.dump(result, f, ensure_ascii=False, indent=1)
+              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+                  f.write("plan_allowed=%s\n" % ("true" if result["plan_allowed"] else "false"))
+              print("quota guard: plan_allowed=%s · reason=%s"
+                    % (result["plan_allowed"], result["skip_reason"] or "-"))
+
+          if not os.path.exists(gov):
+              result["skip_reason"] = ("配额状态副本缺场（.github/planner/quota-status.json）——fail-closed 拒调；"
+                                       "P4 上线前须把 状态/模型配额停用-*.json 同步为该副本"
+                                       "（该状态件按 factory-os README §三 不入 factory-os）")
+              finish()
+              sys.exit(0)
+
+          q = json.load(open(gov, encoding="utf-8"))
+          prio = q.get("priority") or []
+          rank1 = prio[0] if prio else {}
+          model = rank1.get("model_id")
+          provider = rank1.get("provider_id")
+          result["rank1"] = {"provider_id": provider, "model_id": model, "note": rank1.get("note")}
+
+          ok_rank1 = (model == os.environ["STEP_MODEL"] and provider == "new-provider")
+          result["checks"].append({"check": "rank1 == new-provider/step-5-preview", "ok": bool(ok_rank1)})
+
+          banned = set(((q.get("banned") or {}).get("model_ids")) or [])
+          ok_not_banned = os.environ["STEP_MODEL"] not in banned
+          result["checks"].append({"check": "step-5-preview 不在 banned.model_ids", "ok": bool(ok_not_banned)})
+
+          m = re.search(r"(\d{4}-\d{2}-\d{2})(?:\s+(\d{2}:\d{2}))?", rank1.get("note") or "")
+          if m:
+              try:
+                  exp = datetime.fromisoformat(m.group(1) + "T" + (m.group(2) or "20:00") + ":00+08:00")
+                  days = (exp - now).days
+                  result["key_expiry"] = exp.isoformat(timespec="minutes")
+                  if days <= 14:
+                      result["warnings"].append("STEP_API_KEY %d 天后过期（%s）——轮换统一批前置预警"
+                                                % (days, exp.date().isoformat()))
+              except ValueError:
+                  pass
+
+          cap = int(os.environ.get("MAX_API_CALLS_PER_HOUR", "2"))
+          hour = now.strftime("%Y%m%d%H")
+          calls = []
+          if os.path.exists("planner-call-log.json"):
+              try:
+                  calls = [e for e in json.load(open("planner-call-log.json", encoding="utf-8"))
+                           if e.get("hour") == hour]
+              except Exception:
+                  calls = []
+          result["calls_this_hour"] = len(calls)
+          result["checks"].append({"check": "本小时已调用 < %d" % cap, "ok": len(calls) < cap})
+
+          result["plan_allowed"] = bool(ok_rank1 and ok_not_banned and len(calls) < cap)
+          if not result["plan_allowed"]:
+              bits = []
+              if not ok_rank1:
+                  bits.append("rank1 非 step-5-preview（%s/%s）" % (provider, model))
+              if not ok_not_banned:
+                  bits.append("step-5-preview 在停用清单")
+              if len(calls) >= cap:
+                  bits.append("本小时调用已满 %d 次（≤%d 次/h 纪律）" % (len(calls), cap))
+              result["skip_reason"] = "；".join(bits)
+          finish()
+          sys.exit(0)
+          PY
+
+      - name: '03c · 保存调用账本（best-effort）'
+        if: always()
+        uses: actions/cache/save@v4
+        continue-on-error: true
+        with:
+          path: planner-call-log.json
+          key: planner-call-log-${{ github.run_id }}
+
+      # ── 读板：issues + labels 聚合状态机（幂等与防双解的事实源）──
+      - name: '04 · 读板（gh api：issues + labels 聚合状态）'
+        if: steps.quota.outputs.plan_allowed == 'true'
+        run: |
+          set -euo pipefail   # 本步无「预期失败」命令，全部必须成功（制度 §六.2 反模式不适用）
+          gh api "repos/${ORG}/${BOARD_REPO}/issues?state=open&per_page=100" --paginate \
+            --jq '.[] | select(.pull_request == null) | {number, title, labels: [.labels[].name], body, updated_at}' \
+            > board-issues.ndjson
+          python3 -I - <<'PY'
+          import json, os, re
+          from datetime import datetime, timezone, timedelta
+
+          issues = []
+          with open("board-issues.ndjson", encoding="utf-8") as f:
+              for line in f:
+                  line = line.strip()
+                  if line:
+                      issues.append(json.loads(line))
+
+          by_state, by_wave, in_flight, occupied, titles = {}, {}, set(), set(), []
+          for it in issues:
+              labels = it.get("labels") or []
+              for lb in labels:
+                  if lb.startswith("state:"):
+                      by_state[lb] = by_state.get(lb, 0) + 1
+                  if lb == "wave" or lb.startswith("wave-"):
+                      by_wave[lb] = by_wave.get(lb, 0) + 1
+              titles.append({"number": it.get("number"), "title": it.get("title"), "labels": labels})
+              m = re.match(r"\[wave-\d+\]\s+([A-Za-z0-9._-]+)", it.get("title") or "")
+              if m:
+                  in_flight.add(m.group(1))
+              m2 = re.search(r"【债号】`([^`]+)`", it.get("body") or "")
+              if m2:
+                  occupied.add(m2.group(1).strip())
+
+          board = {
+              "generated_at": datetime.now(timezone(timedelta(hours=8))).isoformat(timespec="seconds"),
+              "repo": "%s/%s" % (os.environ["ORG"], os.environ["BOARD_REPO"]),
+              "open_issues_total": len(issues),
+              "by_state_label": by_state,
+              "by_wave_label": by_wave,
+              "in_flight_task_ids": sorted(in_flight),
+              "occupied_debt_anchors": sorted(occupied),
+              "issues": titles,
+          }
+          with open("board-state.json", "w", encoding="utf-8") as f:
+              json.dump(board, f, ensure_ascii=False, indent=1)
+          print("board: open=%d · in_flight=%d · occupied_anchors=%d"
+                % (len(issues), len(in_flight), len(occupied)))
+          PY
+
+      # ── 读账面：波次清单（状态机实况）+ 欠账台账行级摘要（锚点宇宙）──
+      - name: '05 · 读 factory-os 账面（波次清单 + 欠账台账摘要）'
+        if: steps.quota.outputs.plan_allowed == 'true'
+        run: |
+          set -euo pipefail
+          python3 -I - <<'PY'
+          import glob, json, os, re
+          from datetime import datetime, timezone, timedelta
+
+          wave_dir = os.path.join("factory-os", os.environ["WAVE_DIR"])
+          ledger_path = os.path.join("factory-os", os.environ["LEDGER_FILE"])
+          warnings = []
+          TERMINAL = {"ledgered", "merged"}
+
+          manifests, all_cards = [], []
+          for p in sorted(glob.glob(os.path.join(wave_dir, "wave-*.json"))):
+              try:
+                  d = json.load(open(p, encoding="utf-8"))
+              except Exception as e:
+                  warnings.append("manifest 解析失败 %s：%s" % (os.path.basename(p), e))
+                  continue
+              cards = d.get("cards") or []
+              by_state = {}
+              for c in cards:
+                  s = c.get("state", "?")
+                  by_state[s] = by_state.get(s, 0) + 1
+              manifests.append({"wave": d.get("wave"), "_file": os.path.basename(p),
+                                "cards": len(cards), "by_state": by_state,
+                                "base_sha": d.get("base_sha")})
+              for c in cards:
+                  all_cards.append((d.get("wave"), c))
+
+          nums = []
+          for m in manifests:
+              mm = re.fullmatch(r"wave-(\d+)", m.get("wave") or "")
+              if mm:
+                  nums.append(int(mm.group(1)))
+          latest = max(nums) if nums else 0
+          override = os.environ.get("WAVE_OVERRIDE", "").strip()
+          next_num = int(override) if override else latest + 1
+
+          non_terminal = []
+          for wv, c in all_cards:
+              if c.get("state") not in TERMINAL:
+                  non_terminal.append({"task_id": c.get("task_id"), "debt": c.get("debt"),
+                                       "wave": wv, "state": c.get("state"),
+                                       "channel": c.get("channel"), "mem_budget_g": c.get("mem_budget_g")})
+
+          # 欠账台账行级启发式摘要（单元格内含 | ，不做结构化切分；判双解以板+波次状态机为准）
+          anchors, rows_total, done_rows = [], 0, 0
+          if os.path.exists(ledger_path):
+              with open(ledger_path, encoding="utf-8") as f:
+                  for line in f:
+                      m = re.match(r"^\|\s*([A-Za-z]{1,5}-[A-Za-z0-9-]+)\s*\|", line)
+                      if not m:
+                          continue
+                      rows_total += 1
+                      done = "\u2705" in line   # 台账完成态标记
+                      if done:
+                          done_rows += 1
+                      anchors.append({"id": m.group(1), "done": done,
+                                      "waves": sorted(set(re.findall(r"wave-\d+", line)))})
+          else:
+              warnings.append("欠账台账不在场：%s" % os.environ["LEDGER_FILE"])
+
+          open_anchors = [a["id"] for a in anchors if not a["done"]]
+          anchors_tail = anchors[-80:]
+          if len(anchors) > len(anchors_tail):
+              warnings.append("anchors 截断：仅带末 80 行（open_anchors 全量保留）")
+
+          base_sha = None
+          for m in reversed(manifests):
+              if m.get("base_sha"):
+                  base_sha = m["base_sha"]
+                  break
+
+          summary = {
+              "generated_at": datetime.now(timezone(timedelta(hours=8))).isoformat(timespec="seconds"),
+              "wave_dir": os.environ["WAVE_DIR"],
+              "manifests": manifests,
+              "latest_wave": ("wave-%02d" % latest) if latest else None,
+              "next_wave": "wave-%02d" % next_num,
+              "wave_expected": "wave-%02d" % next_num,
+              "base_sha": base_sha,
+              "ledger_file": os.environ["LEDGER_FILE"],
+              "ledger_rows_total": rows_total,
+              "ledger_done_rows": done_rows,
+              "anchors": anchors_tail,
+              "open_anchors": open_anchors,
+              "non_terminal_cards": non_terminal,
+              "warnings": warnings,
+          }
+          with open("ledger-summary.json", "w", encoding="utf-8") as f:
+              json.dump(summary, f, ensure_ascii=False, indent=1)
+          print("ledger: manifests=%d · latest=%s · next=%s · rows=%d(done=%d) · open_anchors=%d · non_terminal=%d"
+                % (len(manifests), summary["latest_wave"], summary["next_wave"],
+                   rows_total, done_rows, len(open_anchors), len(non_terminal)))
+          PY
+
+      # ── 组装规划输入：板状态 + 账本摘要 + 配额状态 + OOM 准入口径 ──
+      - name: '06 · 组装规划输入（planner-inputs.json）'
+        if: steps.quota.outputs.plan_allowed == 'true'
+        run: |
+          set -euo pipefail
+          python3 -I - <<'PY'
+          import json, os
+          from datetime import datetime, timezone, timedelta
+
+          board = json.load(open("board-state.json", encoding="utf-8"))
+          ledger = json.load(open("ledger-summary.json", encoding="utf-8"))
+          quota = json.load(open("planner-quota.json", encoding="utf-8"))
+
+          legacy, legacy_warn = [], None
+          lp = "governance/planner/legacy-backlog.json"
+          if os.path.exists(lp):
+              legacy = json.load(open(lp, encoding="utf-8"))
+          else:
+              legacy_warn = "legacy-backlog.json 缺场（可选治理件）——空板时无可推荐清偿项"
+
+          inputs = {
+              "generated_at": datetime.now(timezone(timedelta(hours=8))).isoformat(timespec="seconds"),
+              "run_id": os.environ["GITHUB_RUN_ID"],
+              "trigger": os.environ["GITHUB_EVENT_NAME"],
+              "wave_expected": ledger["wave_expected"],
+              "board_state": board,
+              "ledger_summary": ledger,
+              "quota_status": {
+                  "rank1": quota.get("rank1"),
+                  "banned_model_ids": ["GLM-5.3", "GLM-5.3-Flash", "MiniMax-M3.1-Flash"],
+                  "hold_until": "2026-11-06T18:00:00+0800",
+                  "key_expiry": quota.get("key_expiry"),
+                  "source": "状态/模型配额停用-20261105.json（治理副本 governance/planner/quota-status.json）",
+              },
+              "oom_admission": {
+                  "anolis": {
+                      "mem_cap_g": 45, "concurrency": 4, "card_range_g": [6, 10],
+                      "note": "125G 的 36%；Σmem_budget≤45G；cargo 并发≤4；cargo 必须剥离代理环境变量"
+                              "（env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u http_proxy -u https_proxy -u all_proxy LC_CTYPE=C.UTF-8）",
+                  },
+                  "local": {
+                      "mem_cap_g": 3, "cargo": "banned",
+                      "note": "14G 机昨夜 21:19 真 OOM；只允许 API 轨+门禁 ≈2G；solar 训练另一会话固定占 ~18% 不排程",
+                  },
+                  "gov": {"card_cap_g": 2, "note": "小件后端手术单卡 ≤2G"},
+              },
+              "budgets": {"anolis_mem_cap_g": 45, "local_mem_cap_g": 3, "anolis_concurrency": 4},
+              "base_sha": ledger.get("base_sha"),
+              "allowed_base_shas": [ledger["base_sha"]] if ledger.get("base_sha") else [],
+              "channels_allowed": ["anolis-build", "local-api", "bot-lane"],
+              "channels_banned": [
+                  {"channel": "GLM/start-plan",
+                   "reason": "start-plan 免费窗 2026-11-06 09:00 EXPIRED（状态/模型配额停用-20261105.json）；配额副本解禁前不派"}
+              ],
+              "legacy_backlog": legacy,
+              "constraints": {
+                  "schema": "af.wave-manifest.v1",
+                  "state_machine": "queued→(占用闸)→dispatched→running→verifying→(绿)merge-check→merged→ledgered；任一步红→parked+异常队列",
+                  "terminal_states": ["ledgered", "merged"],
+                  "occupancy_rule": "同一 debt 锚号在（板 open 卡 ∪ 历史波次非终态卡）中至多出现一次；台账无行的债号占用闸 fail-closed——先登记债行或换锚",
+                  "judge_protection": "判官/门禁/判据件由仓级 CODEOWNERS 锁 @feasy898，一改即拒收；只读卡走 content-only",
+                  "max_cards_per_wave": 20,
+                  "no_leaks": "任何字符串字段禁出现凭据形态（机扫 fail-closed）",
+              },
+          }
+          if legacy_warn:
+              inputs["warnings"] = [legacy_warn]
+
+          with open("planner-inputs.json", "w", encoding="utf-8") as f:
+              json.dump(inputs, f, ensure_ascii=False, indent=1)
+          print("inputs: wave_expected=%s · open_anchors=%d · in_flight=%d · base_sha=%s"
+                % (inputs["wave_expected"], len(ledger.get("open_anchors") or []),
+                   len(board.get("in_flight_task_ids") or []), inputs["base_sha"] or "<none>"))
+          PY
+
+      # ── 调 step-5-preview：≤2 次/h（首发+1 重试）；凭据只从 secret 取，禁打印 ──
+      - name: '07 · 调 step-5-preview API（fail-closed）'
+        if: steps.quota.outputs.plan_allowed == 'true'
+        run: |
+          set -euo pipefail
+          python3 -I - <<'PY'
+          import json, os, re, sys, time, urllib.error, urllib.request
+          from datetime import datetime, timezone, timedelta
+
+          key = os.environ.get("STEP_API_KEY") or ""
+          if not key:
+              print("STEP_API_KEY 缺席——fail-closed（P4 上线前须在 factory-os 配 repo/org secret；"
+                    "钥匙源头 openBao secret/stepfun）", file=sys.stderr)
+              sys.exit(3)
+
+          base = os.environ["STEP_BASE_URL"].rstrip("/")
+          model = os.environ["STEP_MODEL"]
+          with open("governance/planner/planner-prompt.md", encoding="utf-8") as f:
+              prompt = f.read()
+          with open("planner-inputs.json", encoding="utf-8") as f:
+              inputs = json.load(f)
+
+          body = {
+              "model": model,
+              "temperature": 0.2,
+              "max_tokens": 8192,
+              "messages": [
+                  {"role": "system", "content": prompt},
+                  {"role": "user", "content": json.dumps(inputs, ensure_ascii=False)},
+              ],
+          }
+          meta = {"model": model, "attempts": 0, "calls": []}
+          content = None
+          max_attempts = 2   # 硬顶：首发 + 1 重试 = 单跑 ≤2 次（叠加 cron 稳态 1 次/h 仍 ≤2 次/h）
+
+          for attempt in range(1, max_attempts + 1):
+              meta["attempts"] = attempt
+              req = urllib.request.Request(
+                  base + "/chat/completions",
+                  data=json.dumps(body).encode("utf-8"),
+                  headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"},
+                  method="POST",
+              )
+              t0 = time.monotonic()
+              try:
+                  with urllib.request.urlopen(req, timeout=180) as resp:
+                      payload = json.loads(resp.read().decode("utf-8"))
+                  status = 200
+              except urllib.error.HTTPError as e:
+                  status = e.code
+                  meta["calls"].append({"attempt": attempt, "http": status,
+                                        "ms": int((time.monotonic() - t0) * 1000)})
+                  if (status == 429 or status >= 500) and attempt < max_attempts:
+                      time.sleep(20)
+                      continue
+                  print("API 失败 HTTP %s——fail-closed（不产 manifest、不建 Issue）" % status, file=sys.stderr)
+                  with open("planner-raw.json", "w", encoding="utf-8") as f:
+                      json.dump(meta, f, ensure_ascii=False, indent=1)
+                  sys.exit(4)
+              except Exception as e:
+                  meta["calls"].append({"attempt": attempt, "http": None,
+                                        "note": type(e).__name__,
+                                        "ms": int((time.monotonic() - t0) * 1000)})
+                  if attempt < max_attempts:
+                      time.sleep(20)
+                      continue
+                  print("API 传输失败 %s——fail-closed" % type(e).__name__, file=sys.stderr)
+                  with open("planner-raw.json", "w", encoding="utf-8") as f:
+                      json.dump(meta, f, ensure_ascii=False, indent=1)
+                  sys.exit(5)
+
+              ms = int((time.monotonic() - t0) * 1000)
+              usage = payload.get("usage") or {}
+              finish_reason = (payload.get("choices") or [{}])[0].get("finish_reason")
+              meta["calls"].append({"attempt": attempt, "http": status, "ms": ms,
+                                    "prompt_tk": usage.get("prompt_tokens"),
+                                    "completion_tk": usage.get("completion_tokens"),
+                                    "finish_reason": finish_reason})
+              # 调用账本（配额计数；只记时间/用量，不记内容、不记密钥）
+              now = datetime.now(timezone(timedelta(hours=8)))
+              log = []
+              if os.path.exists("planner-call-log.json"):
+                  try:
+                      log = json.load(open("planner-call-log.json", encoding="utf-8"))
+                  except Exception:
+                      log = []
+              log.append({"hour": now.strftime("%Y%m%d%H"), "run_id": os.environ["GITHUB_RUN_ID"],
+                          "attempt": attempt, "http": status,
+                          "prompt_tk": usage.get("prompt_tokens"),
+                          "completion_tk": usage.get("completion_tokens")})
+              with open("planner-call-log.json", "w", encoding="utf-8") as f:
+                  json.dump(log[-500:], f, ensure_ascii=False)
+              choices = payload.get("choices") or []
+              if choices:
+                  content = (choices[0].get("message") or {}).get("content") or ""
+              if content:
+                  break
+
+          with open("planner-raw.json", "w", encoding="utf-8") as f:
+              json.dump(meta, f, ensure_ascii=False, indent=1)
+          if not content:
+              print("空响应——fail-closed", file=sys.stderr)
+              sys.exit(6)
+
+          text = content.strip()
+          text = re.sub(r"^```(?:json)?\s*", "", text)
+          text = re.sub(r"\s*```$", "", text)
+          try:
+              manifest = json.loads(text)
+          except Exception as e:
+              with open("manifest-candidate.raw.txt", "w", encoding="utf-8") as f:
+                  f.write(content[:20000])
+              print("响应非 JSON（%s）——fail-closed；原文存 manifest-candidate.raw.txt" % e, file=sys.stderr)
+              sys.exit(7)
+          if not isinstance(manifest, dict):
+              print("manifest 非对象——fail-closed", file=sys.stderr)
+              sys.exit(7)
+          with open("manifest-candidate.json", "w", encoding="utf-8") as f:
+              json.dump(manifest, f, ensure_ascii=False, indent=1)
+          print("manifest 候选落盘：cards=%d · attempts=%d（响应内容不进日志/artifact 元数据）"
+                % (len(manifest.get("cards") or []), meta["attempts"]))
+          PY
+
+      # ── 解析 + 校验：字段逐个数学校验，违者整波作废（不 commit、不建 Issue）──
+      - name: '08 · 解析 + 校验 manifest JSON（fail-closed）'
+        id: validate
+        if: steps.quota.outputs.plan_allowed == 'true'
+        run: |
+          set -euo pipefail
+          python3 -I - <<'PY'
+          import json, os, re, sys
+          from datetime import datetime, timezone, timedelta
+
+          errors, warnings = [], []
+          man = json.load(open("manifest-candidate.json", encoding="utf-8"))
+          board = json.load(open("board-state.json", encoding="utf-8"))
+          ledger = json.load(open("ledger-summary.json", encoding="utf-8"))
+          inputs = json.load(open("planner-inputs.json", encoding="utf-8"))
+
+          # ── 顶层 ──
+          if man.get("schema") != "af.wave-manifest.v1":
+              errors.append("schema 必须为 af.wave-manifest.v1（实得 %r）" % man.get("schema"))
+          wv = man.get("wave") or ""
+          if not re.fullmatch(r"wave-\d{2}", wv):
+              errors.append("wave 须为 wave-NN（实得 %r）" % wv)
+          elif wv != inputs["wave_expected"]:
+              errors.append("wave 应为 %s（现有最大波次+1 或覆盖值；实得 %s）" % (inputs["wave_expected"], wv))
+          if not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+08:?00", man.get("created") or ""):
+              errors.append("created 须为 ISO8601 +0800（如 2026-11-06T15:05:00+0800）")
+          if "\u5236\u5ea6-v1" not in (man.get("policy") or ""):
+              errors.append("policy 须指向 30-工件/波次自转器-20261106/制度-v1.md")
+          budgets = man.get("budgets") or {}
+          want_budgets = {"anolis_mem_cap_g": 45, "local_mem_cap_g": 3, "anolis_concurrency": 4}
+          if budgets != want_budgets:
+              errors.append("budgets 必须照抄真源 %s（实得 %s）" % (want_budgets, budgets))
+          base_sha = man.get("base_sha")
+          if base_sha is not None:
+              if not isinstance(base_sha, str) or not re.fullmatch(r"[0-9a-f]{7,40}", base_sha):
+                  errors.append("base_sha 须为 git SHA 十六进制串")
+              elif inputs.get("allowed_base_shas") and base_sha not in inputs["allowed_base_shas"]:
+                  errors.append("base_sha 必须等于输入钉桩基线 %s（禁编造；实得 %s）"
+                                % (inputs["allowed_base_shas"], base_sha))
+          cards = man.get("cards")
+          if not isinstance(cards, list):
+              errors.append("cards 必须为数组")
+              cards = []
+          if len(cards) > int(os.environ.get("MAX_CARDS_PER_WAVE", "20")):
+              errors.append("单波卡片上限 %s（实得 %d）" % (os.environ.get("MAX_CARDS_PER_WAVE"), len(cards)))
+
+          # ── 防双解占用证据集（板 open 卡 ∪ 历史波次非终态卡）──
+          occ_anchors = set(board.get("occupied_debt_anchors") or [])
+          occ_tasks = set(board.get("in_flight_task_ids") or [])
+          for c in ledger.get("non_terminal_cards") or []:
+              if c.get("debt"):
+                  occ_anchors.add(c["debt"])
+              if c.get("task_id"):
+                  occ_tasks.add(c["task_id"])
+          done_anchors = {a["id"] for a in (ledger.get("anchors") or []) if a.get("done")}
+          all_anchors = {a["id"] for a in (ledger.get("anchors") or [])}
+          CHANNELS = {"anolis-build", "local-api", "bot-lane"}
+          seen_task, seen_debt = set(), set()
+          sum_anolis = sum_local = n_anolis = n_bot = 0
+
+          for i, c in enumerate(cards):
+              tag = "card[%d]" % i
+              for k in ("task_id", "debt", "async", "channel", "allowed_paths",
+                        "acceptance", "merge_policy", "ledger", "mem_budget_g", "state"):
+                  if k not in c:
+                      errors.append("%s 缺字段 %s" % (tag, k))
+              tid = c.get("task_id") or ""
+              if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{2,63}", tid):
+                  errors.append("%s task_id 形制非法：%r" % (tag, tid))
+              if tid in seen_task:
+                  errors.append("%s task_id 波内重复：%s" % (tag, tid))
+              seen_task.add(tid)
+              if tid in occ_tasks:
+                  errors.append("%s task_id 已在板/历史波次在飞（双解）：%s" % (tag, tid))
+              debt = c.get("debt") or ""
+              if not debt:
+                  errors.append("%s debt 不得为空" % tag)
+              if debt in seen_debt:
+                  errors.append("%s debt 波内重复（双解）：%s" % (tag, debt))
+              seen_debt.add(debt)
+              if debt in occ_anchors:
+                  errors.append("%s debt 已被占用（板 open 卡或历史非终态卡；换锚或改 depends_on）：%s" % (tag, debt))
+              if debt in done_anchors:
+                  errors.append("%s debt 已 \u2705 终态，禁重复立项：%s" % (tag, debt))
+              if all_anchors and debt not in all_anchors and not tid.startswith("register-debt-"):
+                  errors.append("%s debt 无台账行（占用闸 fail-closed；先产 register-debt-* 登记卡或换锚）：%s" % (tag, debt))
+              ch = c.get("channel")
+              if ch not in CHANNELS:
+                  errors.append("%s channel 必须 ∈ %s（GLM/start-plan 免费窗 EXPIRED 不派；实得 %r）"
+                                % (tag, sorted(CHANNELS), ch))
+              is_async = c.get("async")
+              if not isinstance(is_async, bool):
+                  errors.append("%s async 必须为布尔" % tag)
+              if ch == "bot-lane" and is_async is not True:
+                  errors.append("%s bot-lane 卡必须 async=true（先登记后发布）" % tag)
+              if is_async is True and ch != "bot-lane":
+                  errors.append("%s async=true 只允许派 bot-lane（实得 channel=%r）" % (tag, ch))
+              mem = c.get("mem_budget_g")
+              if not isinstance(mem, int) or isinstance(mem, bool) or mem < 0:
+                  errors.append("%s mem_budget_g 必须为非负整数" % tag)
+              else:
+                  if ch == "anolis-build":
+                      sum_anolis += mem
+                      n_anolis += 1
+                      if not (6 <= mem <= 10):
+                          errors.append("%s anolis-build 单卡 mem_budget_g 须 ∈[6,10]（制度 §二.1；实得 %s）" % (tag, mem))
+                  elif ch == "local-api":
+                      sum_local += mem
+                      if mem > 2:
+                          errors.append("%s local-api 单卡 mem_budget_g ≤2（本机 API 轨+门禁 ≈2G；实得 %s）" % (tag, mem))
+                  elif ch == "bot-lane":
+                      n_bot += 1
+                      if mem != 0:
+                          errors.append("%s bot-lane 只读卡 mem_budget_g 必须为 0（实得 %s）" % (tag, mem))
+              ap = c.get("allowed_paths")
+              if not isinstance(ap, list) or not ap or not all(isinstance(x, str) and x.strip() for x in ap):
+                  errors.append("%s allowed_paths 必须为非空字符串数组" % tag)
+              ac = c.get("acceptance")
+              if not isinstance(ac, list) or not ac or not all(isinstance(x, str) and x.strip() for x in ac):
+                  errors.append("%s acceptance 必须为非空字符串数组（可执行命令 + 退出码/期望串）" % tag)
+              if not (isinstance(c.get("merge_policy"), str) and c["merge_policy"].strip()):
+                  errors.append("%s merge_policy 不得为空" % tag)
+              led = c.get("ledger")
+              if isinstance(led, dict):
+                  if not isinstance(led.get("rows"), list) or not led.get("rows"):
+                      errors.append("%s ledger.rows 不得为空" % tag)
+              elif not (isinstance(led, str) and led.strip()):
+                  errors.append("%s ledger 坐标不得为空（str 或 {rows:[…]}）" % tag)
+              if c.get("state") != "queued":
+                  errors.append("%s state 必须为 queued（状态机起点；占用闸由 runner 把）" % tag)
+              dep = c.get("depends_on")
+              if dep is not None and (not isinstance(dep, list) or not all(isinstance(x, str) for x in dep)):
+                  errors.append("%s depends_on 必须为字符串数组" % tag)
+              if "title" not in c:
+                  warnings.append("%s 缺 title（建议补，进 Issue 标题）" % tag)
+              judge_pat = re.compile(r"(all-gates\.sh|gate-pins\.list|CODEOWNERS|judge|\u5224\u636e)")
+              if isinstance(ap, list) and any(judge_pat.search(x) for x in ap):
+                  warnings.append("%s allowed_paths 疑似判官/门禁件——仓级 CODEOWNERS 锁 @feasy898 将拒 PR；只读卡应走 content-only" % tag)
+
+          # ── 波次数学（OOM 准入 + 并发）──
+          if sum_anolis > 45:
+              errors.append("Σmem_budget(anolis-build)=%dG > 45G（OOM 准入：anolis 125G 的 36%%）" % sum_anolis)
+          if sum_local > 3:
+              errors.append("Σmem_budget(local-api)=%dG > 3G（本机 14G·cargo 永禁）" % sum_local)
+          if n_anolis > 4:
+              errors.append("anolis-build 卡数=%d > 并发 4（制度 §二.1/§五）" % n_anolis)
+
+          # ── 安全扫描（禁凭据形态入 git）──
+          secret_pat = re.compile(
+              r"(sk-[A-Za-z0-9]{16,}|ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}"
+              r"|AKIA[0-9A-Z]{16}|BEGIN [A-Z ]*PRIVATE KEY|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,})")
+          if secret_pat.search(json.dumps(man, ensure_ascii=False)):
+              errors.append("manifest 命中凭据形态扫描——fail-closed（secret 禁入 git）")
+
+          # ── 空转判定（宁可空转不可造假）──
+          idle = (len(cards) == 0 and not errors)
+          if idle:
+              pre = man.get("preflight")
+              if not (isinstance(pre, list) and pre):
+                  errors.append("空波次（cards=[]）必须附 preflight 说明缺口")
+
+          outcome = "invalid" if errors else ("idle" if idle else "plan")
+          new_cards = 0 if (errors or idle) else sum(1 for c in cards if c.get("task_id") not in occ_tasks)
+          report = {
+              "checked_at": datetime.now(timezone(timedelta(hours=8))).isoformat(timespec="seconds"),
+              "outcome": outcome,
+              "ok": not errors,
+              "wave": wv,
+              "cards_total": len(cards),
+              "new_cards": new_cards,
+              "mem": {"anolis_sum_g": sum_anolis, "local_sum_g": sum_local,
+                      "anolis_cards": n_anolis, "bot_cards": n_bot},
+              "errors": errors,
+              "warnings": warnings,
+          }
+          with open("manifest-validation.json", "w", encoding="utf-8") as f:
+              json.dump(report, f, ensure_ascii=False, indent=1)
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+              f.write("outcome=%s\nnew_cards=%d\nwave=%s\n" % (outcome, new_cards, wv))
+          if errors:
+              print("manifest 校验失败（fail-closed：不 commit、不建 Issue）：", file=sys.stderr)
+              for e in errors:
+                  print(" - " + e, file=sys.stderr)
+              sys.exit(1)
+          print("校验通过：outcome=%s · cards=%d · new=%d · anolis Σ=%dG · local Σ=%dG · bot=%d"
+                % (outcome, len(cards), new_cards, sum_anolis, sum_local, n_bot))
+          PY
+
+      # ── commit manifest：append-only 只增不改；禁 force（factory-os README §二）──
+      - name: '09 · commit manifest 到 factory-os（append-only；禁 force）'
+        id: commit
+        if: steps.quota.outputs.plan_allowed == 'true' && steps.validate.outputs.outcome == 'plan' && inputs.dry_run != 'true'
+        env:
+          WAVE: ${{ steps.validate.outputs.wave }}
+          NEW_CARDS: ${{ steps.validate.outputs.new_cards }}
+        run: |
+          set -euo pipefail
+          cd factory-os
+          git config user.name "planner-bot"
+          git config user.email "planner-bot@users.norepress.github.com"
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "factory-os 工作树不干净——拒 commit（fail-closed）" >&2
+            exit 8
+          fi
+          mkdir -p "${WAVE_DIR}"
+          target="${WAVE_DIR}/${WAVE}.json"
+          if git cat-file -e "HEAD:${target}" 2>/dev/null; then
+            # 波次文件已存在：内容一致=幂等重跑跳过；不一致=波次号冲突 fail-closed
+            git show "HEAD:${target}" > /tmp/existing-manifest.json
+            if diff -q /tmp/existing-manifest.json ../manifest-candidate.json >/dev/null; then
+              echo "manifest 无变化（幂等重跑）——跳过 commit"
+              exit 0
+            fi
+            echo "波次文件 ${target} 已存在且内容不同——波次号冲突，fail-closed（禁改历史 manifest）" >&2
+            exit 9
+          fi
+          cp ../manifest-candidate.json "${target}"
+          git add "${target}"
+          git commit -m "planner: ${WAVE} manifest · ${NEW_CARDS} cards · run ${GITHUB_RUN_ID}"
+          git push origin "HEAD:main"
+          echo "committed: ${target}"
+
+      # ── 按卡建 Issue：幂等；label: wave + 状态机起点 state:queued ──
+      - name: '10 · 按卡建 Issue（卡面=禁项置顶+证据+验收命令集+pinned base）'
+        id: issues
+        if: steps.quota.outputs.plan_allowed == 'true' && steps.validate.outputs.outcome == 'plan' && inputs.dry_run != 'true'
+        env:
+          WAVE: ${{ steps.validate.outputs.wave }}
+        run: |
+          set -euo pipefail
+          mkdir -p issues-out
+          python3 -I - <<'PY'
+          import json, os
+
+          man = json.load(open("manifest-candidate.json", encoding="utf-8"))
+          board = json.load(open("board-state.json", encoding="utf-8"))
+          inflight = set(board.get("in_flight_task_ids") or [])
+          base_sha = man.get("base_sha")
+          base_ref = ("%s（钉桩基线 SHA；按 allowed_paths 定位 af product/main 或 tools/ 在役树；"
+                      "取回须显式 refspec：git fetch origin <ref>）" % base_sha) if base_sha else \
+                     "（输入未给钉桩基线——卡面须由主代理补钉后开工）"
+
+          def ledger_str(led):
+              if isinstance(led, str):
+                  return led
+              return json.dumps(led, ensure_ascii=False)
+
+          def card_face(c):
+              L = []
+              L.append("【禁项置顶】（制度-v1 §六.4 · 仓级 CODEOWNERS 判官保护 · 一改即拒收）")
+              L.append("- 禁改判官/门禁/判据件（all-gates.sh、gate-pins.list、判据钉桩、CODEOWNERS 锁定路径）——保护规则直接拒 PR")
+              L.append("- 禁 --force / force-push / reset --hard / 改历史记录（01-建设方案 §八）")
+              L.append("- 禁双解：同债号在板另有非终态卡不得开工（占用闸 fail-closed；台账无行的债号先登记债行或换锚）")
+              L.append("- 禁 secret 入 git（只记指纹+路径；推送前过 bot-scrub fail-closed）")
+              L.append("- 本地禁 cargo（14G 机 OOM 史）；anolis cargo 必须剥离代理环境变量")
+              L.append("")
+              L.append("【波次】%s　【状态机起点】`state:queued`" % man["wave"])
+              L.append("状态机：queued→(占用闸)→dispatched→running→verifying→(绿)merge-check→merged→ledgered；任一步红→parked+异常队列")
+              L.append("【任务】`%s`" % c["task_id"])
+              L.append("【债号】`%s`" % c["debt"])
+              L.append("【账面坐标】%s" % ledger_str(c["ledger"]))
+              L.append("【通道】`%s`　【异步】%s　【mem_budget】%s G" % (c["channel"], c["async"], c["mem_budget_g"]))
+              L.append("【OOM 准入】anolis Σmem_budget ≤ 45G 且 cargo 并发 ≤ 4；本机 Σ ≤ 3G 且只走 API 轨+门禁（≈2G）；gov 单卡 ≤ 2G")
+              L.append("【pinned base】%s" % base_ref)
+              L.append("【验收命令集】（逐条退出码 + 期望串；全绿才可翻状态）")
+              for a in c["acceptance"]:
+                  L.append("- [ ] %s" % a)
+              dep = c.get("depends_on") or []
+              L.append("【依赖】%s" % ("；".join(dep) if dep else "无"))
+              L.append("【合线策略】%s" % c["merge_policy"])
+              L.append("【允许路径】%s" % "；".join(c["allowed_paths"]))
+              L.append("")
+              L.append("> 本卡由 planner 定时环自动建立（run %s · %s）。manifest：factory-os/%s/%s.json"
+                       % (os.environ["GITHUB_RUN_ID"], os.environ.get("RUN_REASON", "cron"),
+                          os.environ["WAVE_DIR"], man["wave"]))
+              return "\n".join(L) + "\n"
+
+          todo = []
+          for c in man.get("cards") or []:
+              if c.get("state") != "queued":
+                  continue
+              tid = c.get("task_id")
+              if tid in inflight:
+                  continue
+              title = "[%s] %s · %s" % (man["wave"], tid, c.get("title") or c.get("debt"))
+              fn = "issues-out/%s.md" % tid
+              with open(fn, "w", encoding="utf-8") as f:
+                  f.write(card_face(c))
+              todo.append({"task_id": tid, "title": title, "body_file": fn})
+          with open("issues-todo.json", "w", encoding="utf-8") as f:
+              json.dump(todo, f, ensure_ascii=False, indent=1)
+          print("待建 Issue：%d（板已在飞 %d 跳过）" % (len(todo), len(inflight)))
+          PY
+
+          # label 分类法必须在场（P1 .github 治理面）；缺失即 fail-closed 并点名补救
+          gh label list --repo "${ORG}/${BOARD_REPO}" --limit 200 --json name --jq '.[].name' > labels.txt
+          for lb in wave state:queued; do
+            if ! grep -Fxq "$lb" labels.txt; then
+              echo "label '${lb}' 不在场——P1 标签分类法未建（.github 治理面）——fail-closed" >&2
+              exit 10
+            fi
+          done
+
+          : > issues-created.log
+          while IFS=$'\t' read -r tid ttl bf; do
+            url=$(gh issue create --repo "${ORG}/${BOARD_REPO}" --title "$ttl" --body-file "$bf" \
+                    --label wave --label state:queued)
+            echo -e "${tid}\t${url}" >> issues-created.log
+          done < <(jq -r '[.task_id, .title, .body_file] | @tsv' issues-todo.json)
+
+          python3 -I - <<'PY'
+          import json, os
+          created = []
+          with open("issues-created.log", encoding="utf-8") as f:
+              for line in f:
+                  parts = line.rstrip("\n").split("\t")
+                  if len(parts) == 2:
+                      created.append({"task_id": parts[0], "issue_url": parts[1]})
+          with open("issues-created.json", "w", encoding="utf-8") as f:
+              json.dump(created, f, ensure_ascii=False, indent=1)
+          print("已建 Issue：%d" % len(created))
+          PY
+
+      # ── 运行摘要：进 Actions Summary + artifact（禁含密钥）──
+      - name: '11 · run 摘要（Actions Summary）'
+        if: always()
+        run: |
+          {
+            echo "### planner run ${GITHUB_RUN_ID} 摘要（${RUN_REASON}）"
+            if [ -f planner-quota.json ]; then
+              echo "- 配额闸：plan_allowed=$(jq -r '.plan_allowed' planner-quota.json) · skip=$(jq -r '.skip_reason // "无"' planner-quota.json) · 本小时调用=$(jq -r '.calls_this_hour // 0' planner-quota.json)"
+              jq -r '.warnings[]? | "- WARN: " + .' planner-quota.json
+            fi
+            if [ -f board-state.json ]; then
+              echo "- 板：open=$(jq -r '.open_issues_total' board-state.json) · 在飞=$(jq -r '.in_flight_task_ids | length' board-state.json) · 已占锚点=$(jq -r '.occupied_debt_anchors | length' board-state.json)"
+            fi
+            if [ -f ledger-summary.json ]; then
+              echo "- 账面：最新波次=$(jq -r '.latest_wave' ledger-summary.json) · 下一波=$(jq -r '.next_wave' ledger-summary.json) · 台账行=$(jq -r '.ledger_rows_total' ledger-summary.json)（\u2705 $(jq -r '.ledger_done_rows' ledger-summary.json)）"
+              jq -r '.warnings[]? | "- WARN: " + .' ledger-summary.json
+            fi
+            if [ -f manifest-validation.json ]; then
+              echo "- 校验：outcome=$(jq -r '.outcome' manifest-validation.json) · cards=$(jq -r '.cards_total' manifest-validation.json) · new=$(jq -r '.new_cards' manifest-validation.json) · anolis Σ=$(jq -r '.mem.anolis_sum_g' manifest-validation.json)G · local Σ=$(jq -r '.mem.local_sum_g' manifest-validation.json)G"
+              jq -r '.errors[]? | "- ERROR: " + .' manifest-validation.json
+              jq -r '.warnings[]? | "- WARN: " + .' manifest-validation.json
+            fi
+            if [ -f planner-raw.json ]; then
+              echo "- API：attempts=$(jq -r '.attempts' planner-raw.json) · prompt_tk=$(jq -r '[.calls[].prompt_tk] | add // 0' planner-raw.json) · completion_tk=$(jq -r '[.calls[].completion_tk] | add // 0' planner-raw.json)"
+            fi
+            if [ -f issues-created.log ] && [ -s issues-created.log ]; then
+              echo "- 新建 Issue："
+              sed 's/^/  - /' issues-created.log
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: '12 · 写运行摘要 artifact（禁含密钥与响应正文）'
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: planner-run-${{ github.run_id }}
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            planner-quota.json
+            planner-raw.json
+            board-state.json
+            board-issues.ndjson
+            ledger-summary.json
+            planner-inputs.json
+            planner-call-log.json
+            manifest-candidate.json
+            manifest-candidate.raw.txt
+            manifest-validation.json
+            issues-todo.json
+            issues-created.json
+            issues-created.log
+            issues-out/
