@@ -694,6 +694,11 @@ jobs:
 
           manifests, all_cards = [], []
           for p in sorted(glob.glob(os.path.join(wave_dir, "wave-*.json"))):
+              # ── D-92（factory-os#25）：wave-NN.quality.json 是收卷腿评分件（append-only
+              #    审计面），不是 manifest——禁入 manifest 聚合（否则会以 cards=0 幽灵
+              #    manifest 混入波次状态机），只走本步末尾 quality_recent 聚合段。
+              if p.endswith(".quality.json"):
+                  continue
               try:
                   d = json.load(open(p, encoding="utf-8"))
               except Exception as e:
@@ -754,6 +759,72 @@ jobs:
                   base_sha = m["base_sha"]
                   break
 
+          # ══ D-92（factory-os#25）规划质量回评聚合（planner_quality_recent 输入段）══
+          # 读波次清单/wave-NN.quality.json（收卷腿评分器 tools/planner-quality-score.py
+          # append-only JSONL，每行 schema=af.wave-quality.v1）——只读消费零改写；
+          # 损坏行跳过不聚合（审计面如实留 warning）。去重纪律：同 (wave, task_id)
+          # 取末次评分行（append-only 语义=末行为现势），grades/失败模式计数都基于
+          # 去重后集合。近 N=3 波入输入段；top_failure_modes 按频次降序取 top-10。
+          # advisory 边界：本段产物只进 planner 输入（Q1 §3.4.4 回流），永不触碰
+          # step 08 invalid/valid 判定面与 required checks（D7=C-5 禁区）。
+          QUALITY_RECENT_N = 3
+          quality_recent = {
+              "waves": [], "top_failure_modes": [], "advisory_only": True,
+              "note": "quality 评级/失败模式只作规划回流输入（advisory）：禁当验收门、"
+                      "禁进 required checks、禁改 invalid/valid 判定面；planner 组卡"
+                      "须对照 top_failure_modes 自检（prompt §3.8）。",
+              "source_files": [],
+          }
+          q_files = sorted(glob.glob(os.path.join(wave_dir, "wave-*.quality.json")))
+          q_waves = []
+          for qp in q_files:
+              rows, qwarn = [], os.path.basename(qp)
+              with open(qp, encoding="utf-8") as f:
+                  for ln in f:
+                      ln = ln.strip()
+                      if not ln:
+                          continue
+                      try:
+                          r = json.loads(ln)
+                      except Exception:
+                          warnings.append("quality 行解析失败（跳过不聚合）：%s" % qwarn)
+                          continue
+                      if r.get("schema") == "af.wave-quality.v1" and r.get("record_type") == "card_quality":
+                          rows.append(r)
+              if rows:
+                  q_waves.append({"file": qwarn, "rows": rows})
+          for qw in q_waves[-QUALITY_RECENT_N:]:
+              last_by_card = {}
+              for r in qw["rows"]:
+                  last_by_card[(r.get("wave"), (r.get("card") or {}).get("task_id"))] = r
+              dedup = list(last_by_card.values())
+              grades = {}
+              modes = {}
+              for r in dedup:
+                  if not r.get("scored"):
+                      continue
+                  g = r.get("grade")
+                  if g:
+                      grades["quality:%s" % g] = grades.get("quality:%s" % g, 0) + 1
+                  for m in r.get("failure_modes") or []:
+                      modes[m] = modes.get(m, 0) + 1
+              quality_recent["waves"].append({
+                  "wave": qw["rows"][-1].get("wave"),
+                  "file": qw["file"],
+                  "cards_scored": sum(1 for r in dedup if r.get("scored")),
+                  "cards_total_lines": len(qw["rows"]),
+                  "grades": grades,
+                  "failure_modes": dict(sorted(modes.items(), key=lambda kv: -kv[1])),
+              })
+              quality_recent["source_files"].append(qw["file"])
+          merged_modes = {}
+          for wv in quality_recent["waves"]:
+              for m, n in (wv.get("failure_modes") or {}).items():
+                  merged_modes[m] = merged_modes.get(m, 0) + n
+          quality_recent["top_failure_modes"] = [
+              {"mode": m, "count": n} for m, n in
+              sorted(merged_modes.items(), key=lambda kv: -kv[1])[:10]]
+
           summary = {
               "generated_at": datetime.now(timezone(timedelta(hours=8))).isoformat(timespec="seconds"),
               "wave_dir": os.environ["WAVE_DIR"],
@@ -768,13 +839,15 @@ jobs:
               "anchors": anchors_tail,
               "open_anchors": open_anchors,
               "non_terminal_cards": non_terminal,
+              "quality_recent": quality_recent,
               "warnings": warnings,
           }
           with open("ledger-summary.json", "w", encoding="utf-8") as f:
               json.dump(summary, f, ensure_ascii=False, indent=1)
-          print("ledger: manifests=%d · latest=%s · next=%s · rows=%d(done=%d) · open_anchors=%d · non_terminal=%d"
+          print("ledger: manifests=%d · latest=%s · next=%s · rows=%d(done=%d) · open_anchors=%d · non_terminal=%d · quality_waves=%d"
                 % (len(manifests), summary["latest_wave"], summary["next_wave"],
-                   rows_total, done_rows, len(open_anchors), len(non_terminal)))
+                   rows_total, done_rows, len(open_anchors), len(non_terminal),
+                   len(quality_recent.get("waves") or [])))
           PY
 
       # ── 组装规划输入：板状态 + 账本摘要 + 配额状态 + OOM 准入口径 ──
@@ -833,6 +906,24 @@ jobs:
                    "reason": "start-plan 免费窗 2026-11-06 09:00 EXPIRED、start-plan/offpeak/highspeed 账户仍停用（状态/模型配额停用-20261105.json）⇒ 施工通道不派；规划环自用模型已按运营者 2026-11-06 裁定改走 individual plan GLM-5.3-Flash"}
               ],
               "legacy_backlog": legacy,
+              # ── D-92（factory-os#25）回评回流输入段（Q1 §3.4.4）：近 N 波规划质量
+              #    汇总（step 05 已聚合）——每波 quality:A–D 分布＋高频失败模式计数，
+              #    prompt §二输入口径＋§3.8 回流硬规则消费。advisory 边界：只进规划
+              #    输入，永不改 invalid/valid 机检判定、永不进 required checks
+              #    （D7=C-5 禁区；quality label 只作回流输入禁当门——卡面禁项置顶）。
+              "planner_quality_recent": ledger.get("quality_recent") or {
+                  "waves": [], "top_failure_modes": [], "advisory_only": True,
+                  "note": "回评件缺席（尚无 wave-NN.quality.json）——空段为合法现势，"
+                          "planner 无失败模式约束输入时按无此输入组卡",
+                  "source_files": []},
+              # ── D-92 同批扩展（B-5 交叉一致性 §三-7）：观测输入占位——#15（Q3 观测
+              #    输入）落地时只扩本段 fields，禁双头再改 step 05/06 结构。
+              "observation_inputs": {
+                  "reserved_for": "factory-os#15（Q3 观测输入·同批 planner-inputs 扩展接缝）",
+                  "fields": {},
+                  "note": "占位段（现势零字段零作用）；#15 消费时同守 advisory 边界"
+                          "（观测面只进规划输入，禁入机检闸面/required checks）。",
+              },
               "constraints": {
                   "schema": "af.wave-manifest.v1",
                   "state_machine": "queued→(占用闸)→dispatched→running→verifying→(绿)merge-check→merged→ledgered；任一步红→parked+异常队列",
@@ -858,9 +949,11 @@ jobs:
 
           with open("planner-inputs.json", "w", encoding="utf-8") as f:
               json.dump(inputs, f, ensure_ascii=False, indent=1)
-          print("inputs: wave_expected=%s · open_anchors=%d · in_flight=%d · base_sha=%s"
+          qr = inputs.get("planner_quality_recent") or {}
+          print("inputs: wave_expected=%s · open_anchors=%d · in_flight=%d · base_sha=%s · quality_waves=%d · top_modes=%d"
                 % (inputs["wave_expected"], len(ledger.get("open_anchors") or []),
-                   len(board.get("in_flight_task_ids") or []), inputs["base_sha"] or "<none>"))
+                   len(board.get("in_flight_task_ids") or []), inputs["base_sha"] or "<none>",
+                   len(qr.get("waves") or []), len(qr.get("top_failure_modes") or [])))
           PY
 
       # ── 调 GLM-5.3-Flash：≤2 次/h（首发+1 重试）；凭据只从 secret 取，禁打印 ──
