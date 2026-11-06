@@ -117,12 +117,20 @@ def hour_key():
 # ============================================================================
 # GitHub 只读（跨仓公开读；状态码如实回读——验收列步 1/列步 5）
 # ============================================================================
+def gh_token():
+    """GitHub 只读令牌：GITHUB_TOKEN 优先，回落 GH_TOKEN（两种环境量命名都在
+    役——planner.yml 用 GH_TOKEN 喂 gh CLI）。空 ⇒ 交给 API 面判（公开仓匿名
+    可读列表；带空 Bearer 会被 GitHub 401 ⇒ 如实记状态码 fail-closed）。"""
+    return (os.environ.get("GITHUB_TOKEN")
+            or os.environ.get("GH_TOKEN") or "")
+
+
 def gh_get(path, timeout=60):
     """GET api.github.com；返回 (status, data|None, err)。只读，不打印任何头。"""
     base = env("GH_API_BASE", "https://api.github.com")
     req = urllib.request.Request(
         base + path,
-        headers={"Authorization": "Bearer " + (os.environ.get("GITHUB_TOKEN") or ""),
+        headers={"Authorization": "Bearer " + gh_token(),
                  "Accept": "application/vnd.github+json",
                  "X-GitHub-Api-Version": "2022-11-28",
                  "User-Agent": "factory-os-redteam-review"})
@@ -156,7 +164,8 @@ def fetch_pr(repo, pr):
     st, prd, err = gh_get("/repos/%s/pulls/%d" % (repo, pr))
     reads["pr_status"] = st
     if st != 200 or not isinstance(prd, dict):
-        raise RuntimeError("PR 读取失败 %s: %s" % (repo, pr))
+        raise RuntimeError("PR 读取失败 %s#%d：status=%s err=%s"
+                           % (repo, pr, st, err))
     files, fst = gh_get_all_pages("/repos/%s/pulls/%d/files" % (repo, pr))
     reads["files_status"] = fst[0] if fst else None
     return prd, files, reads
@@ -165,7 +174,8 @@ def fetch_pr(repo, pr):
 def list_open_prs(repo):
     st, data, err = gh_get("/repos/%s/pulls?state=open&per_page=100" % repo)
     if st != 200 or not isinstance(data, list):
-        raise RuntimeError("开 PR 列表读取失败 %s: %s" % (repo, err))
+        raise RuntimeError("开 PR 列表读取失败 %s：status=%s err=%s"
+                           % (repo, st, err))
     return data, st
 
 
