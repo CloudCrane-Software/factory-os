@@ -28,10 +28,40 @@ def sh(cmd, timeout=600):
 
 
 def exc(tid, stage, evidence):
+    # D-88 伴生改造（factory-os#23）：红件落队 20 分钟窗同因去重＋计数。
+    # 同 (task_id, stage, evidence) 在 20 分钟窗内重复落队：不追加第二条整行，
+    # 只追加一行 dedup 计数行（count=窗内同因累计次数）；既有行零删除零改写
+    # （append-only 审计面，C-4 邻接；基线 411 行/17 task/单件 ×56）。
+    # 窗界比较用行内 ts（与 TS 同构），无时钟外泄面；损坏行跳过不参与判定。
     os.makedirs(os.path.dirname(EXC), exist_ok=True)
+    ev = evidence[:400]
+    cutoff = time.time() - 20 * 60
+    prior = 0
+    try:
+        with open(EXC, "r", encoding="utf-8") as f:
+            for ln in f:
+                try:
+                    r = json.loads(ln)
+                except Exception:
+                    continue
+                if not (r.get("task_id") == tid and r.get("stage") == stage
+                        and r.get("evidence") == ev):
+                    continue
+                try:
+                    t = time.mktime(time.strptime(str(r.get("ts", ""))[:19],
+                                                  "%Y-%m-%dT%H:%M:%S"))
+                except Exception:
+                    continue
+                if t >= cutoff:
+                    prior += 1
+    except OSError:
+        prior = 0
+    row = {"ts": time.strftime(TS), "task_id": tid, "stage": stage, "evidence": ev}
+    if prior:
+        row["dedup"] = True
+        row["count"] = prior
     with open(EXC, "a", encoding="utf-8") as f:
-        f.write(json.dumps({"ts": time.strftime(TS), "task_id": tid, "stage": stage,
-                            "evidence": evidence[:400]}, ensure_ascii=False) + "\n")
+        f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
 def task_of(stem):
