@@ -185,7 +185,7 @@ jobs:
                                            headers={"Authorization": "Bearer " + os.environ["GH_TOKEN"],
                                                     "Accept": "application/vnd.github+json",
                                                     "X-GitHub-Api-Version": "2022-11-28"})
-              with urllib.request.urlopen(req, timeout=15) as r:
+              with urllib.request.urlopen(req, timeout=300) as r:
                   return json.loads(r.read().decode("utf-8"))
 
           # ── 信号聚合（gh api 只读，三次便宜读数）──
@@ -239,7 +239,7 @@ jobs:
                       data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
                       headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"},
                       method="POST")
-                  with urllib.request.urlopen(req, timeout=12) as r:
+                  with urllib.request.urlopen(req, timeout=300) as r:
                       payload = json.loads(r.read().decode("utf-8"))
               except urllib.error.HTTPError as e:
                   jev_errors.append("Jev HTTP %s（%sms）" % (e.code, int((time.monotonic() - t0) * 1000)))
@@ -708,6 +708,7 @@ jobs:
 
           body = {
               "model": model,
+              "thinking": {"type": "disabled"},
               "temperature": 0.2,
               "max_tokens": 8192,
               "messages": [
@@ -729,7 +730,7 @@ jobs:
               )
               t0 = time.monotonic()
               try:
-                  with urllib.request.urlopen(req, timeout=180) as resp:
+                  with urllib.request.urlopen(req, timeout=300) as resp:
                       payload = json.loads(resp.read().decode("utf-8"))
                   status = 200
               except urllib.error.HTTPError as e:
