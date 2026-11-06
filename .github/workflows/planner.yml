@@ -113,6 +113,7 @@ permissions:
   issues: write          # 按卡建 Issue（状态机起点 state:queued）
   contents: write        # commit wave manifest 到 factory-os（append-only）
   pull-requests: write   # 预留：P5 起自动合线腿（本工作流不开 PR、不合线）
+  actions: write         # planner 自 rerun 红门/自体检（POST /actions/runs/{id}/rerun）
 
 concurrency:             # 单写者：禁重叠跑双解（与防双解占用规则同向）
   group: planner
