@@ -1,0 +1,564 @@
+{
+ "ts": "2026-11-07T00:14:55+08:00",
+ "ts_epoch": 1793981695,
+ "status": "red",
+ "window_days": 7,
+ "window_start": "2026-10-31T00:14:55+08:00",
+ "window_end": "2026-11-07T00:14:55+08:00",
+ "window_end_epoch": 1793981695,
+ "counts": {
+  "b1_stuck_waiting": 0,
+  "b2_stuck_retrying": 0,
+  "b2_ext_any_event_repeat": 1,
+  "b3_repeat_red_shas": 3,
+  "b3_base_baseline_red": 1,
+  "b4_idle_no_heartbeat": 0,
+  "b4_context_insufficient": 0
+ },
+ "signals": {
+  "B1_stuck_waiting": {
+   "id": "B-1",
+   "name": "卡在等待（check-run 排队差>45min）",
+   "status": "green",
+   "empty_window": true,
+   "value": null,
+   "detail": "真空窗：窗内零命中（显式 null，非省略）"
+  },
+  "B2_stuck_retrying": {
+   "id": "B-2",
+   "name": "卡在重试（push 同因 ≥3）",
+   "status": "green",
+   "empty_window": true,
+   "value": null,
+   "detail": "真空窗：窗内零命中（显式 null，非省略）"
+  },
+  "B2_ext_any_event_repeat": {
+   "id": "B-2x",
+   "name": "扩展读数（明注：非卡面 B-2 主口径——任意事件同 workflow+branch 失败 ≥3，供 B-3 归因交叉）",
+   "status": "red",
+   "empty_window": false,
+   "value": [
+    {
+     "workflow": "planner",
+     "head_branch": "main",
+     "event_mix": [
+      "workflow_dispatch"
+     ],
+     "failures": 16,
+     "same_cause_hint": [
+      {
+       "run_id": 42214895553,
+       "failed_steps": [
+        "plan/step11:07 · 调 GLM-5.3-Flash API"
+       ]
+      },
+      {
+       "run_id": 42201182661,
+       "failed_steps": [
+        "plan/step11:07 · 调 GLM-5.3-Flash API"
+       ]
+      },
+      {
+       "run_id": 42199931755,
+       "failed_steps": [
+        "plan/step11:07 · 调 step-5-preview AP"
+       ]
+      }
+     ],
+     "last_run_id": 42199931755,
+     "last_sha": "6d7730c9c0a0"
+    }
+   ],
+   "detail": "1 条读数"
+  },
+  "B3_acceptance_repeat_red": {
+   "id": "B-3",
+   "name": "验收反复红（同 head SHA 红 ≥2）＋基线红读数",
+   "status": "red",
+   "empty_window": false,
+   "value": [
+    {
+     "head_sha": "37f3891db53d",
+     "red_runs": 3,
+     "workflows": [
+      "planner"
+     ],
+     "branches": [
+      "main"
+     ],
+     "run_ids": [
+      42245170646,
+      42243605827,
+      42242057279
+     ]
+    },
+    {
+     "head_sha": "6e717c211369",
+     "red_runs": 3,
+     "workflows": [
+      "planner"
+     ],
+     "branches": [
+      "main"
+     ],
+     "run_ids": [
+      42237447935,
+      42235959893,
+      42234452117
+     ]
+    },
+    {
+     "head_sha": "931ef6f447e5",
+     "red_runs": 2,
+     "workflows": [
+      "planner"
+     ],
+     "branches": [
+      "main"
+     ],
+     "run_ids": [
+      42238938835,
+      42238451969
+     ]
+    }
+   ],
+   "detail": "3 条读数"
+  },
+  "B3_base_baseline_red": {
+   "id": "B-3b",
+   "name": "基线红（main 分支窗内验收红）——判定=厂职责",
+   "status": "red",
+   "empty_window": false,
+   "value": [
+    {
+     "kind": "baseline-red",
+     "branch": "main",
+     "red_runs_in_window": 17,
+     "distinct_shas": 12,
+     "same_cause_hint": [
+      {
+       "run_id": 42214895553,
+       "failed_steps": [
+        "plan/step11:07 · 调 GLM-5.3-Flash API"
+       ]
+      },
+      {
+       "run_id": 42201182661,
+       "failed_steps": [
+        "plan/step11:07 · 调 GLM-5.3-Flash API"
+       ]
+      },
+      {
+       "run_id": 42199931755,
+       "failed_steps": [
+        "plan/step11:07 · 调 step-5-preview AP"
+       ]
+      }
+     ],
+     "run_ids": [
+      42233848924,
+      42216527789,
+      42214895553,
+      42201182661,
+      42199931755
+     ],
+     "duty_note": "基线红判定=厂职责（卡面禁项：修基线或挂 EXPECTED_LAMPS 台账，禁派沙箱修基线红；本件只出读数与归因候选）"
+    }
+   ],
+   "detail": "1 条读数"
+  },
+  "B4_idle_no_heartbeat": {
+   "id": "B-4",
+   "name": "空转（state:running 在飞卡 >60min 无心跳回报）",
+   "status": "green",
+   "empty_window": true,
+   "value": null,
+   "detail": "真空窗：窗内零命中（显式 null，非省略）"
+  },
+  "B4_context_insufficient": {
+   "id": "B-4b",
+   "name": "上下文不足（板面结构化评论显式报缺：/need-context、/need-env）",
+   "status": "green",
+   "empty_window": true,
+   "value": null,
+   "detail": "真空窗：窗内零命中（显式 null，非省略）"
+  }
+ },
+ "checks": [
+  {
+   "id": "CW",
+   "name": "周窗连续性（失周显式记——Q3 信标缺席=显式可见）",
+   "status": "FAIL",
+   "detail": "观测面失周；前窗文件缺席（状态观测/sandbox-obs-weekly.json 不存在）——「信标缺席=显式可见」：观测面失周显式记，不静默续窗（Q3 §一教训）"
+  },
+  {
+   "id": "S1",
+   "name": "信号 B-1 卡在等待（check-run 排队差>45min）",
+   "status": "GREEN",
+   "detail": "真空窗：窗内零命中（显式 null，非省略）"
+  },
+  {
+   "id": "S2",
+   "name": "信号 B-2 卡在重试（push 同因 ≥3）",
+   "status": "GREEN",
+   "detail": "真空窗：窗内零命中（显式 null，非省略）"
+  },
+  {
+   "id": "S3",
+   "name": "信号 B-3 验收反复红（同 head SHA 红 ≥2）＋基线红读数",
+   "status": "RED",
+   "detail": "3 条读数"
+  },
+  {
+   "id": "S4",
+   "name": "信号 B-4 空转（state:running 在飞卡 >60min 无心跳回报）",
+   "status": "GREEN",
+   "detail": "真空窗：窗内零命中（显式 null，非省略）"
+  }
+ ],
+ "structured_comments": {
+  "convention": "首行机器标记＋结构化体（与 factory-os#30 card-selfcontainment-check 共用；正本=波次清单/沙箱派发契约.md §7.5）",
+  "markers_seen": {
+   "four_prefix": {
+    "/blocked": 0,
+    "/need-context": 0,
+    "/need-env": 0,
+    "/progress": 2
+   },
+   "four_prefix_total": 2,
+   "af-relay": 0,
+   "af-perm-request": 0,
+   "TICKET-REQUEST v1": 0,
+   "unknown": 0,
+   "plain": 52
+  },
+  "parsed": [
+   {
+    "issue": 58,
+    "comment_id": 6689543945,
+    "author": "feasy898",
+    "created_at": "2026-11-06T16:14:13Z",
+    "marker": "af-relay",
+    "family": "fence",
+    "valid": true,
+    "fields": {
+     "from": "宪法起草者（夜轨C·协同编排 PoC·债号 D-108·本卡 #58）",
+     "to": "冷读者实测角色 → 迷你 W2 代码切片施工角色",
+     "carries": "30-工件/夜轨C-20261106/constitution/ 三件件（指纹见上表）；LedgerOS 世界观压缩包六条已逐字承载于 00 §5（样例原文不在盘，经主会话权威转述下发——00 头部已如实标注）；禁写代码已守",
+     "readings": "① ls 三件件齐且非空（6764/6089/2529 B）；② sha256sum 回读与上表逐位一致；③ dispatch-occupancy-check.py D-108 登记前跑=面B/C CLEAN+面A 无行 fail-closed、登记后复跑=ALLOW rc=0、完工回填后复跑=ALLOW rc=0（占用行坐标 计划/阶段欠账台账.md:134）；④ #58 labels=wave+state:running 回读一致；⑤ 结构实测：00 含事件四等级/四层承载+OPEN QUESTION Q1/五形态/压缩包六条逐字（§2/§3/§4/§5）、01 含 INV-1..INV-8 正典（四要素齐）+INV-9 备选不计入八条、02 恰 10 词条",
+     "open_items": "Q1「四层结构」分组待运营者裁决（候选 A/B/C 在 00 §3.3，裁决前只逐字承载原文）；Q2 PT-01..PT-09↔迷你 W2 测试件映射回填；Q3 铁律面（金额定点 i128 绝无浮点／错误信息中文带具体差额）是否单列；Q4「勾稽」定义待补（压缩包无定义，禁编）；Q5 监理职责展开待补；Q6 hash 链参数（算法/哈希函数/锚定）；Q7 幂等键作用域与重复窗口——汇总在 00 §6 待裁决清单",
+     "handoff_verdict": "handoff-clean"
+    },
+    "missing_required": [],
+    "evidence_note": "围栏内自报不作证据（契约 §7.5）——本面只作板面盘点读数"
+   },
+   {
+    "issue": 26,
+    "comment_id": 6688948079,
+    "author": "feasy898",
+    "created_at": "2026-11-06T15:48:01Z",
+    "marker": "/progress",
+    "family": "four-prefix",
+    "valid": true,
+    "fields": {
+     "doing": "卡面验收1-4施工：判读器 live 实读已出真读数（B-3 基线红/planner 反复红实证）；上一条 /progress 的 doing/next 误用中文字段（契约字段应为 doing/next），本条按契约 §7.5 规范字段重发，判读器下窗应读出 valid four-prefix 样本",
+     "next": "写 obs-nightly.yml → 分支推送（workflow 件走 Repo-Writer App 通道）→ PR → dispatch 实跑"
+    },
+    "missing_required": [],
+    "evidence_note": "围栏内自报不作证据（契约 §7.5）——本面只作板面盘点读数"
+   },
+   {
+    "issue": 26,
+    "comment_id": 6688832466,
+    "author": "feasy898",
+    "created_at": "2026-11-06T15:43:05Z",
+    "marker": "/progress",
+    "family": "four-prefix",
+    "valid": false,
+    "fields": {},
+    "missing_required": [
+     "doing",
+     "next"
+    ],
+    "evidence_note": "围栏内自报不作证据（契约 §7.5）——本面只作板面盘点读数"
+   }
+  ]
+ },
+ "planner_inputs": {
+  "schema": "af.obs-weekly-planner-inputs.v1",
+  "obs_plane": {
+   "generated_at": "2026-11-07T00:14:55+08:00",
+   "b1_stuck_waiting_count": 0,
+   "b2_stuck_retrying_count": 0,
+   "b3_repeat_red_shas": 3,
+   "b3_base_baseline_red": true,
+   "b4_idle_no_heartbeat_count": 0,
+   "b4_context_insufficient_count": 0,
+   "note": "观测平面级信号字段（#14 planner 组装段扩展位；零改 planner.yml——接线点出处注）"
+  },
+  "iteration_suggestions": [
+   {
+    "signal": "B-3",
+    "name": "验收反复红（同 head SHA 红 ≥2）＋基线红读数",
+    "attribution": "基线红=厂职责（卡面禁项明文；修基线或挂 EXPECTED_LAMPS 台账）",
+    "responsibility_face": "厂",
+    "suggestion": "禁派沙箱修基线红；厂侧修基线或台账化，planner 派发前查 base SHA 门红面",
+    "evidence": [
+     {
+      "head_sha": "37f3891db53d",
+      "red_runs": 3,
+      "workflows": [
+       "planner"
+      ],
+      "branches": [
+       "main"
+      ],
+      "run_ids": [
+       42245170646,
+       42243605827,
+       42242057279
+      ]
+     },
+     {
+      "head_sha": "6e717c211369",
+      "red_runs": 3,
+      "workflows": [
+       "planner"
+      ],
+      "branches": [
+       "main"
+      ],
+      "run_ids": [
+       42237447935,
+       42235959893,
+       42234452117
+      ]
+     },
+     {
+      "head_sha": "931ef6f447e5",
+      "red_runs": 2,
+      "workflows": [
+       "planner"
+      ],
+      "branches": [
+       "main"
+      ],
+      "run_ids": [
+       42238938835,
+       42238451969
+      ]
+     }
+    ]
+   },
+   {
+    "signal": "B-3b",
+    "name": "基线红（main 分支窗内验收红）——判定=厂职责",
+    "attribution": "基线红=厂职责（卡面禁项明文；修基线或挂 EXPECTED_LAMPS 台账）",
+    "responsibility_face": "厂",
+    "suggestion": "禁派沙箱修基线红；厂侧修基线或台账化，planner 派发前查 base SHA 门红面",
+    "evidence": [
+     {
+      "kind": "baseline-red",
+      "branch": "main",
+      "red_runs_in_window": 17,
+      "distinct_shas": 12,
+      "same_cause_hint": [
+       {
+        "run_id": 42214895553,
+        "failed_steps": [
+         "plan/step11:07 · 调 GLM-5.3-Flash API"
+        ]
+       },
+       {
+        "run_id": 42201182661,
+        "failed_steps": [
+         "plan/step11:07 · 调 GLM-5.3-Flash API"
+        ]
+       },
+       {
+        "run_id": 42199931755,
+        "failed_steps": [
+         "plan/step11:07 · 调 step-5-preview AP"
+        ]
+       }
+      ],
+      "run_ids": [
+       42233848924,
+       42216527789,
+       42214895553,
+       42201182661,
+       42199931755
+      ],
+      "duty_note": "基线红判定=厂职责（卡面禁项：修基线或挂 EXPECTED_LAMPS 台账，禁派沙箱修基线红；本件只出读数与归因候选）"
+     }
+    ]
+   }
+  ],
+  "iteration_columns": [
+   "signal",
+   "attribution",
+   "responsibility_face",
+   "suggestion"
+  ],
+  "wiring_note": "判读输出进 planner-inputs 扩展（观测平面级信号字段）——planner.yml:781 「组装规划输入」段合并位；本卡禁改 planner.yml，接线=规划环后续卡（出处注登记）"
+ },
+ "long_pole_refresh": {
+  "deny_audit": {
+   "verdict": "block",
+   "selftest": "pass",
+   "rules": 10,
+   "scanned": 181,
+   "hits": 549,
+   "uncovered": [],
+   "fingerprint": "8be15545dcae0651",
+   "source": "os.path:/tmp/redteam-report.json（调用面 obs-nightly 步 02 产物；本件只收编读数）"
+  },
+  "fuzz": null,
+  "miri": null,
+  "criterion": null,
+  "note": "点选长杆刷新项（CI L-19）：python 级可跑项=deny-audit（tools/redteam_scan.py，零 token 确定性扫描）；fuzz 仓内无 python 级载体（显式 null）；miri/criterion 为 cargo 级——anolis 水位禁项明令禁跑（显式 null，非省略）"
+ },
+ "continuity": {
+  "prior_path": "状态观测/sandbox-obs-weekly.json",
+  "prior_file_present": false,
+  "prior_window_end": null,
+  "gap_days": null,
+  "missing_week": true,
+  "record": "观测面失周",
+  "note": "前窗文件缺席（状态观测/sandbox-obs-weekly.json 不存在）——「信标缺席=显式可见」：观测面失周显式记，不静默续窗（Q3 §一教训）"
+ },
+ "sources": [
+  {
+   "endpoint": "/repos/{repo}/pulls(state=open)",
+   "purpose": "B-1 open PR head SHA 面",
+   "n": 0
+  },
+  {
+   "endpoint": "/repos/{repo}/actions/runs",
+   "purpose": "B-1/B-2/B-3 workflow runs 窗读",
+   "n": 62
+  },
+  {
+   "endpoint": "/repos/{repo}/issues(state=open)",
+   "purpose": "B-4 在飞卡面＋结构化评论宿主",
+   "n": 17
+  },
+  {
+   "endpoint": "/repos/{repo}/issues/comments",
+   "purpose": "B-4 心跳面＋结构化评论解析宿主",
+   "n": 55
+  }
+ ],
+ "api_calls": [
+  {
+   "path": "/repos/CloudCrane-Software/factory-os/pulls",
+   "status": 200,
+   "ms": 1763
+  },
+  {
+   "path": "/repos/CloudCrane-Software/factory-os/actions/runs",
+   "status": 200,
+   "ms": 28998
+  },
+  {
+   "path": "/repos/CloudCrane-Software/factory-os/actions/runs/42214895553/jobs",
+   "status": 200,
+   "ms": 3125
+  },
+  {
+   "path": "/repos/CloudCrane-Software/factory-os/actions/runs/42201182661/jobs",
+   "status": 200,
+   "ms": 789
+  },
+  {
+   "path": "/repos/CloudCrane-Software/factory-os/actions/runs/42199931755/jobs",
+   "status": 200,
+   "ms": 3773
+  },
+  {
+   "path": "/repos/CloudCrane-Software/factory-os/actions/runs/42214895553/jobs",
+   "status": 200,
+   "ms": 786
+  },
+  {
+   "path": "/repos/CloudCrane-Software/factory-os/actions/runs/42201182661/jobs",
+   "status": 200,
+   "ms": 2252
+  },
+  {
+   "path": "/repos/CloudCrane-Software/factory-os/actions/runs/42199931755/jobs",
+   "status": 200,
+   "ms": 758
+  },
+  {
+   "path": "/repos/CloudCrane-Software/factory-os/issues",
+   "status": 200,
+   "ms": 4029
+  },
+  {
+   "path": "/repos/CloudCrane-Software/factory-os/issues/comments",
+   "status": null,
+   "ms": 14612
+  },
+  {
+   "path": "/repos/CloudCrane-Software/factory-os/issues/comments",
+   "status": null,
+   "ms": 10811
+  },
+  {
+   "path": "/repos/CloudCrane-Software/factory-os/issues/comments",
+   "status": 200,
+   "ms": 12645
+  },
+  {
+   "path": "/repos/CloudCrane-Software/factory-os/issues/comments",
+   "status": 200,
+   "ms": 12257
+  }
+ ],
+ "degraded": {
+  "degraded": false,
+  "detail": ""
+ },
+ "gate_verdict": "fail:missing-week",
+ "tool": {
+  "tool": "sandbox-obs-weekly",
+  "version": "1.0.0",
+  "repo": "CloudCrane-Software/factory-os",
+  "argv": [
+   "tools/sandbox-obs-weekly.py",
+   "--repo",
+   "CloudCrane-Software/factory-os",
+   "--out",
+   "状态观测/sandbox-obs-weekly.json",
+   "--long-pole-report",
+   "/tmp/redteam-report.json"
+  ],
+  "prior_path": "状态观测/sandbox-obs-weekly.json",
+  "token_mode": "token(ratelimit-only,read-only)",
+  "readonly_note": "判读器只读板面：本件网络面全 GET 零写；落盘回推=调用面（obs-nightly）职责"
+ },
+ "schema": {
+  "_note": "周窗 JSON 键集与出处注（卡面验收 2：schema 实读）。形态照 状态观测/otel-production.json。",
+  "ts": "本窗落盘钟面（+08:00 ISO）——本件生成时刻",
+  "ts_epoch": "ts 的 unix 秒（失周窗距判据消费面）",
+  "status": "窗级红绿：任一信号红/失周⇒red；全绿⇒green（读数面，非门判）",
+  "window_days": "周窗宽（卡面=周频 7d）",
+  "window_start": "窗起（+08:00 ISO）",
+  "window_end": "窗止（+08:00 ISO）＝ts",
+  "window_end_epoch": "窗止 unix 秒（下窗失周判据源）",
+  "counts": "四类信号计数面（b1/b2/b2x/b3/b3b/b4/b4b）",
+  "signals": "四类信号读数本体（B-1 卡在等待/B-2 卡在重试/B-3 验收反复红/B-4 上下文不足与空转；真空窗显式 null）",
+  "checks": "otelo-production 形态 checks[]（id/name/status/detail）：CW=周窗连续性（失周显式记）；S1..S4=四类信号",
+  "structured_comments": "板面结构化评论统一解析盘点（首行机器标记＋结构化体，契约 §7.5 四形态；与 factory-os#30 共用约定）",
+  "planner_inputs": "回路「迭代」输入面：观测平面级信号字段＋四列清单（信号→归因→责任面→建议）——planner.yml:781 合并位",
+  "long_pole_refresh": "长杆刷新读数收编（deny-audit=python 级 redteam_scan；fuzz/miri/criterion 显式 null）",
+  "continuity": "周窗连续性记录（前窗在位性/窗距/失周显式记——Q3 信标缺席=显式可见）",
+  "sources": "四源 API 端点实读留痕（endpoint/purpose/n——只读 GET 实读取证）",
+  "api_calls": "网络调用流水（path/status/ms，实读取证）",
+  "degraded": "降级面：部分源不可读时显式记（不静默绿）",
+  "gate_verdict": "夜间周期门消费面：pass=结构完好且周窗连续；fail:missing-week=失周（门红停车）；本字段只作门判据，不改读数",
+  "tool": "本件身份（tool/version/repo/argv/prior_path/token_mode）",
+  "schema": "本块（键集与出处注）——卡面验收 2 的 schema 实读面"
+ }
+}
