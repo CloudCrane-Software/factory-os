@@ -169,7 +169,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 -I - <<'PY'
-          import json, os, sys, time, urllib.error, urllib.request
+          import json, os, sys, time, urllib.error, urllib.parse, urllib.request
           from datetime import datetime, timedelta, timezone
 
           ORG, REPO = os.environ["ORG"], os.environ["BOARD_REPO"]
@@ -201,8 +201,8 @@ jobs:
                   "/repos/%s/%s/issues?state=all&since=%s&per_page=100" % (ORG, REPO, since)))
           except Exception as e:
               sig_errors.append("recent_events 读取失败：%s" % type(e).__name__)
-          try:   # ③ 波次清单/ 最新 manifest 提交距今分钟数
-              c = gh("/repos/%s/%s/commits?path=%s&per_page=1" % (ORG, REPO, "波次清单"))
+          try:   # ③ 波次清单/ 最新 manifest 提交距今分钟数（路径须 percent-encode，urllib URL 非 ASCII 会 UnicodeEncodeError）
+              c = gh("/repos/%s/%s/commits?path=%s&per_page=1" % (ORG, REPO, urllib.parse.quote("波次清单")))
               d = datetime.fromisoformat(c[0]["commit"]["committer"]["date"].replace("Z", "+00:00"))
               age = int((datetime.now(timezone.utc) - d).total_seconds() // 60)
               signals["manifest_age_min"] = max(age, 0)   # 钟差钳零
