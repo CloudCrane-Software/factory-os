@@ -93,6 +93,10 @@ jobs:
     timeout-minutes: 25
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # 本件读取面（tools/redteam_review.py）按 GITHUB_TOKEN 命名取令牌
+      # （2026-11-07 首跑教训：只映射 GH_TOKEN 时读取面拿到空令牌 ⇒ 带空
+      # Bearer 被 GitHub 401 ⇒ fail-closed exit 2 作业红；两个命名都映射）。
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
       DECISION_API_KEY: ${{ secrets.DECISION_API_KEY }}   # 分诊路钥匙（现关；开分诊才用）
       FORCE: ${{ inputs.force || 'false' }}
