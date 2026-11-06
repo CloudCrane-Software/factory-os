@@ -1,0 +1,664 @@
+[
+  {
+    "pattern": "G-13",
+    "file": "tools/age-pw.py",
+    "line": 87,
+    "reason": "误报（机制代码）：L87 `password = read_pw(prompt)` / L88 `if not password:`——交互读口令的函数返回值赋给局部变量再做存在性判断，值侧是函数调用/变量，无字面凭据。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/age-pw.py",
+    "line": 88,
+    "reason": "误报（机制代码）：L87 `password = read_pw(prompt)` / L88 `if not password:`——交互读口令的函数返回值赋给局部变量再做存在性判断，值侧是函数调用/变量，无字面凭据。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/b-exp1-aggregate.py",
+    "line": 788,
+    "reason": "误报（词形撞车）：L788 `\"cents_per_token\": F5C_CENTS_PER_TOK`——计费字段名含 token 词根，值侧是常量名；L796 print 文案 `tokens: input=%d output=%d…`——词根撞车，值侧是格式化占位符。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/b-exp1-aggregate.py",
+    "line": 796,
+    "reason": "误报（词形撞车）：L788 `\"cents_per_token\": F5C_CENTS_PER_TOK`——计费字段名含 token 词根，值侧是常量名；L796 print 文案 `tokens: input=%d output=%d…`——词根撞车，值侧是格式化占位符。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/b-exp2-aggregate.py",
+    "line": 1647,
+    "reason": "误报（词形撞车）：L1647 `\"cents_per_token\": F5C_CENTS_PER_TOK`——同 b-exp1 的计费字段名，值侧为常量名。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/card-lint.py",
+    "line": 17,
+    "reason": "误报（门自己的规则文本）：L17 是 card-lint 质量闸 L8 条规则文案「无密钥/内网串：任务书与 AGENTS.md 不得出现 sk-/token=/密码/内网 IP 段」——禁项清单的规则描述，token= 后跟的是禁令文字非值。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/cb-dispatch.py",
+    "line": 95,
+    "reason": "误报（词形撞车）：L95 `if org not in _tokens:`——局部缓存变量名 _tokens 撞 token 词根，成员判断无赋值。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/cnb-relay.py",
+    "line": 216,
+    "reason": "误报（机制代码）：L216/297 `token = bao_field(key_path, \"Token\")`——运行时从 openBao 取值的函数返回（凭据不落盘，同凭据面总表 #23 口径），值侧是函数调用。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/cnb-relay.py",
+    "line": 297,
+    "reason": "误报（机制代码）：L216/297 `token = bao_field(key_path, \"Token\")`——运行时从 openBao 取值的函数返回（凭据不落盘，同凭据面总表 #23 口径），值侧是函数调用。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/dispatch-registry.py",
+    "line": 251,
+    "reason": "误报（词形撞车）：L251/311 `… in EMPTY_DEBT_TOKENS`——空欠账词表常量名撞 token 词根，值侧是成员判断。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/dispatch-registry.py",
+    "line": 311,
+    "reason": "误报（词形撞车）：L251/311 `… in EMPTY_DEBT_TOKENS`——空欠账词表常量名撞 token 词根，值侧是成员判断。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/dispatch-value-gate.py",
+    "line": 85,
+    "reason": "误报（词形撞车）：L85 `if s.lower() in PLACEHOLDER_TOKENS:`——占位符检测表常量名（PLACEHOLDER_TOKENS）撞车，值侧是成员判断。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/escrow-reseal-v2.sh",
+    "line": 75,
+    "reason": "误报（机制代码+占位标记）：L75 curl 兜底 `X-Vault-Token: $BAO_TOKEN`——shell 变量插值无字面值；L211 自检 Python `PLAIN = {\"root-token\": \"v-root.plain\", \"unseal-key\": \"v-unseal.plain\"}`——m",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/escrow-reseal-v2.sh",
+    "line": 211,
+    "reason": "误报（机制代码+占位标记）：L75 curl 兜底 `X-Vault-Token: $BAO_TOKEN`——shell 变量插值无字面值；L211 自检 Python `PLAIN = {\"root-token\": \"v-root.plain\", \"unseal-key\": \"v-unseal.plain\"}`——m",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/factory-keepalive.py",
+    "line": 110,
+    "reason": "误报（键名/判据文字撞车）：L110/1614/2082/2117 探活判据注释引用环境变量名 AF_TRIGGER_SECRET_GITEA_WEBHOOK 及「缺 secret=安全缺省不判活」表述——键名与中文判据文字，值侧无凭据。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/factory-keepalive.py",
+    "line": 1614,
+    "reason": "误报（键名/判据文字撞车）：L110/1614/2082/2117 探活判据注释引用环境变量名 AF_TRIGGER_SECRET_GITEA_WEBHOOK 及「缺 secret=安全缺省不判活」表述——键名与中文判据文字，值侧无凭据。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/factory-keepalive.py",
+    "line": 2082,
+    "reason": "误报（键名/判据文字撞车）：L110/1614/2082/2117 探活判据注释引用环境变量名 AF_TRIGGER_SECRET_GITEA_WEBHOOK 及「缺 secret=安全缺省不判活」表述——键名与中文判据文字，值侧无凭据。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/factory-keepalive.py",
+    "line": 2117,
+    "reason": "误报（键名/判据文字撞车）：L110/1614/2082/2117 探活判据注释引用环境变量名 AF_TRIGGER_SECRET_GITEA_WEBHOOK 及「缺 secret=安全缺省不判活」表述——键名与中文判据文字，值侧无凭据。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/fast-pull.py",
+    "line": 198,
+    "reason": "误报（机制代码）：L198 `token = json.loads(token)[\"token\"]`——从 JSON 响应取字段再赋局部变量，值侧是变量。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/ledger-face-recon-gate.py",
+    "line": 936,
+    "reason": "误报（词形撞车）：L936 `cunreg, cred = int(claim.group(\"unreg\")), int(claim.group(\"red\"))`——局部变量 cred（claim 的 red 计数）撞 cred 词根，值侧是 int() 转换。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/mcode-token.py",
+    "line": 7,
+    "reason": "误报（文档模板+变量）：L7/8 docstring 的 OAuth 请求/响应模板（refresh_token=<RT>、\"access_token\":\"mmoat_…\"）——<RT> 占位与省略号形态；L65 请求体 `\"refresh_token\": refresh_token,`——变量插值；L134 `tok",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/mcode-token.py",
+    "line": 8,
+    "reason": "误报（文档模板+变量）：L7/8 docstring 的 OAuth 请求/响应模板（refresh_token=<RT>、\"access_token\":\"mmoat_…\"）——<RT> 占位与省略号形态；L65 请求体 `\"refresh_token\": refresh_token,`——变量插值；L134 `tok",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/mcode-token.py",
+    "line": 65,
+    "reason": "误报（文档模板+变量）：L7/8 docstring 的 OAuth 请求/响应模板（refresh_token=<RT>、\"access_token\":\"mmoat_…\"）——<RT> 占位与省略号形态；L65 请求体 `\"refresh_token\": refresh_token,`——变量插值；L134 `tok",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/mcode-token.py",
+    "line": 134,
+    "reason": "误报（文档模板+变量）：L7/8 docstring 的 OAuth 请求/响应模板（refresh_token=<RT>、\"access_token\":\"mmoat_…\"）——<RT> 占位与省略号形态；L65 请求体 `\"refresh_token\": refresh_token,`——变量插值；L134 `tok",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/mirror-disclose.sh",
+    "line": 196,
+    "reason": "误报（清洗门自己的语料/注释）：L196 模式表注释描述 P-05 键名；L729 `hvs.PLACEHOLDER0000000000`、L738 `sk-PLACEHOLDER1234567890`——selftest 夹具（PLACEHOLDER 字样）；L852-859 G-13 改前/改后检出对拍语料（hun",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "P-01",
+    "file": "tools/mirror-disclose.sh",
+    "line": 226,
+    "reason": "清洗门自己的模式表+夹具：L226 模式表条目文案「URL 直嵌凭据（scheme://user:pass@，gitea PAT 的常见落点形态）」——闸自己的模式描述串；L739 selftest 假 URL 夹具（opchadmin:40 位顺序十六进制占位串，指纹 deb87fabd177 同 #22 夹具）。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-12",
+    "file": "tools/mirror-disclose.sh",
+    "line": 263,
+    "reason": "清洗门自己的模式表条目：L263 PROBES 元组 `b\"-----BEGIN OPENSSH PRIVATE KEY-----\"——二进制定点探针的字面量（模式表本体），非密钥。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/mirror-disclose.sh",
+    "line": 729,
+    "reason": "误报（清洗门自己的语料/注释）：L196 模式表注释描述 P-05 键名；L729 `hvs.PLACEHOLDER0000000000`、L738 `sk-PLACEHOLDER1234567890`——selftest 夹具（PLACEHOLDER 字样）；L852-859 G-13 改前/改后检出对拍语料（hun",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "P-02",
+    "file": "tools/mirror-disclose.sh",
+    "line": 729,
+    "reason": "清洗门自己的 selftest 夹具：L729 `bao-token: hvs.PLACEHOLDER0000000000`（PLACEHOLDER 字样，写进 mktemp 假仓 evil/token.txt），非真实 openBao 令牌。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-02",
+    "file": "tools/mirror-disclose.sh",
+    "line": 738,
+    "reason": "清洗门自己的 selftest 夹具：L738 `api_key = \"sk-PLACEHOLDER1234567890\"`（PLACEHOLDER 字样，写进 mktemp 假仓 src/creds.txt，门自检断言该行必须报 G-02），非真实 sk- 厂商键。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/mirror-disclose.sh",
+    "line": 738,
+    "reason": "误报（清洗门自己的语料/注释）：L196 模式表注释描述 P-05 键名；L729 `hvs.PLACEHOLDER0000000000`、L738 `sk-PLACEHOLDER1234567890`——selftest 夹具（PLACEHOLDER 字样）；L852-859 G-13 改前/改后检出对拍语料（hun",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "P-01",
+    "file": "tools/mirror-disclose.sh",
+    "line": 739,
+    "reason": "清洗门自己的模式表+夹具：L226 模式表条目文案「URL 直嵌凭据（scheme://user:pass@，gitea PAT 的常见落点形态）」——闸自己的模式描述串；L739 selftest 假 URL 夹具（opchadmin:40 位顺序十六进制占位串，指纹 deb87fabd177 同 #22 夹具）。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "P-04",
+    "file": "tools/mirror-disclose.sh",
+    "line": 739,
+    "reason": "清洗门自己的 selftest 内网地址夹具：L739 假 URL 夹具行——门自检断言 :777「命中含 docs/public.md:1 P-04」要求该行必须报红（改值即坏门自检）；同行口令段为 40 位顺序十六进制占位串，sha256[:12]=deb87fabd177 与凭据面总表 #22 登记的夹具指纹逐位",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/mirror-disclose.sh",
+    "line": 852,
+    "reason": "误报（清洗门自己的语料/注释）：L196 模式表注释描述 P-05 键名；L729 `hvs.PLACEHOLDER0000000000`、L738 `sk-PLACEHOLDER1234567890`——selftest 夹具（PLACEHOLDER 字样）；L852-859 G-13 改前/改后检出对拍语料（hun",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/mirror-disclose.sh",
+    "line": 853,
+    "reason": "误报（清洗门自己的语料/注释）：L196 模式表注释描述 P-05 键名；L729 `hvs.PLACEHOLDER0000000000`、L738 `sk-PLACEHOLDER1234567890`——selftest 夹具（PLACEHOLDER 字样）；L852-859 G-13 改前/改后检出对拍语料（hun",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/mirror-disclose.sh",
+    "line": 854,
+    "reason": "误报（清洗门自己的语料/注释）：L196 模式表注释描述 P-05 键名；L729 `hvs.PLACEHOLDER0000000000`、L738 `sk-PLACEHOLDER1234567890`——selftest 夹具（PLACEHOLDER 字样）；L852-859 G-13 改前/改后检出对拍语料（hun",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/mirror-disclose.sh",
+    "line": 855,
+    "reason": "误报（清洗门自己的语料/注释）：L196 模式表注释描述 P-05 键名；L729 `hvs.PLACEHOLDER0000000000`、L738 `sk-PLACEHOLDER1234567890`——selftest 夹具（PLACEHOLDER 字样）；L852-859 G-13 改前/改后检出对拍语料（hun",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/mirror-disclose.sh",
+    "line": 856,
+    "reason": "误报（清洗门自己的语料/注释）：L196 模式表注释描述 P-05 键名；L729 `hvs.PLACEHOLDER0000000000`、L738 `sk-PLACEHOLDER1234567890`——selftest 夹具（PLACEHOLDER 字样）；L852-859 G-13 改前/改后检出对拍语料（hun",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/mirror-disclose.sh",
+    "line": 858,
+    "reason": "误报（清洗门自己的语料/注释）：L196 模式表注释描述 P-05 键名；L729 `hvs.PLACEHOLDER0000000000`、L738 `sk-PLACEHOLDER1234567890`——selftest 夹具（PLACEHOLDER 字样）；L852-859 G-13 改前/改后检出对拍语料（hun",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/mirror-disclose.sh",
+    "line": 859,
+    "reason": "误报（清洗门自己的语料/注释）：L196 模式表注释描述 P-05 键名；L729 `hvs.PLACEHOLDER0000000000`、L738 `sk-PLACEHOLDER1234567890`——selftest 夹具（PLACEHOLDER 字样）；L852-859 G-13 改前/改后检出对拍语料（hun",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/mirror-disclose.sh",
+    "line": 896,
+    "reason": "误报（清洗门自己的语料/注释）：L196 模式表注释描述 P-05 键名；L729 `hvs.PLACEHOLDER0000000000`、L738 `sk-PLACEHOLDER1234567890`——selftest 夹具（PLACEHOLDER 字样）；L852-859 G-13 改前/改后检出对拍语料（hun",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/order-stages.py",
+    "line": 570,
+    "reason": "误报（词根撞车+测试夹具）：L570 `\"tokens\": tokens,`——字段名撞车值侧变量；L701 测试用例元组 `(\"tool turn=1 bash token=sk-abcdef1234567890\", True)`——16 位顺序字母数字假串（同 L701 G-02 条目）。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-02",
+    "file": "tools/order-stages.py",
+    "line": 701,
+    "reason": "误报（测试夹具）：L701 `token=sk-abcdef1234567890`——sk- 后接 abcdef1234567890 顺序串，测试用例构造的假厂商键形态，非真实 sk- 键。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/order-stages.py",
+    "line": 701,
+    "reason": "误报（词根撞车+测试夹具）：L570 `\"tokens\": tokens,`——字段名撞车值侧变量；L701 测试用例元组 `(\"tool turn=1 bash token=sk-abcdef1234567890\", True)`——16 位顺序字母数字假串（同 L701 G-02 条目）。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/otel-e2e-check.py",
+    "line": 108,
+    "reason": "误报（机制代码）：L108 `secret = base64.b64decode(auth.split(\" \", 1)[1]).decode().split(\":\", 1)[1]`——从 basic auth 头解析的局部变量；L155 环境变量字典 `{\"MES_CH_ENDPOINT\": base, \"MES_CH",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/otel-e2e-check.py",
+    "line": 155,
+    "reason": "误报（机制代码）：L108 `secret = base64.b64decode(auth.split(\" \", 1)[1]).decode().split(\":\", 1)[1]`——从 basic auth 头解析的局部变量；L155 环境变量字典 `{\"MES_CH_ENDPOINT\": base, \"MES_CH",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/otel/af-otel-projector.py",
+    "line": 583,
+    "reason": "误报（词形撞车）：L583-585 `\"gen_ai.usage.input_tokens\": usage.get(\"input_tokens\")` 等 OTel 属性名——token 词根撞车，值侧是 usage.get() 调用。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/otel/af-otel-projector.py",
+    "line": 584,
+    "reason": "误报（词形撞车）：L583-585 `\"gen_ai.usage.input_tokens\": usage.get(\"input_tokens\")` 等 OTel 属性名——token 词根撞车，值侧是 usage.get() 调用。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/otel/af-otel-projector.py",
+    "line": 585,
+    "reason": "误报（词形撞车）：L583-585 `\"gen_ai.usage.input_tokens\": usage.get(\"input_tokens\")` 等 OTel 属性名——token 词根撞车，值侧是 usage.get() 调用。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "P-01",
+    "file": "tools/otel/ch_client.py",
+    "line": 58,
+    "reason": "误报（文档模板+机制代码）：L58 docstring「url 形如 http://user:pass@host:port」——user/pass 文档模板形态；L65 `url = f\"http://{quote(user)}:{quote(pw)}@{…}\"`——从 env/bao/0600 文件取得的变量装配 U",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "P-01",
+    "file": "tools/otel/ch_client.py",
+    "line": 65,
+    "reason": "误报（文档模板+机制代码）：L58 docstring「url 形如 http://user:pass@host:port」——user/pass 文档模板形态；L65 `url = f\"http://{quote(user)}:{quote(pw)}@{…}\"`——从 env/bao/0600 文件取得的变量装配 U",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/otel/otlp-assert.py",
+    "line": 1467,
+    "reason": "误报（词形撞车）：L1467-1469 同 OTel 属性名（gen_ai.usage.*_tokens），值侧 `_iv(1926)` 等测试计数函数。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/otel/otlp-assert.py",
+    "line": 1468,
+    "reason": "误报（词形撞车）：L1467-1469 同 OTel 属性名（gen_ai.usage.*_tokens），值侧 `_iv(1926)` 等测试计数函数。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/otel/otlp-assert.py",
+    "line": 1469,
+    "reason": "误报（词形撞车）：L1467-1469 同 OTel 属性名（gen_ai.usage.*_tokens），值侧 `_iv(1926)` 等测试计数函数。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "P-01",
+    "file": "tools/otel/run-collector.sh",
+    "line": 14,
+    "reason": "误报（文档模板）：L14 凭据链注释「env MES_CH_URL / OTEL_CH_URL（http://user:pass@host:port 整体形式）」——user/pass 模板字样描述运行时注入形态（同 #23）。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/otel/run-collector.sh",
+    "line": 87,
+    "reason": "误报（机制代码+注释）：L87 `token = f.read().strip()`——从 0600 凭据文件运行时读取的局部变量（不落盘）；L223 `resolve_creds` 函数名；L235 注释「命令前缀 inline env（MES_CH_PASSWORD=…）」——描述 env 注入形态，值侧省略号。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/otel/run-collector.sh",
+    "line": 223,
+    "reason": "误报（机制代码+注释）：L87 `token = f.read().strip()`——从 0600 凭据文件运行时读取的局部变量（不落盘）；L223 `resolve_creds` 函数名；L235 注释「命令前缀 inline env（MES_CH_PASSWORD=…）」——描述 env 注入形态，值侧省略号。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/otel/run-collector.sh",
+    "line": 235,
+    "reason": "误报（机制代码+注释）：L87 `token = f.read().strip()`——从 0600 凭据文件运行时读取的局部变量（不落盘）；L223 `resolve_creds` 函数名；L235 注释「命令前缀 inline env（MES_CH_PASSWORD=…）」——描述 env 注入形态，值侧省略号。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-11",
+    "file": "tools/publish-scrub-gate.py",
+    "line": 436,
+    "reason": "清洗门自己的 K-09 tamper 探针：L436 `Authorization: Bearer PLACEHOLDER1234567890`（PLACEHOLDER 字样）；自检断言必须红。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-02",
+    "file": "tools/publish-scrub-gate.py",
+    "line": 437,
+    "reason": "清洗门自己的 K-02 tamper 探针：L437 `key = sk-PLACEHOLDER0000000000000000`（PLACEHOLDER 字样）；自检断言必须红。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/publish-scrub-gate.py",
+    "line": 438,
+    "reason": "清洗门自己的 K-06/07/08/11 与 X-01 tamper 探针：L438 `\"access_token\": \"PLACEHOLDER-TOKEN-VALUE-000000\"`、L442 `client_secret = cGxhY2Vob2xkZXJzZWNyZXR2YWx1ZTAwMDAwMDAwMDA=",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-01",
+    "file": "tools/publish-scrub-gate.py",
+    "line": 439,
+    "reason": "清洗门自己的 K-01 tamper 探针：L439 `eyJTESTTESTTEST.eyJTESTTESTTEST.SIGNATURETEST1234`（TEST/SIGNATURE 占位字样）；门自检断言该探针必须红（L455「tamper 探针未红」即 fail），非真实 JWT。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-12",
+    "file": "tools/publish-scrub-gate.py",
+    "line": 440,
+    "reason": "清洗门自己的 K-05 tamper 探针：L440 PEM 私钥块，块体 PLACEHOLDERKEYBODY（占位字样，非密钥本体）；自检断言必须红。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/publish-scrub-gate.py",
+    "line": 442,
+    "reason": "清洗门自己的 K-06/07/08/11 与 X-01 tamper 探针：L438 `\"access_token\": \"PLACEHOLDER-TOKEN-VALUE-000000\"`、L442 `client_secret = cGxhY2Vob2xkZXJzZWNyZXR2YWx1ZTAwMDAwMDAwMDA=",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "P-04",
+    "file": "tools/publish-scrub-gate.py",
+    "line": 443,
+    "reason": "清洗门自己的 O-01 tamper 探针：L443 `endpoint http://100.64.0.6:8300/api`——门自检断言该探针必须报 P-04（改值即坏门自检），属模式表本体非真实直连面；同文件 L124 判据注释中的同段地址已在暂存树替换为占位符。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-03",
+    "file": "tools/publish-scrub-gate.py",
+    "line": 446,
+    "reason": "清洗门自己的 K-03 tamper 探针：L446 `ghp_PLACEHOLDER1234567890abcdef`（PLACEHOLDER 字样）；自检断言必须红。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-04",
+    "file": "tools/publish-scrub-gate.py",
+    "line": 447,
+    "reason": "清洗门自己的 K-04 tamper 探针：L447 `AKIAIOSFODNN7EXAMPLE`——AWS 文档 canonical 示例访问键（EXAMPLE 字样，公开文档同款）；自检断言必须红。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/publish-scrub-gate.py",
+    "line": 485,
+    "reason": "清洗门自己的 K-06/07/08/11 与 X-01 tamper 探针：L438 `\"access_token\": \"PLACEHOLDER-TOKEN-VALUE-000000\"`、L442 `client_secret = cGxhY2Vob2xkZXJzZWNyZXR2YWx1ZTAwMDAwMDAwMDA=",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/report-feeder.py",
+    "line": 507,
+    "reason": "误报（词形撞车）：L507 `if token:`——局部存在性判断，无赋值。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/test-path-traversal-404.py",
+    "line": 113,
+    "reason": "误报（词形撞车）：L113 `secret = os.path.join(data, f\"{marker}.md\")`——目录穿越测试里的路径变量，值侧是路径拼接。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/test-portal-write-traversal.py",
+    "line": 251,
+    "reason": "误报（测试夹具）：L251/257 `\"claim_token\": \"RT79-POISON-TOKEN\"`——门户写穿越测试的投毒标记串（POISON-TOKEN 字样），一次性测试夹具。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/test-portal-write-traversal.py",
+    "line": 257,
+    "reason": "误报（测试夹具）：L251/257 `\"claim_token\": \"RT79-POISON-TOKEN\"`——门户写穿越测试的投毒标记串（POISON-TOKEN 字样），一次性测试夹具。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/test-quota-gate-criteria-parity.py",
+    "line": 210,
+    "reason": "误报（测试 stub）：L210/335 `gov.minimax_token = lambda: \"mmoat-stub\"`——parity 测试的 stub 函数返回假值（stub 字样），零权限。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/test-quota-gate-criteria-parity.py",
+    "line": 335,
+    "reason": "误报（测试 stub）：L210/335 `gov.minimax_token = lambda: \"mmoat-stub\"`——parity 测试的 stub 函数返回假值（stub 字样），零权限。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-01",
+    "file": "tools/mirror-scan-allowlist.json",
+    "reason": "结构性自命中（文件级、不钉行）：本清单为留存判读依据，reason 字段原文引用各命中行，引用段自身撞模式词形；引文值侧均为判读文字或占位样例，非真实凭据。本件受 CODEOWNERS /tools/ 判官路径锁——整文件级豁免仅覆盖本清单自身，源码树的命中仍逐条钉行（行漂移即红）。与 mirror-disclose.sh 内嵌模式表自命中同族。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-02",
+    "file": "tools/mirror-scan-allowlist.json",
+    "reason": "结构性自命中（文件级、不钉行）：本清单为留存判读依据，reason 字段原文引用各命中行，引用段自身撞模式词形；引文值侧均为判读文字或占位样例，非真实凭据。本件受 CODEOWNERS /tools/ 判官路径锁——整文件级豁免仅覆盖本清单自身，源码树的命中仍逐条钉行（行漂移即红）。与 mirror-disclose.sh 内嵌模式表自命中同族。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-03",
+    "file": "tools/mirror-scan-allowlist.json",
+    "reason": "结构性自命中（文件级、不钉行）：本清单为留存判读依据，reason 字段原文引用各命中行，引用段自身撞模式词形；引文值侧均为判读文字或占位样例，非真实凭据。本件受 CODEOWNERS /tools/ 判官路径锁——整文件级豁免仅覆盖本清单自身，源码树的命中仍逐条钉行（行漂移即红）。与 mirror-disclose.sh 内嵌模式表自命中同族。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-04",
+    "file": "tools/mirror-scan-allowlist.json",
+    "reason": "结构性自命中（文件级、不钉行）：本清单为留存判读依据，reason 字段原文引用各命中行，引用段自身撞模式词形；引文值侧均为判读文字或占位样例，非真实凭据。本件受 CODEOWNERS /tools/ 判官路径锁——整文件级豁免仅覆盖本清单自身，源码树的命中仍逐条钉行（行漂移即红）。与 mirror-disclose.sh 内嵌模式表自命中同族。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-11",
+    "file": "tools/mirror-scan-allowlist.json",
+    "reason": "结构性自命中（文件级、不钉行）：本清单为留存判读依据，reason 字段原文引用各命中行，引用段自身撞模式词形；引文值侧均为判读文字或占位样例，非真实凭据。本件受 CODEOWNERS /tools/ 判官路径锁——整文件级豁免仅覆盖本清单自身，源码树的命中仍逐条钉行（行漂移即红）。与 mirror-disclose.sh 内嵌模式表自命中同族。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-12",
+    "file": "tools/mirror-scan-allowlist.json",
+    "reason": "结构性自命中（文件级、不钉行）：本清单为留存判读依据，reason 字段原文引用各命中行，引用段自身撞模式词形；引文值侧均为判读文字或占位样例，非真实凭据。本件受 CODEOWNERS /tools/ 判官路径锁——整文件级豁免仅覆盖本清单自身，源码树的命中仍逐条钉行（行漂移即红）。与 mirror-disclose.sh 内嵌模式表自命中同族。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "G-13",
+    "file": "tools/mirror-scan-allowlist.json",
+    "reason": "结构性自命中（文件级、不钉行）：本清单为留存判读依据，reason 字段原文引用各命中行，引用段自身撞模式词形；引文值侧均为判读文字或占位样例，非真实凭据。本件受 CODEOWNERS /tools/ 判官路径锁——整文件级豁免仅覆盖本清单自身，源码树的命中仍逐条钉行（行漂移即红）。与 mirror-disclose.sh 内嵌模式表自命中同族。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "P-01",
+    "file": "tools/mirror-scan-allowlist.json",
+    "reason": "结构性自命中（文件级、不钉行）：本清单为留存判读依据，reason 字段原文引用各命中行，引用段自身撞模式词形；引文值侧均为判读文字或占位样例，非真实凭据。本件受 CODEOWNERS /tools/ 判官路径锁——整文件级豁免仅覆盖本清单自身，源码树的命中仍逐条钉行（行漂移即红）。与 mirror-disclose.sh 内嵌模式表自命中同族。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "P-02",
+    "file": "tools/mirror-scan-allowlist.json",
+    "reason": "结构性自命中（文件级、不钉行）：本清单为留存判读依据，reason 字段原文引用各命中行，引用段自身撞模式词形；引文值侧均为判读文字或占位样例，非真实凭据。本件受 CODEOWNERS /tools/ 判官路径锁——整文件级豁免仅覆盖本清单自身，源码树的命中仍逐条钉行（行漂移即红）。与 mirror-disclose.sh 内嵌模式表自命中同族。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  },
+  {
+    "pattern": "P-04",
+    "file": "tools/mirror-scan-allowlist.json",
+    "reason": "结构性自命中（文件级、不钉行）：本清单为留存判读依据，reason 字段原文引用各命中行，引用段自身撞模式词形；引文值侧均为判读文字或占位样例，非真实凭据。本件受 CODEOWNERS /tools/ 判官路径锁——整文件级豁免仅覆盖本清单自身，源码树的命中仍逐条钉行（行漂移即红）。与 mirror-disclose.sh 内嵌模式表自命中同族。",
+    "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
+    "expires": "2026-12-05"
+  }
+]

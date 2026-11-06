@@ -1,0 +1,1550 @@
+#!/usr/bin/env python3
+"""factory-watch.py — 黑灯工厂可观测中心（本机半边）：watchdog 守护 + 安灯分级 + 看板数据源。
+
+定位：只读观测，不启动/不重启任何执行面组件。调度器（factory-scheduler.py）与 anolis 侧
+      由别的角色负责；本脚本负责"看得见"：聚合 bench 结果、探活调度器、巡检 anolis、
+      解析中继失败，并按安灯规则产出分级报警。
+
+两种模式:
+  factory-watch.py --once   # 单轮扫描，stdout 打印人类可读巡检报告（另刷新 latest.json/data.json）
+  factory-watch.py          # 常驻：每 60s 一轮；写 状态观测/latest.json（机器可读全量快照）、
+                            #   追加 状态观测/alarms.log（报警流水，同种报警 30 分钟内不重复记）、
+                            #   每轮刷新 状态/看板/data.json（看板静态页的数据源）
+环境变量:
+  AF_WATCH_EXTRA_DIRS       # 逗号分隔的第二产线观测清单（目录 glob=额外面臂 tier=F2；
+                            #   .json=额外调度器状态，配对同名 -graph.json 解析臂 out 映射），
+                            #   如 "/tmp/bench-fix2-rerun-*,/tmp/factory2-status.json"
+
+安灯规则（level / code / 触发条件，实现见 build_alarms()）:
+  red   A0  调度器死/状态停更（状态文件缺失、mtime>2400s，或进程连续 2 轮不在；
+            DEB57-A0 2026-11-02 判活面改读现役状态根 状态观测/factory-scheduler-state.json）
+  red   A1  任一臂末态 run_failed 占比>10%（≥5 题；任务级口径：按 task_id 取
+            results.jsonl 末行，重试救回的 attempt 不计——2026-10-22 修，修前
+            行级口径把"曾经失败过的尝试"计成"现在仍失败"（实证 D1/D2-step-5
+            行级 13/17 → 末态 0，四臂全误报）；与②组 mcode 官方线"78 任务有
+            重复行、71 是 None+judged 混合、必须 last-row 口径"同源同坑）
+            （归档豁免：results.jsonl mtime>6h 且无关联在跑进程的终态臂跳过不报，
+            安灯节汇总一行 [已归档臂]——慢性信号不再每轮复报，归档依据见巡检日志）
+  red   A2  任一臂末态零补丁（reward 为 None 且非 run_failed）占比>30%（≥10 题；
+            同 A1 任务级口径。不用 gate 判零补丁：实证 gate=no_patch 行里有
+            reward=true（启发式误判），reward/status 才是判分事实）
+            （同 A1 归档豁免；行级零补丁/gate 拦截降为诊断信息行，不再触发红灯）
+  amber A3  某档案 ≥10 题已判分且通过数为 0
+  amber A4  anolis 任一巡检分区（/data、/）使用率>85%
+  amber A4L 本机 /tmp 可用 <2662MiB（usrquota 校准线 2.6GiB，D-24；statvfs 盘点失败
+            同码报「/tmp 盘点失败（fail-closed）」与写满文案强制区分；2252MiB 闸线
+            之下 factory-sched/mcode-dispatch 已自动拦新臂/新判分，安灯提前叫人）
+  red   A4W  本机 /tmp 写即失败（2026-11-02 RT 收尾 DEB57 增：真写 1MiB 探针）。
+            A4L 量的是 statvfs f_bavail＝全机剩余空间那一本账，量不到 tmpfs 每用户
+            配额（usrquota）那一本账——2026-11-02 10:37 实测 f_bavail 报 1012MiB
+            「可用」，同刻 1MiB 写即 OSError 122 Disk quota exceeded（/home 同刻
+            可写）。A4L 文案只承诺「拦新臂/新判分」，本灯覆盖「写即失败」：落 /tmp
+            的门件（kb/verify.py 快照 sqlite backup）当场 disk I/O error 硬红。
+            与 A4L 并存不互斥（低水=提前叫人；写不进=当场坏）。
+  amber A5  factory.log 尾部中继（relay）连续失败 ≥3（中间无一次 ok）
+  amber A6  调度器认为 running 的 bench 臂 30 分钟无新 results 行
+            （豁免：该臂 out 目录 runs/ 最新子目录 10 分钟内有写入——慢任务
+            GLM/kimi 单题 30-60 分钟属正常，results 行只在整题收尾时落盘）
+  amber A7  本机 sweb.eval 镜像唯一任务数<120 且连续 2 小时无新增
+            （口径与 tools/local-image-feed.py 盘点一致：docker images 里
+            swebench/sweb.eval.x86_64.<task> 去重仓库数；anolis 上的 relay
+            镜像池另巡检上报，但不参与 A7——2026-10-22 前数的是 anolis 池，
+            与 feed 进度无关，实证为误报来源）
+  red   A8  gov 公网门户（jobs.hkmingdajiaoyu.com 宿主 gov-host.invalid:8090，在役
+            裸进程）三签名任一失败：①/healthz 非 200 或响应体非 {"ok":true}；
+            ②/tasks.json?status=open&limit=1 信封不可解析（进程在但数据面死）；
+            ③在役进程 environ 缺 AF_JOBS_DATA（2026-11-02 09:00 板面全零事故
+            根因签名——该形态下 ①② 照样全绿，alarms.log 全窗零门户条目，
+            详见 计划/变更日志.md:40794）。发布链（L5 deploy 门）与 keepalive
+            自愈（portal 看护对象）之外，本灯=门户可用性的常驻告警面。
+  red   A9  活性安灯腿失活（风险#7 收口批 2026-11-04 新增臂；**只增，既有臂判定
+            一律不动**）：安灯判据文件 状态观测/trigger-inbox-liveness.json 由
+            tools/event-router.py::_trigger_liveness_andon 每轮重写＝报活心跳；
+            判据文件超 3600s 未重写 ⇒ 安灯腿本身没在跑（比 amber 更严重的一档：
+            amber=安灯在跑但收件箱静默；stale=安灯腿死了）；判据文件不在位同理。
+            **读到旧判据不得报 green**——「把陈旧判据当成活」正是 268h 静默前科的
+            失败形态。与 event-router 自写的 trigger-inbox-silent 摘要行**不同码
+            不同义**（那行=安灯在跑但收件箱静默；本行=安灯腿本身失活），不重复记。
+
+容错：bench-fix1-* 目录尚未生成/工厂重启后空目录/结果行有空行或坏 JSON（逐行
+      try/except 跳过并计数 n_bad_lines，不整文件失败、不漏坏行之后的所有行——
+      2026-10-22 修，实测 D1-mavis-m31f 有 1 行写截断）/anolis ssh 不通/
+      调度器从未运行——全部不崩，按 0 或 ok:false 呈现。密钥零明文（本脚本不碰密钥）。
+"""
+import argparse
+import glob
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+
+WS = "/home/pan-ding/workspace/agent黑灯工厂"
+SAMPLE = f"{WS}/计划/s1-swev-120.json"          # D1/D2/D3 分母来源（读取用绝对路径）
+SAMPLE_REL = "计划/s1-swev-120.json"            # P0-2 根治（2026-10-28）：发布面 plan.file 只写相对
+                                                # 路径——原绝对路径双命中 O-03（/home/ 路径+用户名），
+                                                # 经无闸推送链每分钟带上公网（publish-gate.md §1.7 两轨
+                                                # 处置之根治轨；页面/工具无消费方解析该字段，实查零引用）
+# DEB57-A0（2026-11-02）：判活面改读现役调度器状态根。旧值 /tmp/factory-status.json 是
+# 已退役链（tools/factory-sched.py）的根，文件早已不在盘——watch 据此把在役
+# factory-scheduler.py 判成「状态文件缺失」打 A0 假红（alarms.log 累计 267 条）且
+# alive=false 上公网看板；真死/真停更时该灯已红且归「已退役预期灯」，测不出其目的。
+# 现役状态文件=tools/factory-scheduler.py:154 STATE（每轮 60s 落盘，round_once 末尾写）。
+SCHED_STATUS = f"{WS}/状态观测/factory-scheduler-state.json"
+SCHED_LOG = "/tmp/factory.log"                  # 调度器日志（中继失败解析）
+GRAPH = "/tmp/factory-graph.json"               # 调度图（读 bench 臂 out 目录映射）
+
+OBS_DIR = f"{WS}/状态观测"
+LATEST = f"{OBS_DIR}/latest.json"
+ALARMS_LOG = f"{OBS_DIR}/alarms.log"
+STATE_FILE = f"{OBS_DIR}/watch-state.json"
+DASH_DIR = f"{WS}/状态/看板"
+DASH_DATA = f"{DASH_DIR}/data.json"
+
+INTERVAL = 60                # 常驻轮询周期（s）
+DEDUP_WINDOW = 1800          # 同种报警 30 分钟内不重复记（s）
+SCHED_STALE_S = 2400         # 状态文件 mtime 超此值 → A0（DEB57-A0 2026-11-02 由 300 改
+                             # 2400：现役 factory-scheduler 单轮含 anolis/gov 多路 ssh，
+                             # 实测 round 间隔 p99=784s/max=1258s、7.4% 轮次>300s（近 3 天
+                             # 119 轮）——300 阈必假红抖动；2400 与 keepalive scheduler
+                             # 判活线同值（factory-keepalive.py LOCAL_GUARDS stale_s=2400），
+                             # 两个监督面共用一套世界模型）
+RUNNING_STALL_S = 1800       # running 臂无新结果行 → A6
+RUNS_FRESH_S = 600           # runs/ 最新子目录 10 分钟内有写入 → A6 豁免（慢任务在跑）
+IMG_STALL_S = 7200           # 镜像数停滞判定窗 → A7
+IMAGE_TARGET = 120
+ARCHIVE_MATURITY_S = 6 * 3600  # results.jsonl mtime 超此龄且无关联在跑进程 → 臂归档（A1/A2 免报）
+RELAY_FAIL_MIN = 3           # 连败阈值 → A5
+# A4L 本机 /tmp 安灯线（D-24，patch-tmpfs-alarm-watch-A4L-R2 / 方案 P1-1）：/tmp=
+# 7.5G tmpfs+usrquota，与判分结果/任务 json/调度器三件套共居；EDQUOT 实测于仅余
+# ~1.7G（mes500-根因报告.md:42）。校准线 2662MiB≈2.6GiB=factory-sched tmpfs 闸 WARN；
+# 闸线 2252MiB≈2.2GiB=factory-sched tmpfs_gate / mcode-dispatch probe_tmpfs 的
+# CLOSE——低于它自动拦新，安灯负责在闸线之前叫人。
+A4L_TMP_WARN_MB = 2662
+A4L_TMP_GATE_MB = 2252
+# A4W 本机 /tmp 实际写入门径（2026-11-02 RT 收尾 DEB57）：A4L 量的是 statvfs
+# f_bavail——「全机剩余空间」那一本账；实际拒绝写入的是 tmpfs 每用户配额
+# （usrquota）那一本账，两本账不是一本。2026-11-02 10:37 实测：f_bavail 报
+# 1012MiB「可用」，同刻 1MiB 写即 OSError 122 Disk quota exceeded（/home 同刻
+# WRITE OK）——statvfs 报的数字好看，写真实文件时已被拒。
+# 本机不推算配额余量（quotactl 对 tmpfs 返回 EINVAL，7.0.0-38 内核实测），直接
+# 真写 1MiB 试门径：写不进＝写即失败，这是唯一权威判据（statvfs 永远给不出）。
+A4W_PROBE_BYTES = 1 << 20      # 1MiB 写探针（<50MB 短命件，D-24 /tmp 白名单内）
+A4W_PROBE_DIR = "/tmp"         # 被探目录（可被单测/沙箱改指）
+
+# ---------- ⑦ 活性安灯聚合段（风险#7 收口批 2026-11-04；只增新段，既有臂不动） ----------
+# 安灯本体（**写入方**）= tools/event-router.py::_trigger_liveness_andon()：
+# 每轮重写判据文件 状态观测/trigger-inbox-liveness.json（重写＝报活心跳）
+# + 告警面 状态观测/alarms.log 摘要行（跃迁必写 + 6h 刷新）。
+# 本段**只读**判据文件（绝不写它——写入方是 event-router 消费腿），
+# 把安灯读数抬进机器可读全量快照 状态观测/latest.json：
+# 此前快照里没有安灯读数（本文件 grep "trigger|liveness" 命中 0），
+# 安灯响了没有任何机器可读面把它抬起来——这正是 268h 静默前科的结构性成因。
+# ★ 陈旧即失活：安灯腿没在跑 ⇒ 判据文件不再被重写 ⇒ mtime 陈旧。
+#   这**比 amber 更严重**一档（amber＝安灯在跑但收件箱静默；stale＝安灯腿本身死了）。
+#   **读到旧文件不得报 green**——「把陈旧判据当成活」正是 268h 那次的失败形态。
+TRIGGER_LIVENESS_FILE = f"{OBS_DIR}/trigger-inbox-liveness.json"
+# ★ 形态A/形态B 判据文件（写入方=tools/factory-keepalive.py 判据行④，**不是**本件）：
+#   状态观测/trigger-inbox-source-silent.json —— 收件箱**进程态 + 源头断供**的机器可读读数。
+#   与上面那份 trigger-inbox-liveness.json（写入方=event-router 安灯本体）**同机制、
+#   不同文件、不互相覆盖**：前者答「收件箱进程在不在 + 源头断没断供」（形态A/B 分码），
+#   后者答「安灯腿在不在跑 + 投递活性」。
+# 本批（2026-11-05 发布面接线批 ①P4）把**形态B 读数**接进机器可读聚合面
+# （此前 latest.json 的 trigger_liveness 段只含路由侧那一份 ⇒ 新码抬不起来）。
+TRIGGER_SOURCE_SILENT_FILE = f"{OBS_DIR}/trigger-inbox-source-silent.json"
+# 陈旧阈 3600s（1h）：与 tools/live-daemon-version-probe.py 的 router stale_s=3600
+# 同一世界模型（router 判活线同值）；实测依据——router 主循环 INTERVAL=60s
+# （tools/event-router.py:74），但一轮会逐个 ssh 拉 gov 回报（poll_verify_reports），
+# 2026-11-04 实测在役轮长 >12min（17:21:38 那轮至 17:34 仍未收尾）⇒ 1h ≈ 实测
+# 最坏轮长的 5 倍余量（不误红），且 1h ≪ 268h 前科尺度（静默类失活在 1h 内被抬起）。
+TRIGGER_LIVENESS_STALE_S = 3600
+ROUTER_STOP_FILE = f"{WS}/kb-seed/sandbox/.router-STOP"   # router 主循环熔断（STOP 在位时安灯按设计停报）
+
+PROFILES = ["glm-cp", "glm-cp-max", "kimi-k3", "step-5", "qwen30b-local", "mavis-m31f"]
+TIERS = ["D1", "D2", "D3"]
+# 与 tools/factory-sched.py EXISTING_DIRS 保持一致（fix1 代目录；bench-s1-* 已作废不扫）
+ARMS = {}
+for _t in TIERS:
+    _lo = _t.lower()
+    ARMS[(_t, "glm-cp")] = f"/tmp/bench-fix1-{_lo}-glm-cp"
+    ARMS[(_t, "glm-cp-max")] = f"/tmp/bench-fix1-{_lo}-glm-max"
+    ARMS[(_t, "kimi-k3")] = f"/tmp/bench-fix1-{_lo}-kimi"
+    ARMS[(_t, "step-5")] = f"/tmp/bench-fix1-{_lo}-step5"
+    ARMS[(_t, "qwen30b-local")] = f"/tmp/bench-fix1-{_lo}-30b"
+    ARMS[(_t, "mavis-m31f")] = f"/tmp/bench-fix1-{_lo}-m31f"
+
+# status 字段里可判定为"零补丁"的取值（判不准的不计入，只按 status/reward 如实统计）
+ZERO_PATCH_STATUSES = {"no_patch", "empty_patch", "zero_patch", "no_diff", "patch_empty"}
+
+# ---------- 第二产线（实验线）观测 ----------
+# AF_WATCH_EXTRA_DIRS：逗号分隔。含通配符的条目按目录 glob 展开为额外面臂（tier=F2，
+# profile=目录名去掉 bench-fix2-rerun- 前缀）；.json 条目视为额外调度器状态文件
+# （自动配对同名 -graph.json 以解析运行臂 → out 目录映射与 F2 目标题数）。
+# 缺省空 = 只观测主产线（行为与引入前完全一致）。
+EXTRA_DIRS_SPEC = os.environ.get("AF_WATCH_EXTRA_DIRS", "")
+
+
+def parse_extra(spec):
+    arm_dirs, statuses = [], []
+    for ent in [x.strip() for x in spec.split(",") if x.strip()]:
+        if any(c in ent for c in "*?["):
+            arm_dirs.extend(sorted(p for p in glob.glob(ent) if os.path.isdir(p)))
+        elif ent.endswith(".json"):
+            statuses.append(ent)
+    return arm_dirs, statuses
+
+
+EXTRA_ARM_DIRS, EXTRA_STATUS_FILES = parse_extra(EXTRA_DIRS_SPEC)
+EXTRA_GRAPHS = {s: s.replace("-status.json", "-graph.json") for s in EXTRA_STATUS_FILES}
+
+
+def extra_profile(path):
+    name = os.path.basename(path)
+    return name[len("bench-fix2-rerun-"):] if name.startswith("bench-fix2-rerun-") else name
+
+
+def now_s():
+    return time.strftime("%F %T")
+
+
+def write_atomic(path, text):
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(text)
+    os.replace(tmp, path)
+
+
+# ---- P0-2 发布面脱敏（2026-10-28）：data.json 是公网发布物（factory-status-push
+# 每分钟推 gov static/data.json），自由文本值须过 K/O 正则族再落盘。真源单一：
+# tools/stream-tailer.py SCRUB_RULES（importlib 按路径加载，不复制正则——P1-4 方向）。
+# 本地运维面（latest.json / alarms.log）保留原文，不脱敏。
+_scrub_fn = None
+try:
+    import importlib.util as _ilu
+    _spec = _ilu.spec_from_file_location(
+        "af_stream_tailer_scrub", os.path.join(WS, "tools", "stream-tailer.py"))
+    _mod = _ilu.module_from_spec(_spec)
+    _spec.loader.exec_module(_mod)
+    _scrub_fn = _mod.scrub
+except Exception:  # noqa: BLE001 —— 真源加载失败=显式降级：发布面拒绝写自由文本（见下）
+    _scrub_fn = None
+
+
+def scrub_public(o):
+    """递归重写字符串值（键不动——键集冻结由 gate 校验）。真源缺失时抛异常，
+    由调用方降级为保留上一版 data.json（宁可停更不可泄密）。"""
+    if _scrub_fn is None:
+        raise RuntimeError("scrub 真源（stream-tailer.py SCRUB_RULES）加载失败")
+    if isinstance(o, str):
+        return _scrub_fn(o)[0]
+    if isinstance(o, list):
+        return [scrub_public(x) for x in o]
+    if isinstance(o, dict):
+        return {k: scrub_public(v) for k, v in o.items()}
+    return o
+
+
+def load_json(path, default):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return default
+
+
+# ---------- 内部状态（吞吐/停滞判定用，仅常驻模式推进） ----------
+
+def load_state():
+    st = load_json(STATE_FILE, {})
+    st.setdefault("line_hist", [])       # [[epoch, {dir: 行数}], ...] 保留 40min
+    st.setdefault("last_increase", {})   # {dir: epoch} 该目录最近一次行数增长时刻
+    st.setdefault("first_running", {})   # {node_id: epoch} 首次见到该节点 running
+    st.setdefault("sweb_img_hist", [])   # [[epoch, 本机 sweb.eval 唯一任务数], ...] 保留 ~3h（A7 口径）
+    st.pop("img_hist", None)             # 2026-10-22：A7 口径由 anolis SSH 计数改本机 feed 盘点，旧历史作废
+    st.setdefault("alarm_open", {})      # {key: epoch} 报警条件首次持续出现时刻
+    st.setdefault("alarm_logged", {})    # {key: epoch} 上次写入 alarms.log 时刻
+    st.setdefault("proc_miss_streak", 0)
+    return st
+
+
+def save_state(st):
+    try:
+        write_atomic(STATE_FILE, json.dumps(st, ensure_ascii=False))
+    except Exception:
+        pass  # 状态写失败不影响观测主流程
+
+
+def rows_10m(line_hist, path, cur_count, t):
+    """最近 ~10 分钟新增行数：取 9-11 分钟前最近的采样做基线；无基线则取最老采样。"""
+    base = None
+    window = [s for s in line_hist if t - 660 <= s[0] <= t - 480]
+    if window:
+        base = window[-1]
+    elif line_hist:
+        base = line_hist[0]
+    if base is None:
+        return 0
+    return max(0, cur_count - base[1].get(path, 0))
+
+
+def runs_recent_mtime(arm_dir):
+    """该臂 out/runs/ 最新子目录的最后活动时刻（epoch）；无 runs/ 或异常返回 None。
+
+    取"最新子目录自身 mtime"与"其内直接文件最大 mtime"的较大者：长生成期
+    只追加写单个文件（如 effects.db-wal）时目录 mtime 不动，须看文件级才能
+    真实反映"任务还在跑"。
+    """
+    runs = os.path.join(arm_dir, "runs")
+    try:
+        subs = [e for e in os.scandir(runs) if e.is_dir()]
+        if not subs:
+            return None
+        newest = max(subs, key=lambda e: e.stat().st_mtime)
+        mt = newest.stat().st_mtime
+        for f in os.scandir(newest.path):
+            try:
+                mt = max(mt, f.stat().st_mtime)
+            except OSError:
+                continue
+        return mt
+    except OSError:
+        return None
+
+
+# ---------- ① bench 结果聚合 ----------
+
+def scan_arm(path):
+    st = {
+        "dir": path, "exists": os.path.isdir(path),
+        "n_total": 0, "n_reward_true": 0, "n_completed_not_reward": 0,
+        "n_run_failed": 0, "n_blocked": 0,
+        # 任务级（末行口径，A1/A2 判定用，2026-10-22 修）：按 task_id 取末行
+        "n_tasks": 0, "task_run_failed": 0, "task_zero_patch": 0,
+        "n_bad_lines": 0,          # 坏行计数（JSON 解析/解码失败，逐行跳过）
+        "sum_turns": 0, "n_turns": 0,
+        "sum_tin": 0, "sum_tout": 0, "sum_tcache": 0, "n_tokens": 0,
+        "sum_wall_ms": 0, "n_wall": 0,
+        "judged_tasks": 0, "resolved_tasks": 0,
+        "res_mtime": None,          # results.jsonl mtime（epoch）；终态臂归档判定用
+    }
+    if not st["exists"]:
+        return st
+    res = os.path.join(path, "results.jsonl")
+    try:
+        st["res_mtime"] = os.stat(res).st_mtime
+    except OSError:
+        st["res_mtime"] = None
+    last_by_task = {}
+    any_reward = set()
+    try:
+        # 二进制逐行读 + 逐行 try/except：坏行（写截断/编码坏字节）跳过并计数，
+        # 不整文件失败、不漏掉坏行之后的所有行（2026-10-22 修；D1-m31f 实测 1 行）
+        with open(res, "rb") as f:
+            for raw in f:
+                try:
+                    line = raw.decode("utf-8").strip()
+                    if not line:
+                        continue
+                    r = json.loads(line)
+                except Exception:
+                    st["n_bad_lines"] += 1
+                    continue
+                if not isinstance(r, dict):
+                    continue
+                st["n_total"] += 1
+                if r.get("reward") is True:
+                    st["n_reward_true"] += 1
+                status = r.get("status")
+                if status == "completed" and r.get("reward") is not True:
+                    st["n_completed_not_reward"] += 1
+                if status == "run_failed":
+                    st["n_run_failed"] += 1
+                gate = r.get("gate")
+                if (gate is not None and gate != "ok") or \
+                   (gate is None and status in ZERO_PATCH_STATUSES):
+                    st["n_blocked"] += 1
+                turns = r.get("turns")
+                if isinstance(turns, (int, float)):
+                    st["sum_turns"] += turns
+                    st["n_turns"] += 1
+                tok = r.get("tokens") if isinstance(r.get("tokens"), dict) else {}
+                if tok:
+                    st["sum_tin"] += tok.get("input") or 0
+                    st["sum_tout"] += tok.get("output") or 0
+                    st["sum_tcache"] += tok.get("cache_read") or 0
+                    st["n_tokens"] += 1
+                wall = r.get("agent_wall_ms")
+                if isinstance(wall, (int, float)):
+                    st["sum_wall_ms"] += wall
+                    st["n_wall"] += 1
+                task = r.get("task_id") or r.get("case_id")
+                if task:
+                    last_by_task[task] = r  # append 语义：后行覆盖前行
+                    if r.get("reward") is True:
+                        any_reward.add(task)
+    except FileNotFoundError:
+        st["exists"] = False
+        return st
+    # 任务级末行口径（A1/A2 判定，2026-10-22 修）：last_by_task 即 append 序末行
+    st["n_tasks"] = len(last_by_task)
+    st["task_run_failed"] = sum(
+        1 for r in last_by_task.values() if r.get("status") == "run_failed")
+    # 末态零补丁：判分事实 reward=None（未解决/未判到）且末行非 run_failed。
+    # 不用 gate 判零补丁——实证 gate=no_patch 行里有 reward=true（启发式误判）。
+    st["task_zero_patch"] = sum(
+        1 for r in last_by_task.values()
+        if r.get("reward") is None and r.get("status") != "run_failed")
+    st["judged_tasks"] = sum(
+        1 for r in last_by_task.values()
+        if r.get("reward") is not None or r.get("status") not in (None, "run_failed"))
+    st["resolved_tasks"] = len(any_reward)
+    return st
+
+
+def scan_all_arms(state, t):
+    hist = state["line_hist"]
+    spec = [(tier, prof, ARMS[(tier, prof)]) for tier in TIERS for prof in PROFILES]
+    spec += [("F2", extra_profile(d), d) for d in EXTRA_ARM_DIRS]
+    arms = []
+    for tier, prof, path in spec:
+        a = scan_arm(path)
+        cnt = a["n_total"]
+        if a["exists"]:
+            prev = hist[-1][1].get(path, 0) if hist else 0
+            if cnt > prev:
+                state["last_increase"][path] = t
+            elif path not in state["last_increase"]:
+                state["last_increase"][path] = t
+        a["tier"] = tier
+        a["profile"] = prof
+        a["rows_10m"] = rows_10m(hist, path, cnt, t) if hist else 0
+        li = state["last_increase"].get(path)
+        a["last_new_row_age_s"] = int(t - li) if li else None
+        arms.append(a)
+    return arms
+
+
+def scan_plan_tiers():
+    """各难度档题数（分母）。计划文件缺失/坏 → 全 0，不崩。"""
+    tiers = {}
+    sample = load_json(SAMPLE, None)
+    if isinstance(sample, list):
+        for it in sample:
+            if isinstance(it, dict) and it.get("tier") in TIERS:
+                tiers[it["tier"]] = tiers.get(it["tier"], 0) + 1
+    for t in TIERS:
+        tiers.setdefault(t, 0)
+    return tiers
+
+
+# ---------- ② 调度器活性 ----------
+
+def node_arm_dir(nid):
+    base = nid[:-3] if nid.endswith("-w1") else nid
+    m = re.match(r"arm-d([123])-(.+)$", base)
+    if not m:
+        return None
+    return ARMS.get(("D" + m.group(1), m.group(2)))
+
+
+def scan_scheduler(state, t):
+    out = {"status_file_exists": os.path.exists(SCHED_STATUS),
+           "mtime_age_s": None, "pids": [], "alive": False,
+           "summary": None, "running_arms": [], "error": None}
+    try:
+        out["mtime_age_s"] = int(t - os.stat(SCHED_STATUS).st_mtime)
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        out["error"] = str(e)
+    try:
+        # DEB57-A0（2026-11-02）：进程名改现役 factory-scheduler.py——旧 pattern
+        # "factory-sched.py" 是退役进程名，正则不命中 factory-scheduler.py（"factory-sched"
+        # 后随 "uler.py"），pgrep 永远扑空 → alive 恒 false。
+        r = subprocess.run(["pgrep", "-f", "factory-scheduler.py"],
+                           capture_output=True, text=True, timeout=15)
+        pids = []
+        for x in r.stdout.split():
+            try:
+                with open(f"/proc/{x}/cmdline", "rb") as f:
+                    argv0 = f.read().split(b"\0")[0].decode("utf-8", "replace")
+                # 只认 python3 进程本体，排除启动它的 bash 包装命令行
+                if os.path.basename(argv0).startswith("python"):
+                    pids.append(int(x))
+            except Exception:
+                continue
+        out["pids"] = pids
+    except Exception as e:
+        out["error"] = out["error"] or str(e)
+    proc_up = bool(out["pids"])
+    state["proc_miss_streak"] = 0 if proc_up else state.get("proc_miss_streak", 0) + 1
+    proc_confirmed_down = state["proc_miss_streak"] >= 2  # 2 轮确认，避免重启窗口误报
+    mtime_stale = out["mtime_age_s"] is None or out["mtime_age_s"] > SCHED_STALE_S
+    out["alive"] = proc_up and not mtime_stale
+    out["proc_confirmed_down"] = proc_confirmed_down
+    out["mtime_stale"] = mtime_stale
+
+    stt = load_json(SCHED_STATUS, None)
+    if isinstance(stt, dict):
+        out["summary"] = stt.get("_summary")
+        for nid, n in stt.items():
+            if nid == "_summary" or not isinstance(n, dict):
+                continue
+            if n.get("kind") == "bench-arm" and n.get("state") == "running":
+                out["running_arms"].append({"node": nid, "dir": node_arm_dir(nid)})
+    return out
+
+
+def scan_extra_schedulers(t):
+    """第二产线调度器（EXTRA_STATUS_FILES）：只读观测——活性看状态文件 mtime，
+    运行臂 out 目录从配对 -graph.json 的 params 解析。"""
+    out = []
+    for sp in EXTRA_STATUS_FILES:
+        e = {"status": sp, "exists": os.path.exists(sp), "mtime_age_s": None,
+             "summary": None, "running_arms": []}
+        try:
+            e["mtime_age_s"] = int(t - os.stat(sp).st_mtime)
+        except FileNotFoundError:
+            pass
+        except Exception:
+            pass
+        gparams = {}
+        gp = EXTRA_GRAPHS.get(sp)
+        if gp:
+            g = load_json(gp, None)
+            if isinstance(g, dict):
+                gparams = {n.get("id"): n.get("params", {})
+                           for n in g.get("nodes", []) if isinstance(n, dict)}
+        stt = load_json(sp, None)
+        if isinstance(stt, dict):
+            e["summary"] = stt.get("_summary")
+            for nid, n in stt.items():
+                if nid == "_summary" or not isinstance(n, dict):
+                    continue
+                if n.get("kind") == "bench-arm" and n.get("state") == "running":
+                    d = (gparams.get(nid) or {}).get("out") or node_arm_dir(nid)
+                    e["running_arms"].append({"node": nid, "dir": d})
+        out.append(e)
+    return out
+
+
+def extra_f2_target():
+    """F2 实验线目标题数（配对 graph 里 bench-arm tasks 数之和；图缺则按已见目录数×1）。"""
+    total = 0
+    for sp in EXTRA_STATUS_FILES:
+        gp = EXTRA_GRAPHS.get(sp)
+        g = load_json(gp, None) if gp else None
+        if isinstance(g, dict):
+            total += sum(len((n.get("params") or {}).get("tasks", []))
+                         for n in g.get("nodes", [])
+                         if isinstance(n, dict) and n.get("kind") == "bench-arm")
+    return total
+
+
+# ---------- ③ anolis 巡检 ----------
+
+ANOLIS_CMD = (
+    "df -P /data / 2>/dev/null; "
+    "echo ---; docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep -c 'sweb.eval'; "
+    "echo ---; curl -s -m 5 http://127.0.0.1:11434/api/tags 2>/dev/null | head -c 2000; "
+    "echo; echo ---; cat /proc/loadavg 2>/dev/null"
+)
+
+
+def scan_anolis(state, t):
+    out = {"ok": False, "disk": {}, "sweb_images": None, "image_target": IMAGE_TARGET,
+           "ollama": "unknown", "load": None, "error": None}
+    try:
+        r = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
+                            "anolis", ANOLIS_CMD],
+                           capture_output=True, text=True, timeout=60)
+        if r.returncode != 0:
+            out["error"] = (r.stderr or "").strip().splitlines()[-1:] or f"rc={r.returncode}"
+            out["error"] = out["error"][0] if out["error"] else f"rc={r.returncode}"
+            return out
+        parts = [p.strip("\n") for p in r.stdout.split("\n---\n")]
+        if len(parts) >= 4:
+            for line in parts[0].splitlines():
+                f_ = line.split()
+                if len(f_) >= 5 and f_[0].startswith("/dev/"):
+                    out["disk"][f_[5]] = {"use_pct": int(f_[4].rstrip("%")),
+                                          "size": f_[1], "used": f_[2], "avail": f_[3]}
+            cnt_s = parts[1].strip().splitlines()[-1].strip() if parts[1].strip() else ""
+            out["sweb_images"] = int(cnt_s) if cnt_s.isdigit() else None
+            tags = parts[2].strip()
+            out["ollama"] = "ok" if '"models"' in tags else "down"
+            la = parts[3].strip().split()
+            if len(la) >= 3:
+                out["load"] = {"m1": float(la[0]), "m5": float(la[1]), "m15": float(la[2])}
+            out["ok"] = True
+    except Exception as e:
+        out["error"] = str(e)
+    return out
+
+
+def scan_local_images(state, t):
+    """本机 sweb.eval 镜像唯一任务数（A7 口径，与 tools/local-image-feed.py 盘点一致）。
+
+    数法：docker images 的 Repository 列取 swebench/sweb.eval.x86_64.<task> 前缀的
+    去重集合大小——同任务多 tag/重复 tag 不重复计，与 feed"已就位 120/120"同源同口径。
+    2026-10-22 前 A7 数的是 anolis SSH 口径（anolis 的 relay 镜像池，67/120 与本机
+    feed 进度无关），已实证为误报来源；anolis 池仍巡检上报，但不再参与 A7 停滞判定。
+    docker 不可用/超时/非零退出 → None（本轮不判定、不写历史）。
+    """
+    try:
+        r = subprocess.run(["docker", "images", "--format", "{{.Repository}}"],
+                           capture_output=True, text=True, timeout=120)
+    except Exception:
+        return None
+    if r.returncode != 0:
+        return None
+    prefix = "swebench/sweb.eval.x86_64."
+    n = len({ln.strip() for ln in r.stdout.splitlines() if ln.strip().startswith(prefix)})
+    hist = state["sweb_img_hist"]
+    hist.append([t, n])
+    state["sweb_img_hist"] = [s for s in hist if t - s[0] <= IMG_STALL_S + 600]
+    return n
+
+
+# ---------- ④ 中继连败解析 ----------
+
+RELAY_END_RE = re.compile(r"\] 结束 (relay-\S+): (ok|FAILED\S*)")
+
+
+def scan_relay():
+    out = {"consecutive_failures": 0, "last_event": None}
+    try:
+        with open(SCHED_LOG, "rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            f.seek(max(0, size - 200000))
+            tail = f.read().decode("utf-8", "replace")
+    except FileNotFoundError:
+        out["last_event"] = "factory.log 不存在"
+        return out
+    except Exception as e:
+        out["last_event"] = f"读取失败: {e}"
+        return out
+    events = [(m.group(1), m.group(2), line.strip())
+              for line in tail.splitlines()
+              if (m := RELAY_END_RE.search(line))]
+    if not events:
+        out["last_event"] = "日志尾部暂无 relay 结束事件"
+        return out
+    cutoff = time.time() - 1800  # 30min 窗：更旧的结局不计入连败（2026-10-21 教训：
+    # 图内 relay 清零后不会再有新事件，历史连败尾巴会让 A5 永久常亮 = 告警疲劳）
+    for name, verdict, line in reversed(events):  # 从最新往回数连败（尾部连败才触发 A5）
+        out["last_event"] = line
+        m_ts = re.match(r"\[([\d\-]+ [\d:]+)\]", line)
+        if m_ts:
+            try:
+                if time.mktime(time.strptime(m_ts.group(1), "%Y-%m-%d %H:%M:%S")) < cutoff:
+                    break
+            except ValueError:
+                pass
+        if verdict == "ok":
+            break
+        out["consecutive_failures"] += 1
+    return out
+
+
+# ---------- ⑤ gov 公网门户巡检（A8 数据源，2026-11-02 RT 收口） ----------
+# 背景：门户在 gov 宿主是裸进程（PPID=1，无 systemd/supervisor），watch 原无门户
+# 探针——2026-11-02 09:00 板面全零事故（门户重启未带 AF_JOBS_DATA，板面空转
+# 20+min）在 alarms.log 全窗零门户条目，是纯告警盲区。本巡检只读（处置=keepalive
+# 同批新增的 portal 看护对象，factory-keepalive.py PORTAL_* 段），三签名任一败
+# → A8 红：①healthz 非 {"ok":true}；②/tasks.json 瘦信封不可解析（进程在但数据
+# 面死）；③在役进程 environ 缺 AF_JOBS_DATA——③是 11-02 事故根因签名，该形态
+# 下 ①② 照样全绿（wrong-data-dir 只让板面变空，进程照常应答）。探针走 origin
+# 直连（factory-kb-worker.py PORTAL 同址），公网链路（反代/CDN）不在本灯量纲；
+# ssh 不可达时 ③=unknown：HTTP 面照常裁决，不把「验证手段断」当「被测面死」。
+PORTAL_HEALTH_URL = "http://gov-host.invalid:8090/healthz"
+PORTAL_TASKS_URL = "http://gov-host.invalid:8090/tasks.json?status=open&limit=1"
+PORTAL_SSH = ["ssh", "-o", "ConnectTimeout=5", "-o", "BatchMode=yes", "root@gov-host.invalid"]
+PORTAL_HTTP_TIMEOUT = 8    # curl --max-time（DEB-1 双超时纪律的外层帽见 _portal_http）
+PORTAL_SSH_TIMEOUT = 15
+# 在役进程 env 读数（与 factory-keepalive.py portal_env_state 同口径双写，
+# 两文件互不 import——keepalive 顶层带 otel 装载副作用，watch 不引入；
+# 同 smith 先例：factory-scheduler/factory-status-push 各自持有同口径 _mes_event）。
+# pid 遴选必须过 argv0==python3 过滤：pgrep -f 的 [p] 括号法只防 pgrep 自匹配，
+# 防不了「重启命令的残留 bash 包装壳」（2026-11-02 18:30 实证：gov 上
+# `-bash -c '…nohup python3 af-jobs-portal.py…'` 包装壳 cmdline 含同款子串、
+# 无 AF_JOBS_* env，head -1 会选中它 → env 误读 MISSING → 对健康门户误判红）。
+PORTAL_ENV_SH = r'''
+pid=""
+for p in $(pgrep -f '[p]ython3 af-jobs-portal.py' 2>/dev/null); do
+  a0="$(tr '\0' '\n' < "/proc/$p/cmdline" 2>/dev/null | head -1)"
+  if [ "$a0" = "python3" ]; then pid="$p"; break; fi
+done
+if [ -z "$pid" ]; then
+  echo "NOPROC"
+elif tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -q '^AF_JOBS_DATA='; then
+  echo "OK pid=$pid"
+else
+  echo "MISSING pid=$pid"
+fi
+'''
+
+
+def _portal_http(url):
+    """门户 GET 探针（curl --max-time + subprocess 双超时，DEB-1 纪律同
+    factory-scheduler _portal_open_count）。返回 (rc, body)；异常路径 rc=124
+    （curl 超时码同款语义），不抛出。"""
+    try:
+        r = subprocess.run(["curl", "-s", "--max-time", str(PORTAL_HTTP_TIMEOUT), url],
+                           capture_output=True, text=True,
+                           timeout=PORTAL_HTTP_TIMEOUT + 7)
+        return r.returncode, (r.stdout or "")
+    except (OSError, subprocess.TimeoutExpired):
+        return 124, ""
+
+
+def _portal_env_state():
+    """③ 进程 env 签名：gov 在役 af-jobs-portal 进程 environ 是否含 AF_JOBS_DATA=。
+    返回 (st, why)：st ∈ {"ok","missing","unknown"}——ssh 不可达/读数不可识别
+    =unknown（判不准不假报）；NOPROC=missing（进程不在时 ①② 亦必败，方向一致）。"""
+    try:
+        r = subprocess.run(PORTAL_SSH + [PORTAL_ENV_SH], capture_output=True,
+                           text=True, timeout=PORTAL_SSH_TIMEOUT,
+                           stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return "unknown", f"ssh 读 env 失败（{type(e).__name__}）"
+    if r.returncode != 0:
+        return "unknown", f"ssh rc={r.returncode}"
+    lines = [l for l in (r.stdout or "").splitlines() if l.strip()]
+    line = lines[-1] if lines else ""
+    if line.startswith("OK"):
+        return "ok", line
+    if line.startswith("MISSING"):
+        return "missing", f"{line}（environ 无 AF_JOBS_DATA）"
+    if line == "NOPROC":
+        return "missing", "gov 在役进程不在（pgrep 'python3 af-jobs-portal.py' 空）"
+    return "unknown", f"读数不可识别（{line[:60]!r}）"
+
+
+def scan_portal():
+    """gov 公网门户三签名巡检（只读；A8 判定在 build_alarms，处置在 keepalive）。
+    ok=三签名全过；env=unknown 且 ①② 过时不判死，仅如实上报 env 未验证。"""
+    out = {"ok": False, "healthz": False, "open_total": None, "env": None, "error": None}
+    reasons = []
+    rc, body = _portal_http(PORTAL_HEALTH_URL)
+    if rc == 0:
+        try:
+            doc = json.loads(body.strip())
+            out["healthz"] = isinstance(doc, dict) and doc.get("ok") is True
+        except ValueError:
+            out["healthz"] = False
+    if not out["healthz"]:
+        reasons.append(f"healthz 探针失败（curl rc={rc}，body={body[:60]!r}）")
+    rc2, body2 = _portal_http(PORTAL_TASKS_URL)
+    if rc2 == 0:
+        try:
+            doc = json.loads(body2)
+            if isinstance(doc, dict) and isinstance(doc.get("total"), int):
+                out["open_total"] = doc["total"]
+            elif isinstance(doc, list):
+                out["open_total"] = len(doc)   # 旧版门户裸数组（回滚形态）也算数据面在
+        except ValueError:
+            pass
+    if out["open_total"] is None:
+        reasons.append(f"tasks.json 信封不可解析/非数据面形状（curl rc={rc2}）")
+    st, why = _portal_env_state()
+    out["env"] = st
+    if st == "missing":
+        reasons.append(f"在役进程 env 缺 AF_JOBS_DATA（{why}）——11-02 板面全零事故同款根因")
+    if reasons:
+        if st == "unknown" and out["healthz"] and out["open_total"] is not None:
+            reasons.append(f"env 未验证（{why}）——HTTP 面已过，仅注记不判死")
+        out["error"] = "；".join(reasons)
+        return out
+    out["ok"] = True
+    if st == "unknown":
+        # 健康但 env 签名不可验证：不判死（HTTP 面已裁决），error 作注记随快照上报
+        # （A8 只吃 ok，注记不触发红灯；巡检报告/最新快照能看到为何 env 列为 unknown）
+        out["error"] = f"env 未验证（{why}）——HTTP 面已过，仅注记不判死"
+    return out
+
+
+# ---------- ⑦ 活性安灯聚合段（风险#7 收口批 2026-11-04；只读判据面） ----------
+
+def scan_trigger_source_silent(t):
+    """形态A/形态B 读数聚合（**只读**；写入方=tools/factory-keepalive.py 判据行④）。
+
+    读 状态观测/trigger-inbox-source-silent.json（keepalive 每轮重写＝报活心跳），
+    把**两种失联形态**的机器可读读数抬进聚合面（此前聚合面只有路由侧那一份）：
+      · 形态A 收件箱进程不在          → status=down  / alarm_code=trigger-inbox-down
+      · 形态B 收件箱进程在但源头断供  → status=amber / alarm_code=trigger-inbox-source-silent
+      · 形态B 的健康侧                → status=green（alarm_code=None）
+      · 第三形态（进程在但不健康）    → status=degraded（不判源断供）
+      · 不可证                       → unknown（在位但读不出/坏 JSON/自述状态不可识别）
+      · 判据文件不在位                → missing
+      · stale                        → 判据文件 mtime 超 TRIGGER_LIVENESS_STALE_S（陈旧即失活）
+    ★ **只增不减**：本读数落在**新子键** source_silent 下，与路由侧那份
+      （status/alarm_code/… 既有键）**平级并存、互不覆盖**；两形态的码各归各位
+      （形态A=既有码 trigger-inbox-down，形态B=新码 trigger-inbox-source-silent）。
+    只读纪律：本函数**不写**判据文件、不写任何在役状态面。
+    """
+    out = {
+        "status": "unknown",
+        "alarm_code": None,        # 判据文件自述 alarm_code（down / source-silent / None）
+        "form": None,              # "A"=进程不在 / "B"=进程在但断供 / None=非形态告警
+        "process_alive": None,     # 判据文件自述进程态（True/False；读不出=None）
+        "healthy": None,
+        "silent_s": None,          # 收件箱静默秒数（判据文件自述）
+        "threshold_min": None,
+        "message": "",
+        "criterion_file": TRIGGER_SOURCE_SILENT_FILE,
+        "criterion_ts": None,
+        "criterion_age_s": None,   # 判据文件 mtime 距今（读到多旧——陈旧即失活）
+        "stale_after_s": TRIGGER_LIVENESS_STALE_S,
+        "stale": False,
+        "missing": False,
+        "tool": "factory-watch/trigger-inbox-source-silent-aggregator",
+    }
+    try:
+        stt = os.stat(TRIGGER_SOURCE_SILENT_FILE)
+    except FileNotFoundError:
+        out["status"] = "missing"
+        out["missing"] = True
+        out["message"] = ("形态判据文件不在位——keepalive 判据行④没在产出"
+                          "（形态A/B 读数不可证，不得当成活）")
+        return out
+    except OSError as e:
+        out["message"] = (f"形态判据文件 stat 失败（{type(e).__name__}）"
+                          "——不可证，不猜绿")
+        return out
+    out["criterion_age_s"] = max(0, int(t - stt.st_mtime))
+    doc = load_json(TRIGGER_SOURCE_SILENT_FILE, None)
+    if not isinstance(doc, dict):
+        out["status"] = "unknown"
+        out["message"] = "形态判据文件不可解析/坏 JSON——不可证，不猜绿"
+        return out
+
+    def _s(k):
+        v = doc.get(k)
+        return v if isinstance(v, str) else None
+
+    def _n(k):
+        v = doc.get(k)
+        return v if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+    def _b(k):
+        v = doc.get(k)
+        return v if isinstance(v, bool) else None
+
+    out["alarm_code"] = _s("alarm_code")
+    out["process_alive"] = _b("process_alive")
+    out["healthy"] = _b("healthy")
+    out["silent_s"] = _n("silent_s")
+    out["threshold_min"] = _n("threshold_min")
+    out["criterion_ts"] = _s("ts")
+    # 陈旧判定**先于**状态解读：判据行④没在跑 ⇒ 文件不再被重写 ⇒ 自述一律作废
+    if out["criterion_age_s"] > TRIGGER_LIVENESS_STALE_S:
+        out["status"] = "stale"
+        out["stale"] = True
+        out["message"] = (f"形态判据文件已 {out['criterion_age_s']}s 未重写"
+                          f"（>{TRIGGER_LIVENESS_STALE_S}s）——keepalive 判据行④没在跑"
+                          "（文件自述作废，不当成活）")
+        return out
+    st = _s("status")
+    if st == "down":
+        out["status"] = "down"
+        out["form"] = "A"
+    elif st == "amber":
+        out["status"] = "amber"
+        out["form"] = "B"
+    elif st in ("green", "degraded"):
+        out["status"] = st
+    else:
+        out["status"] = "unknown"
+    msg = doc.get("message")
+    out["message"] = msg if isinstance(msg, str) else ""
+    if out["status"] == "unknown" and not out["message"]:
+        out["message"] = "形态判据文件自述状态不可识别——不可证，不猜绿"
+    return out
+
+
+def scan_trigger_liveness(t):
+    """活性安灯聚合段（只读；fail-closed：判不准一律不报 green）。
+
+    读安灯判据文件 状态观测/trigger-inbox-liveness.json（event-router 每轮重写
+    ＝报活心跳），产出机器可读读数，供快照段与安灯臂共用：
+      · status ∈ {green, amber, stale, missing, unknown}
+        green/amber = 判据文件自述状态（安灯腿在跑；amber＝收件箱静默超阈）
+        stale       = 判据文件 mtime 超 TRIGGER_LIVENESS_STALE_S ⇒ 安灯腿没在跑
+                      （**比 amber 更严重**；无论文件自述什么，**绝不报 green**——
+                      「读到旧文件＝活」正是 268h 静默前科的失败形态）
+        missing     = 判据文件不在位（安灯面缺席；同样不得报 green）
+        unknown     = 在位但读不出/坏 JSON/自述状态不可识别（不可证，不猜绿）
+    只读纪律：本函数**不写**判据文件、不写任何在役状态面（写入方是 event-router）。
+    """
+    out = {
+        "status": "unknown",
+        "criterion_status": None,      # 判据文件自述 status（green/amber）
+        "alarm_code": None,            # 判据文件自述 alarm_code（trigger-inbox-silent/live）
+        "message": "",
+        "silent_s": None,              # 收件箱静默秒数（判据文件 newest_delivery_age_s）
+        "threshold_min": None,         # 静默阈（分钟；判据文件 threshold_min）
+        "criterion_file": TRIGGER_LIVENESS_FILE,
+        "criterion_ts": None,          # 判据文件自述 ts（写入方落笔时刻）
+        "criterion_age_s": None,       # 判据文件 mtime 距今（读到多旧——陈旧即失活）
+        "criterion_ts_age_s": None,    # 判据文件自述 ts 距今（内容龄）
+        "stale_after_s": TRIGGER_LIVENESS_STALE_S,
+        "stale": False,
+        "missing": False,
+        "stop_breaker_in_place": os.path.exists(ROUTER_STOP_FILE),
+        "since_epoch": None,
+        # ★ 2026-11-05 发布面接线批 ①P4 新增（**只增**）：路由侧那盏灯**进程态**读数
+        #   （写入方=event-router 安灯本体读 keepalive 判据文件后落的三字段；
+        #     既有键 status/alarm_code 的语义与取值域**一律不动**）。
+        "process_alive": None,      # 路由侧灯自读的收件箱进程态（True/False/None=不可证）
+        "lamp_state": None,         # 路由侧灯的进程感知裁决（green/amber/down/unknown）
+        "lamp_alarm_code": None,    # 进程感知裁决的形态码（down/source-silent/None）
+        # ★ 同批新增（**只增**）：形态A/形态B 读数（子键，与路由侧那份平级不覆盖）
+        "source_silent": None,
+        "tool": "factory-watch/trigger-liveness-aggregator",
+    }
+    # 形态读数先算（各 return 分支都要带上它）
+    _ss = scan_trigger_source_silent(t)
+    out["source_silent"] = _ss
+    try:
+        stt = os.stat(TRIGGER_LIVENESS_FILE)
+    except FileNotFoundError:
+        out["status"] = "missing"
+        out["missing"] = True
+        out["message"] = ("安灯判据文件不在位——安灯腿未产出判据"
+                          "（安灯面缺席；不得当成活）")
+        return out
+    except OSError as e:
+        out["message"] = (f"安灯判据文件 stat 失败（{type(e).__name__}）"
+                          "——不可证，不猜绿")
+        return out
+    out["criterion_age_s"] = max(0, int(t - stt.st_mtime))
+    doc = load_json(TRIGGER_LIVENESS_FILE, None)
+    if isinstance(doc, dict):
+        def _s(k):
+            v = doc.get(k)
+            return v if isinstance(v, str) else None
+
+        def _n(k):
+            v = doc.get(k)
+            return v if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+        def _b(k):
+            v = doc.get(k)
+            return v if isinstance(v, bool) else None
+
+        out["criterion_status"] = _s("status")
+        out["alarm_code"] = _s("alarm_code")
+        # ★ 2026-11-05 ①P4：路由侧灯的**进程态**三字段（既有键语义不动，只是多读出来）
+        out["process_alive"] = _b("process_alive")
+        out["lamp_state"] = _s("lamp_state")
+        out["lamp_alarm_code"] = _s("lamp_alarm_code")
+        out["criterion_ts"] = _s("ts")
+        out["silent_s"] = _n("newest_delivery_age_s")
+        out["threshold_min"] = _n("threshold_min")
+        out["since_epoch"] = _n("since_epoch")
+        ts_epoch = _n("ts_epoch")
+        if ts_epoch is not None:
+            out["criterion_ts_age_s"] = max(0, int(t - ts_epoch))
+    # 陈旧判定**先于**任何状态解读：安灯腿没在跑 ⇒ 判据文件不再被重写
+    # ⇒ 文件里写的 green/amber 一律作废（读到旧文件≠活）。
+    if out["criterion_age_s"] > TRIGGER_LIVENESS_STALE_S:
+        out["status"] = "stale"
+        out["stale"] = True
+        out["message"] = (f"安灯判据文件已 {out['criterion_age_s']}s 未重写"
+                          f"（>{TRIGGER_LIVENESS_STALE_S}s）——安灯腿本身没在跑"
+                          "（比 amber 更严重的一档；文件自述 "
+                          f"{out['criterion_status']!r} 作废，不当成活）")
+        return out
+    if not isinstance(doc, dict):
+        out["status"] = "unknown"
+        out["message"] = ("安灯判据文件不可解析/坏 JSON——不可证，不猜绿")
+        return out
+    if out["criterion_status"] in ("green", "amber"):
+        out["status"] = out["criterion_status"]
+        out["message"] = doc.get("message") if isinstance(doc.get("message"), str) else ""
+    else:
+        out["status"] = "unknown"
+        out["message"] = ("安灯判据文件自述状态不可识别"
+                          f"（status={out['criterion_status']!r}）——不可证，不猜绿")
+    return out
+
+
+# ---------- 安灯 ----------
+
+def bench_proc_dirs():
+    """正在运行的 bench 进程涉及的臂 out 目录集合（读 /proc 命令行，零子进程）。
+
+    判据=argv0 basename 含 "bench" 的进程（af-bench/af-bench-fix2）的 --out 实参，
+    兼收命令行里任何 /tmp/bench-* 实参。调度器 running_arms 之外的第二判据：
+    臂被调度器之外的方式拉起（手工重跑等）也认其在跑，避免误归档灭掉在跑臂的报警。
+    """
+    dirs = set()
+    me = os.getpid()
+    try:
+        pids = os.listdir("/proc")
+    except OSError:
+        return dirs
+    for pid in pids:
+        if not pid.isdigit() or int(pid) == me:
+            continue
+        try:
+            with open(f"/proc/{pid}/cmdline", "rb") as f:
+                toks = [a.decode("utf-8", "replace") for a in f.read().split(b"\0") if a]
+        except OSError:
+            continue
+        if not toks or "bench" not in os.path.basename(toks[0]):
+            continue
+        for i, a in enumerate(toks):
+            if a == "--out" and i + 1 < len(toks):
+                dirs.add(toks[i + 1])
+            elif a.startswith("/tmp/bench-"):
+                dirs.add(a)
+    return dirs
+
+
+def classify_archived(arms, sched, extras, t):
+    """终态臂归档：results.jsonl mtime > ARCHIVE_MATURITY_S 且无关联在跑进程的臂，
+    A1/A2 慢性灯免报（安灯节汇总一行 [已归档臂]）；有新活动的臂照常报警。
+
+    "关联在跑进程" = 调度器（主产线/实验线）running_arms 指向的 out 目录，或 /proc
+    里 bench 进程命令行出现的臂目录，二者取并。无 results.jsonl 的臂不判归档
+    （无行即无 A1/A2 可报，且无法主张 6h 停滞）。返回 (archived, active_dirs)。
+    """
+    active = set()
+    for ra in sched.get("running_arms") or []:
+        if ra.get("dir"):
+            active.add(ra["dir"])
+    for e in extras or []:
+        for ra in e.get("running_arms") or []:
+            if ra.get("dir"):
+                active.add(ra["dir"])
+    active |= bench_proc_dirs()
+    archived = [a for a in arms
+                if a.get("res_mtime") is not None
+                and t - a["res_mtime"] > ARCHIVE_MATURITY_S
+                and a["dir"] not in active]
+    return archived, active
+
+
+def probe_local_tmp_mb():
+    """本机 /tmp 可用（MiB）。statvfs 本地读 f_bavail（tmpfs 无 root 保留，与 df 同值）。
+    异常 → (-1, True)=盘点失败（fail-closed 口径；与真写满同码 A4L:tmp 但文案强制区分）。
+    **量纲边界（2026-11-02 RT 收尾 DEB57）**：f_bavail 是全机剩余空间，量不到本
+    用户的每用户配额（usrquota）——它不是「写得进去」的判据；写入门径见
+    probe_tmp_write_admission()。"""
+    try:
+        st = os.statvfs("/tmp")
+        return st.f_bavail * st.f_frsize // 1048576, False
+    except Exception:
+        return -1, True
+
+
+def probe_tmp_write_admission(path=None):
+    """本机 /tmp 实际写入门径探针：真写 A4W_PROBE_BYTES 字节再立刻删（零留存）。
+
+    为什么必须真写（2026-11-02 RT 收尾 DEB57）：statvfs f_bavail 量的是「全机
+    剩余空间」，实际拒绝写入的是 tmpfs 每用户配额（usrquota）「本用户还能写多少」
+    那一本账。2026-11-02 10:37 实测 f_bavail=1012MiB 时 1MiB 写即
+    OSError 122 Disk quota exceeded（同刻 /home 可写）——数字好看 ≠ 写得进去，
+    落 /tmp 的门件与运行件（kb/verify.py 快照 sqlite backup）当场 disk I/O error。
+
+    返回 (ok: bool, err: str)：ok=True＝写得进去；ok=False 时 err 记失败原因
+    （形如 "OSError 122 Disk quota exceeded"）。探针自身异常一律 fail-closed
+    （当作写不进报出），绝不因探针故障静默放行。
+    """
+    d = path or A4W_PROBE_DIR
+    p = os.path.join(d, ".factory-watch-write-probe-%d.tmp" % os.getpid())
+    try:
+        with open(p, "wb") as f:
+            f.write(b"\0" * A4W_PROBE_BYTES)
+        return True, ""
+    except OSError as e:
+        return False, "OSError %s %s" % (e.errno, e.strerror)
+    except Exception as e:  # noqa: BLE001 - 探针故障按写不进处理（fail-closed）
+        return False, "%s: %s" % (type(e).__name__, e)
+    finally:
+        try:
+            os.unlink(p)
+        except OSError:
+            pass
+
+
+def build_alarms(arms, sched, anolis, relay, plan, state, t, extras=None, archived=None,
+                 portal=None, trigger_liveness=None):
+    alarms = []
+
+    def add(level, code, key, message, first_seen):
+        alarms.append({"level": level, "code": code, "key": key,
+                       "message": message,
+                       "since": time.strftime("%F %T", time.localtime(first_seen))})
+
+    # A0 调度器死/状态停更
+    if not sched["status_file_exists"]:
+        add("red", "A0", "A0", "调度器状态文件缺失（从未运行或已被清理）", t)
+    elif sched["mtime_stale"]:
+        age = sched["mtime_age_s"]
+        add("red", "A0", "A0",
+            f"调度器状态停更：{os.path.basename(SCHED_STATUS)} 已 {age}s 未刷新"
+            f"（阈值 {SCHED_STALE_S}s）", t)
+    elif sched["proc_confirmed_down"]:
+        add("red", "A0", "A0", "调度器进程不存在（连续 2 轮 pgrep 无果）", t)
+
+    # A1/A2 按臂（归档的终态臂跳过：results.jsonl mtime>6h 且无关联在跑进程，
+    # 慢性红灯不再每轮复报——汇总见安灯节 [已归档臂] 行，归档依据见巡检日志）
+    archived_dirs = {a["dir"] for a in (archived or [])}
+    for a in arms:
+        if a["dir"] in archived_dirs:
+            continue
+        name = f"{a['tier']}-{a['profile']}"
+        # A1/A2 = 任务级末行口径（2026-10-22 修）：按 task_id 取 results.jsonl 末行，
+        # 重试救回的 attempt 不计入；行级值降为诊断信息行（render_report [口径明细]），
+        # 不再触发红灯。修前误报实证：D1/D2-step-5 行级 run_failed 13/17 → 末态 0，
+        # D1/D2-mavis-m31f 行级拦截 27/21 → 末态零补丁 5/1，10%/30% 阈值全不触。
+        if a["n_tasks"] >= 5 and a["task_run_failed"] / a["n_tasks"] > 0.10:
+            add("red", "A1", f"A1:{name}",
+                f"臂 {name}: 末态 run_failed {a['task_run_failed']}/{a['n_tasks']} "
+                f"({a['task_run_failed'] * 100 / a['n_tasks']:.0f}%) > 10%"
+                f"（任务级末行口径；行级 run_failed={a['n_run_failed']}/{a['n_total']} 为历史尝试）", t)
+        if a["n_tasks"] >= 10 and a["task_zero_patch"] / a["n_tasks"] > 0.30:
+            add("red", "A2", f"A2:{name}",
+                f"臂 {name}: 末态零补丁 {a['task_zero_patch']}/{a['n_tasks']} "
+                f"({a['task_zero_patch'] * 100 / a['n_tasks']:.0f}%) > 30%"
+                f"（任务级末行口径；行级零补丁/gate拦截={a['n_blocked']}/{a['n_total']} 为历史尝试）", t)
+
+    # A3 按档案聚合：≥10 题已判分且通过 0
+    by_prof = {}
+    for a in arms:
+        p = by_prof.setdefault(a["profile"], {"judged": 0, "resolved": 0})
+        p["judged"] += a["judged_tasks"]
+        p["resolved"] += a["resolved_tasks"]
+    for prof, p in sorted(by_prof.items()):
+        if p["judged"] >= 10 and p["resolved"] == 0:
+            add("amber", "A3", f"A3:{prof}",
+                f"档案 {prof}: 已判分 {p['judged']} 题通过 0", t)
+
+    # A4 anolis 分区
+    for mnt, d in sorted((anolis.get("disk") or {}).items()):
+        if d["use_pct"] > 85:
+            add("amber", "A4", f"A4:{mnt}",
+                f"anolis 分区 {mnt} 使用率 {d['use_pct']}%（{d['used']}/{d['size']}）> 85%", t)
+
+    # A4L 本机 /tmp（D-24，patch-tmpfs-alarm-watch-A4L-R2 / 方案 P1-1）：判分 results、
+    # swev 任务 json、调度器三件套全落本机 /tmp（tmpfs+usrquota）。<校准线报 amber；
+    # 盘点失败同码另文案。30min 去重由 log_alarms 的 alarm_logged 同款承担。
+    tmp_mb, tmp_fail = probe_local_tmp_mb()
+    if tmp_fail:
+        add("amber", "A4L:tmp", "A4L:tmp", "/tmp 盘点失败（fail-closed）", t)
+    elif tmp_mb < A4L_TMP_WARN_MB:
+        add("amber", "A4L:tmp", "A4L:tmp",
+            f"本机 /tmp 可用 {tmp_mb} MiB<{A4L_TMP_WARN_MB}MiB"
+            f"（usrquota 校准线，闸线 {A4L_TMP_GATE_MB}MiB，低于则 sched/mcode 拦新臂/新判分）", t)
+
+    # A4W 本机 /tmp 写即失败（2026-11-02 RT 收尾 DEB57）：真写探针判门径。
+    # 与 A4L 并存不互斥——两本账：A4L 量「全机剩余空间」（低水＝提前叫人，量纲
+    # 见 probe_local_tmp_mb docstring），A4W 量「本用户现在还能不能写」（写不进
+    # ＝当场坏）。2026-11-02 10:37 实测两本账打架：f_bavail 报 1012MiB 可用，
+    # 同刻 1MiB 写即 EDQUOT → 门件 kb/verify.py 的 sqlite backup 当场
+    # disk I/O error，L4 集成门硬红。A4L 文案只承诺「拦新臂/新判分」，写即失败
+    # 由本灯承诺覆盖（红级：不是提前叫人，是现在就坏）。
+    tmp_w_ok, tmp_w_err = probe_tmp_write_admission()
+    if not tmp_w_ok:
+        add("red", "A4W:tmp", "A4W:tmp",
+            f"本机 /tmp 写即失败（{tmp_w_err}）——usrquota 每用户配额耗尽，"
+            f"statvfs 可用量口径（A4L）量不到此状态；落 /tmp 的门件与运行件"
+            f"（如 kb/verify.py 快照 sqlite backup）当场失败", t)
+
+    # A5 中继连败
+    if relay["consecutive_failures"] >= RELAY_FAIL_MIN:
+        add("amber", "A5", "A5",
+            f"中继连续失败 {relay['consecutive_failures']} 次（≥{RELAY_FAIL_MIN}）无一次 ok；"
+            f"最近: {relay['last_event']}", t)
+
+    # A6 running 臂 30 分钟无新结果行（主产线 + 第二产线实验调度器）
+    if sched.get("alive"):
+        for ra in sched["running_arms"]:
+            nid, d = ra["node"], ra["dir"]
+            if not d:
+                continue
+            first = state["first_running"].setdefault(nid, t)
+            if t - first < RUNNING_STALL_S:
+                continue
+            li = state["last_increase"].get(d)
+            age = t - li if li else None
+            if age is None or age > RUNNING_STALL_S:
+                # 慢任务豁免：runs/ 最新子目录 10 分钟内有写入（含其内文件）即视为
+                # 活跃——GLM/kimi 单题 30-60 分钟正常，results 行整题收尾才落盘。
+                rmt = runs_recent_mtime(d)
+                if rmt is not None and t - rmt <= RUNS_FRESH_S:
+                    continue
+                add("amber", "A6", f"A6:{nid}",
+                    f"运行中臂 {nid} 已 {int(age)}s 无新结果行"
+                    f"（{d}）" if age is not None else
+                    f"运行中臂 {nid} 无新结果行记录（{d}）", t)
+    for e in (extras or []):
+        for ra in e.get("running_arms", []):
+            nid, d = ra["node"], ra["dir"]
+            if not d:
+                continue
+            first = state["first_running"].setdefault(nid, t)
+            if t - first < RUNNING_STALL_S:
+                continue
+            li = state["last_increase"].get(d)
+            age = t - li if li else None
+            if age is None or age > RUNNING_STALL_S:
+                rmt = runs_recent_mtime(d)
+                if rmt is not None and t - rmt <= RUNS_FRESH_S:
+                    continue
+                add("amber", "A6", f"A6:{nid}",
+                    f"运行中臂 {nid} 已 {int(age)}s 无新结果行"
+                    f"（{d}）" if age is not None else
+                    f"运行中臂 {nid} 无新结果行记录（{d}）", t)
+
+    # A7 镜像停滞：2 小时无新增且 <120（本机 feed 盘点口径，见 scan_local_images）
+    ih = state["sweb_img_hist"]
+    if len(ih) >= 2 and ih[-1][0] - ih[0][0] >= IMG_STALL_S:
+        recent = [c for ts, c in ih if t - ts <= IMG_STALL_S]
+        if recent and ih[-1][1] < IMAGE_TARGET and max(recent) == min(recent) == ih[-1][1]:
+            add("amber", "A7", "A7",
+                f"本机 sweb.eval 镜像停滞在 {ih[-1][1]}/{IMAGE_TARGET} 已 2 小时无新增"
+                f"（feed 盘点口径：唯一任务数）", t)
+
+    # A8 gov 公网门户（2026-11-02 RT 收口批）：scan_portal 三签名任一败即红。
+    # 11-02 09:00 板面全零事故（重启未带 AF_JOBS_DATA，板面空转 20+min）在
+    # alarms.log 全窗零门户条目——watch 无门户探针是告警盲区，本灯收口；
+    # 自愈处置在 keepalive（portal 看护对象），本灯只管叫人。
+    # portal=None（单测桩输入）时跳过：探针扫描面缺位不虚构红灯。
+    if portal is not None and not portal.get("ok"):
+        add("red", "A8", "A8",
+            f"gov 公网门户不可用（{portal.get('error') or '未知原因'}）"
+            f"——公网领任务/看板/回报全断；keepalive portal 对象负责自动拉起"
+            f"（ssh gov 经 start-portal.sh），拉不回或 ssh 亦断需人工介入", t)
+
+    # A9 活性安灯腿失活（风险#7 收口批 2026-11-04 新增臂；**只增，既有臂不动**）
+    # 判据：安灯判据文件（event-router 每轮重写＝报活心跳）超陈旧阈未重写，
+    # 或根本不在位 ⇒ 安灯腿本身没在跑。**stale/missing 一律不报 green**
+    # （268h 静默前科的失败形态正是「读到旧判据当成活」）。
+    # 与 event-router 自写的 trigger-inbox-silent 摘要行**不同码不同义**：那行=
+    # 安灯在跑但收件箱静默；本行=安灯腿本身失活 ⇒ 不重复记（同码不同义不同档）。
+    # 冷却：走既有 log_alarms 的 30min 同码去重（不新造冷却口径）。
+    if trigger_liveness is not None:
+        tl_status = trigger_liveness.get("status")
+        if tl_status in ("stale", "missing"):
+            stop_note = ("（router STOP 熔断在位：安灯腿按设计停报，非失活）"
+                          if trigger_liveness.get("stop_breaker_in_place") else "")
+            add("amber" if trigger_liveness.get("stop_breaker_in_place") else "red",
+                "A9:trigger-andon", "A9:trigger-andon",
+                f"活性安灯腿失活：{trigger_liveness.get('message')}{stop_note}"
+                "——安灯腿没在跑（比收件箱静默更严重）；读数取自判据文件"
+                "（event-router 每轮重写＝报活心跳）", t)
+
+    # since 持续性：条件消失即清；持续则沿用首次时刻
+    open_keys = {}
+    for al in alarms:
+        first = state["alarm_open"].get(al["key"], t)
+        state["alarm_open"][al["key"]] = first
+        al["since"] = time.strftime("%F %T", time.localtime(first))
+        open_keys[al["key"]] = True
+    for k in list(state["alarm_open"]):
+        if k not in open_keys:
+            del state["alarm_open"][k]
+    order = {"red": 0, "amber": 1}
+    alarms.sort(key=lambda x: (order[x["level"]], x["code"], x["key"]))
+    return alarms
+
+
+def log_alarms(alarms, state, t):
+    try:
+        with open(ALARMS_LOG, "a", encoding="utf-8") as f:
+            for al in alarms:
+                last = state["alarm_logged"].get(al["key"])
+                if last is None or t - last >= DEDUP_WINDOW:
+                    f.write(json.dumps({
+                        "ts": now_s(), "level": al["level"], "code": al["code"],
+                        "message": al["message"], "since": al["since"],
+                    }, ensure_ascii=False) + "\n")
+                    state["alarm_logged"][al["key"]] = t
+    except Exception:
+        pass
+
+
+# ---------- 汇总快照 ----------
+
+def build_snapshot(arms, plan, sched, anolis, relay, alarms, mode, extras=None, archived=None,
+                   portal=None, trigger_liveness=None):
+    totals = {
+        "n_total": sum(a["n_total"] for a in arms),
+        "n_reward_true": sum(a["n_reward_true"] for a in arms),
+        "n_run_failed": sum(a["n_run_failed"] for a in arms),
+        "rows_10m": sum(a["rows_10m"] for a in arms),
+        "n_tasks": sum(a["n_tasks"] for a in arms),
+        "task_run_failed": sum(a["task_run_failed"] for a in arms),
+        "task_zero_patch": sum(a["task_zero_patch"] for a in arms),
+        "n_bad_lines": sum(a["n_bad_lines"] for a in arms),
+    }
+    cost = []
+    for prof in PROFILES:
+        rows = [a for a in arms if a["profile"] == prof]
+        cost.append({
+            "profile": prof,
+            "runs": sum(a["n_total"] for a in rows),
+            "tokens_in": sum(a["sum_tin"] for a in rows),
+            "tokens_out": sum(a["sum_tout"] for a in rows),
+            "tokens_cache": sum(a["sum_tcache"] for a in rows),
+        })
+    plan_tiers = dict(plan)
+    if EXTRA_ARM_DIRS:
+        plan_tiers.setdefault("F2", extra_f2_target())
+    return {
+        "ts": now_s(),
+        "epoch": int(time.time()),
+        "generated_by": "tools/factory-watch.py",
+        "mode": mode,
+        "interval_s": INTERVAL,
+        "plan": {"file": SAMPLE_REL, "tiers": plan_tiers},
+        "scheduler": {k: v for k, v in sched.items() if k != "summary"} | {"summary": sched.get("summary")},
+        "extra_schedulers": extras or [],
+        "arms": [{k: a[k] for k in (
+            "tier", "profile", "dir", "exists", "n_total", "n_reward_true",
+            "n_completed_not_reward", "n_run_failed", "n_blocked",
+            "n_tasks", "task_run_failed", "task_zero_patch", "n_bad_lines",
+            "judged_tasks", "resolved_tasks", "rows_10m", "last_new_row_age_s",
+        )} | {
+            "avg_turns": round(a["sum_turns"] / a["n_turns"], 1) if a["n_turns"] else None,
+            "avg_tokens_in": int(a["sum_tin"] / a["n_tokens"]) if a["n_tokens"] else None,
+            "avg_tokens_out": int(a["sum_tout"] / a["n_tokens"]) if a["n_tokens"] else None,
+            "avg_tokens_cache": int(a["sum_tcache"] / a["n_tokens"]) if a["n_tokens"] else None,
+            "avg_wall_ms": int(a["sum_wall_ms"] / a["n_wall"]) if a["n_wall"] else None,
+        } for a in arms],
+        "anolis": anolis,
+        "relay": relay,
+        # RT 收口批（2026-11-02）：gov 公网门户巡检面（scan_portal 三签名）。
+        # data.json 冻结键集（publish-scrub-gate.py DATA_TOP）同批已同步加 "portal"。
+        "portal": portal,
+        # ⑦ 活性安灯聚合段（风险#7 收口批 2026-11-04）：安灯读数进机器可读全量快照
+        # （此前 latest.json 无安灯读数＝安灯响了没人抬得起来）。**只读**判据文件，
+        # 不写它；陈旧判据一律报 stale/missing，**绝不报 green**。
+        "trigger_liveness": trigger_liveness,
+        "totals": totals,
+        "cost": cost,
+        "archived_arms": {
+            "n": len(archived or []),
+            "arms": [f"{a['tier']}-{a['profile']}" for a in (archived or [])],
+            "rule": f"results.jsonl mtime>{ARCHIVE_MATURITY_S}s 且无关联在跑进程 → A1/A2 免报",
+        },
+        "alarms": alarms,
+    }
+
+
+# ---------- 人类可读报告（--once） ----------
+
+def fmt_avg(x, unit=""):
+    return "-" if x is None else f"{x}{unit}"
+
+
+def render_report(s):
+    L = []
+    L.append("=" * 72)
+    L.append(f"黑灯工厂巡检报告  {s['ts']}  （模式 {s['mode']}）")
+    L.append("=" * 72)
+
+    sc = s["scheduler"]
+    if sc["alive"]:
+        sm = sc.get("summary") or {}
+        L.append(f"[调度器] 存活 pid={' '.join(map(str, sc['pids'])) or '?'}  "
+                 f"状态龄 {sc['mtime_age_s']}s  "
+                 f"running={sm.get('running')} done={sm.get('done')} "
+                 f"failed={sm.get('failed')} partial={sm.get('partial')} "
+                 f"pending={sm.get('pending')}（摘要 ts {sm.get('ts')}）")
+    else:
+        why = []
+        if not sc["status_file_exists"]:
+            why.append("状态文件缺失")
+        if sc.get("mtime_stale"):
+            why.append(f"状态停更 {sc['mtime_age_s']}s")
+        if sc.get("proc_confirmed_down"):
+            why.append("进程不在")
+        L.append(f"[调度器] 失联（{'；'.join(why) or '未知'}）——若修理组正在重启属预期，A0 会持续挂红直至恢复")
+
+    L.append(f"[产线矩阵] 目标分母 D1={s['plan']['tiers']['D1']} "
+             f"D2={s['plan']['tiers']['D2']} D3={s['plan']['tiers']['D3']}"
+             f"（{os.path.basename(SAMPLE)}）"
+             + (f"  F2={s['plan']['tiers'].get('F2', 0)}（实验线 fix2 重跑）"
+                if "F2" in s["plan"]["tiers"] else ""))
+    L.append(f"  {'档/档案':<18}{'目录':<4}{'总行':>5}{'通过':>5}{'完成未过':>7}"
+             f"{'run_fail':>9}{'拦截':>5}{'判分题':>6}{'10min':>6}"
+             f"{'avg turns':>10}{'avg wall':>10}")
+    for a in s["arms"]:
+        L.append(f"  {a['tier']}-{a['profile']:<13}"
+                 f"{'有' if a['exists'] else '无':>4}"
+                 f"{a['n_total']:>6}{a['n_reward_true']:>6}"
+                 f"{a['n_completed_not_reward']:>8}{a['n_run_failed']:>9}"
+                 f"{a['n_blocked']:>6}{a['judged_tasks']:>7}{a['rows_10m']:>7}"
+                 f"{fmt_avg(a['avg_turns']):>11}{fmt_avg(a['avg_wall_ms'], 'ms'):>12}")
+    t = s["totals"]
+    L.append(f"  合计: 行 {t['n_total']}，reward=true {t['n_reward_true']}，"
+             f"run_failed {t['n_run_failed']}，最近10分钟新增 {t['rows_10m']} 行")
+
+    # 口径明细（2026-10-22 修）：A1/A2 按任务级末行判定；行级=历史 attempt 仅诊断
+    data_arms = [a for a in s["arms"]
+                 if a["exists"] and (a["n_total"] > 0 or a["n_bad_lines"] > 0)]
+    if data_arms:
+        L.append("[口径明细] A1/A2=任务级末行（每 task 取 results.jsonl 末行，重试救回不计）；"
+                 "行级=历史 attempt，仅诊断不触发安灯")
+        for a in data_arms:
+            nm = f"{a['tier']}-{a['profile']}"
+            bad = f"  坏行 {a['n_bad_lines']}" if a["n_bad_lines"] else ""
+            L.append(f"  {nm:<18}唯一题 {a['n_tasks']:>3}  末态 run_failed {a['task_run_failed']:>2}  "
+                     f"末态零补丁 {a['task_zero_patch']:>2}  ｜行级 run_failed "
+                     f"{a['n_run_failed']}/{a['n_total']}  零补丁/gate "
+                     f"{a['n_blocked']}/{a['n_total']}{bad}")
+
+    for e in s.get("extra_schedulers", []):
+        if not e["exists"]:
+            L.append(f"[实验线调度器] 状态文件缺失（{e['status']}）")
+            continue
+        sm = e.get("summary") or {}
+        fresh = e["mtime_age_s"] is not None and e["mtime_age_s"] <= SCHED_STALE_S
+        arms_s = " ".join(f"{ra['node']}→{ra['dir']}" for ra in e["running_arms"]) or "无"
+        L.append(f"[实验线调度器] {'存活' if fresh else '停更'} "
+                 f"状态龄 {e['mtime_age_s']}s  running={sm.get('running')} "
+                 f"done={sm.get('done')} partial={sm.get('partial')} "
+                 f"failed={sm.get('failed')} pending={sm.get('pending')}  运行臂: {arms_s}")
+
+    an = s["anolis"]
+    if an["ok"]:
+        disks = "  ".join(f"{m} {d['use_pct']}%({d['avail']}可用)"
+                          for m, d in sorted(an["disk"].items()))
+        loc = an.get("local_sweb_images")
+        loc_s = (f"本机 {loc}/{an['image_target']}（A7 口径）"
+                 if loc is not None else "本机 未知")
+        img_s = (f"镜像 anolis {an['sweb_images']}/{an['image_target']}｜{loc_s}")
+        ld = an["load"]
+        L.append(f"[anolis] {disks}  {img_s}  ollama {an['ollama']}  "
+                 f"load {ld['m1']}/{ld['m5']}/{ld['m15']}" if ld else
+                 f"[anolis] {disks}  {img_s}  ollama {an['ollama']}  load 未知")
+    else:
+        L.append(f"[anolis] 巡检失败：{an.get('error') or '未知原因'}"
+                 f"（A4 暂不判定；A7 口径=本机 docker feed 盘点，不受 ssh 影响）")
+
+    rl = s["relay"]
+    L.append(f"[中继] 连续失败 {rl['consecutive_failures']}（≥{RELAY_FAIL_MIN} 触发 A5）  "
+             f"最近事件: {rl['last_event']}")
+
+    po = s.get("portal")
+    if isinstance(po, dict):
+        if po.get("ok"):
+            env_s = {"ok": "env AF_JOBS_DATA 在位",
+                     "missing": "env 缺 AF_JOBS_DATA（A8）",
+                     "unknown": "env 未验证（ssh 不可达，仅注记不判死）"}.get(po.get("env"),
+                                                                         "env 未知")
+            L.append(f"[门户] gov 公网门户 ok  healthz ok  open_total {po.get('open_total')}  "
+                     f"{env_s}")
+        else:
+            L.append(f"[门户] gov 公网门户探针失败：{po.get('error') or '未知原因'}（A8 红）")
+
+    tl = s.get("trigger_liveness")
+    if isinstance(tl, dict):
+        L.append(f"[安灯] 收件箱活性安灯 {tl.get('status')}（自述 {tl.get('criterion_status') or '-'}，"
+                 f"判据龄 {tl.get('criterion_age_s')}s/陈旧阈 {tl.get('stale_after_s')}s，"
+                 f"静默 {tl.get('silent_s')}s/阈 {tl.get('threshold_min')}min，"
+                 f"码 {tl.get('alarm_code') or '-'}）"
+                 + ("　★安灯腿失活：判据陈旧，读数不得当成活"
+                    if tl.get("stale") else ""))
+
+    al = s["alarms"]
+    n_red = sum(1 for x in al if x["level"] == "red")
+    n_amb = sum(1 for x in al if x["level"] == "amber")
+    L.append(f"[安灯] 红 {n_red} / 黄 {n_amb}")
+    if not al:
+        L.append("  （无报警）")
+    for x in al:
+        mark = "红灯" if x["level"] == "red" else "黄灯"
+        L.append(f"  [{mark}] {x['code']} since {x['since']}  {x['message']}")
+
+    arc = s.get("archived_arms") or {}
+    if arc.get("n"):
+        L.append(f"  [已归档臂] {arc['n']} 臂（fix1 终态矩阵，慢性信号已归档见巡检日志）")
+
+    L.append("[成本] 各档案累计（跨三档聚合）")
+    L.append(f"  {'档案':<16}{'runs':>6}{'tokens_in':>14}{'tokens_out':>13}{'cache_read':>14}")
+    for c in s["cost"]:
+        L.append(f"  {c['profile']:<16}{c['runs']:>7}"
+                 f"{c['tokens_in']:>15}{c['tokens_out']:>14}{c['tokens_cache']:>15}")
+    L.append("=" * 72)
+    return "\n".join(L)
+
+
+# ---------- 主流程 ----------
+
+def one_round(state, mode):
+    t = time.time()
+    arms = scan_all_arms(state, t)
+    plan = scan_plan_tiers()
+    sched = scan_scheduler(state, t)
+    extras = scan_extra_schedulers(t)
+    anolis = scan_anolis(state, t)
+    anolis["local_sweb_images"] = scan_local_images(state, t)
+    relay = scan_relay()
+    portal = scan_portal()   # RT 收口批（2026-11-02）：gov 公网门户三签名巡检
+    # ⑦ 活性安灯聚合段（风险#7 收口批 2026-11-04）：**只读**安灯判据文件
+    # （写入方=event-router），把安灯读数抬进机器可读全量快照。
+    trigger_liveness = scan_trigger_liveness(t)
+    archived, _active = classify_archived(arms, sched, extras, t)
+    alarms = build_alarms(arms, sched, anolis, relay, plan, state, t, extras, archived,
+                          portal=portal, trigger_liveness=trigger_liveness)
+    snap = build_snapshot(arms, plan, sched, anolis, relay, alarms, mode, extras, archived,
+                          portal=portal, trigger_liveness=trigger_liveness)
+
+    write_atomic(LATEST, json.dumps(snap, ensure_ascii=False, indent=1))
+    # P0-2（2026-10-28）：data.json=公网发布物 → K/O scrub 后落盘；
+    # scrub 真源缺失/异常 → 保留上一版（不写坏数据上网，宁可停更不可泄密），
+    # 本地 latest.json 与 alarms.log 不受影响（运维面保留原文）。
+    # 键集冻结（publish-scrub-gate.py DATA_TOP）：公网发布面顶层键集是**人工审定
+    # 冻结项**，未审新键会被 --freeze-keys 拦＝整轮拒发＝公网看板停更；本批禁改
+    # 该闸（新键入冻结集须人工审定 + 重锚钉桩 + 变更日志登记），故安灯段**只进本地
+    # 全量快照 latest.json**，不进发布面 data.json（发布面键集与既有键内容零变化）。
+    try:
+        pub = {k: v for k, v in snap.items() if k != "trigger_liveness"}
+        write_atomic(DASH_DATA, json.dumps(scrub_public(pub), ensure_ascii=False))
+    except Exception as e:
+        print(f"[{now_s()}] data.json 脱敏失败，保留上一版: {e}", flush=True)
+    if mode == "daemon":
+        log_alarms(alarms, state, t)
+        # 采样历史推进（保留窗）
+        state["line_hist"].append([int(t), {a["dir"]: a["n_total"] for a in arms}])
+        state["line_hist"] = [s for s in state["line_hist"] if t - s[0] <= 2400]
+    save_state(state)
+    return snap
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--once", action="store_true", help="单轮扫描并打印巡检报告")
+    args = ap.parse_args()
+    os.makedirs(OBS_DIR, exist_ok=True)
+    os.makedirs(DASH_DIR, exist_ok=True)
+    state = load_state()
+    if args.once:
+        snap = one_round(state, "once")
+        print(render_report(snap))
+        return
+    write_atomic(f"{OBS_DIR}/watchdog.pid", f"{os.getpid()}\n")
+    print(f"[{now_s()}] factory-watch 常驻启动 pid={os.getpid()} 周期 {INTERVAL}s", flush=True)
+    while True:
+        try:
+            snap = one_round(state, "daemon")
+            n_red = sum(1 for x in snap["alarms"] if x["level"] == "red")
+            n_amb = sum(1 for x in snap["alarms"] if x["level"] == "amber")
+            print(f"[{now_s()}] 轮完成: 行 {snap['totals']['n_total']} "
+                  f"(+{snap['totals']['rows_10m']}/10min) 安灯 红{n_red} 黄{n_amb}",
+                  flush=True)
+        except Exception as e:
+            print(f"[{now_s()}] 轮异常（不退出）: {e}", flush=True)
+        time.sleep(INTERVAL)
+
+
+if __name__ == "__main__":
+    main()

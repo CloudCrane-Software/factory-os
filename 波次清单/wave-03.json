@@ -1,0 +1,206 @@
+{
+ "schema": "af.wave/1",
+ "wave": "wave-03",
+ "created": "2026-11-06T11:20+0800",
+ "policy": "制度 v1；A0 即销；部署窗两卡 hold=主代理面；批量合线单树范式",
+ "base_sha": "5ee16ec4bfc9",
+ "cards": [
+  {
+   "task_id": "w03-debt-registration",
+   "debt": "D-60",
+   "channel": "local-api",
+   "mem_budget_g": 0,
+   "title": "债号登记元卡（A0——本行与 D-61..D-67 签发即登记，卡即销）",
+   "state": "ledgered",
+   "ledger_result": "A0 元卡：债号于签发时同步登记（本批 D-60..D-67 八行）"
+  },
+  {
+   "task_id": "w03-template-supply-batch",
+   "debt": "D-61",
+   "channel": "local-api",
+   "mem_budget_g": 0,
+   "title": "模板供给批：76 无盘 template_ref 补齐+新门",
+   "merge": {
+    "branches": [
+     {
+      "ref": "feature/w03-template-supply-batch",
+      "msg": "merge: w03-template-supply-batch（wave-03）"
+     }
+    ]
+   },
+   "ledger": {
+    "rows": [
+     {
+      "file": "计划/阶段欠账台账.md",
+      "row_key": "\\|\\s*D-61\\s*\\|",
+      "evidence": "〔wave-03 收卷：w03-template-supply-batch 合线全量门绿〕"
+     }
+    ]
+   },
+   "state": "ledgered",
+   "merge_result": "修批+模板单树合线 FF push 5ee16ec→d98e2d5；TEST 164 套件/CLIPPY 0/STEP0 注册表完整/STRAT 全绿（51 compilable——R4 曾误红=PATH 环境伪象实绿）",
+   "ledger_result": "落账 1 行：计划/阶段欠账台账.md"
+  },
+  {
+   "task_id": "kb-math-lenient-batch",
+   "debt": "D-65",
+   "channel": "local-api",
+   "mem_budget_g": 0,
+   "title": "KB math 归一宽容批（~40 admit）",
+   "merge": {
+    "branches": [
+     {
+      "ref": "feature/kb-math-lenient-batch",
+      "msg": "merge: kb-math-lenient-batch（wave-03）"
+     }
+    ]
+   },
+   "ledger": {
+    "rows": [
+     {
+      "file": "计划/阶段欠账台账.md",
+      "row_key": "\\|\\s*D-65\\s*\\|",
+      "evidence": "〔wave-03 收卷：kb-math-lenient-batch 合线全量门绿〕"
+     }
+    ]
+   },
+   "state": "ledgered",
+   "merge_result": "KB-ONLY 零仓改动",
+   "ledger_result": "落账 1 行：计划/阶段欠账台账.md"
+  },
+  {
+   "task_id": "swev-pool-expand-pull",
+   "debt": "D-67",
+   "channel": "local-api",
+   "mem_budget_g": 0,
+   "title": "镜像题扩池三案裁决执行",
+   "merge": {
+    "branches": [
+     {
+      "ref": "feature/swev-pool-expand-pull",
+      "msg": "merge: swev-pool-expand-pull（wave-03）"
+     }
+    ]
+   },
+   "ledger": {
+    "rows": [
+     {
+      "file": "计划/阶段欠账台账.md",
+      "row_key": "\\|\\s*D-67\\s*\\|",
+      "evidence": "〔wave-03 收卷：swev-pool-expand-pull 合线全量门绿〕"
+     }
+    ]
+   },
+   "state": "ledgered",
+   "merge_result": "tools 单件纪律（anolis 部署+L5 探针实证）",
+   "ledger_result": "D-67 行✅（runner 幂等格已翻）"
+  },
+  {
+   "task_id": "wave-runner-batch-merge-policy",
+   "debt": "D-64",
+   "channel": "local-api",
+   "mem_budget_g": 0,
+   "title": "runner 批量合线+env-check+监督轨三件",
+   "merge": {
+    "branches": [
+     {
+      "ref": "feature/wave-runner-batch-merge-policy",
+      "msg": "merge: wave-runner-batch-merge-policy（wave-03）"
+     }
+    ]
+   },
+   "ledger": {
+    "rows": [
+     {
+      "file": "计划/阶段欠账台账.md",
+      "row_key": "\\|\\s*D-64\\s*\\|",
+      "evidence": "〔wave-03 收卷：wave-runner-batch-merge-policy 合线全量门绿〕"
+     }
+    ]
+   },
+   "state": "ledgered",
+   "merge_result": "FACTORY-TOOLS-LOCAL 候选件",
+   "ledger_result": "落账 1 行：计划/阶段欠账台账.md"
+  },
+  {
+   "task_id": "otel-bak-drop-20261105",
+   "debt": "D-66",
+   "channel": "local-api",
+   "mem_budget_g": 0,
+   "title": "旧 otel 表 DROP 手术",
+   "merge": {
+    "branches": [
+     {
+      "ref": "feature/otel-bak-drop-20261105",
+      "msg": "merge: otel-bak-drop-20261105（wave-03）"
+     }
+    ]
+   },
+   "ledger": {
+    "rows": [
+     {
+      "file": "计划/阶段欠账台账.md",
+      "row_key": "\\|\\s*D-66\\s*\\|",
+      "evidence": "〔wave-03 收卷：otel-bak-drop-20261105 合线全量门绿〕"
+     }
+    ]
+   },
+   "state": "ledgered",
+   "merge_result": "CH DROP OK（13:35·evidence jsonl）",
+   "ledger_result": "落账 1 行：计划/阶段欠账台账.md"
+  },
+  {
+   "task_id": "rt-e85-deploy-window",
+   "debt": "D-62",
+   "channel": "local-api",
+   "mem_budget_g": 0,
+   "title": "RT-E85 部署窗",
+   "merge": {
+    "branches": [
+     {
+      "ref": "feature/rt-e85-deploy-window",
+      "msg": "merge: rt-e85-deploy-window（wave-03）"
+     }
+    ]
+   },
+   "ledger": {
+    "rows": [
+     {
+      "file": "计划/阶段欠账台账.md",
+      "row_key": "\\|\\s*D-62\\s*\\|",
+      "evidence": "〔wave-03 收卷：rt-e85-deploy-window 合线全量门绿〕"
+     }
+    ]
+   },
+   "state": "ledgered",
+   "ledger_result": "〔2026-11-06 收卷：RT-E85 部署窗 GO 执行完毕——12:33 H1 原子换码（preH1swap 备份）+在役守护 key_status={openbao,ok,fp16=8342632c} 实证；F1-F4 已吸收〕"
+  },
+  {
+   "task_id": "rt-e161-deploy-window",
+   "debt": "D-63",
+   "channel": "local-api",
+   "mem_budget_g": 0,
+   "title": "RT-E161 部署窗",
+   "merge": {
+    "branches": [
+     {
+      "ref": "feature/rt-e161-deploy-window",
+      "msg": "merge: rt-e161-deploy-window（wave-03）"
+     }
+    ]
+   },
+   "ledger": {
+    "rows": [
+     {
+      "file": "计划/阶段欠账台账.md",
+      "row_key": "\\|\\s*D-63\\s*\\|",
+      "evidence": "〔wave-03 收卷：rt-e161-deploy-window 合线全量门绿〕"
+     }
+    ]
+   },
+   "state": "ledgered",
+   "ledger_result": "〔2026-11-06 收卷：RT-E161 部署窗执行完毕——11:28 原子换码（sha d84737c1≡wip）+test-e161 五断言 PASS+QCLEG 24 组 PASS+supply-activity 双写在役〕"
+  }
+ ],
+ "runner_touched_at": "2026-11-06T14:03:47+0800"
+}

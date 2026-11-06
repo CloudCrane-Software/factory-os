@@ -1,0 +1,39 @@
+# =============================================================================
+# CODEOWNERS —— factory-os 仓判官路径锁（仓级正本；org 级禁用：会波及 platform 仓）
+#
+# 定义源：.github 仓 docs/judge-paths.md §二（factory-os 仓段）。本件路径段按
+#   本仓暂存树（staging/factory-os/，2026-11-06 清点）实际布局逐条核位；
+#   仓内不存在的路径不写进来（不锁空路径）。
+# 纪律：判官/门/判据件一改即拒收（rt-e82/83 双案，制度-v1 §六.4）——改这些
+#   路径的 PR 被保护规则拒，无评审例外；有意变更判据走裁决 + 同批重钉
+#   （bash tools/gate-pins-refresh.sh）+ 登记依据，不走工人 PR。
+#
+# ★ 生效前提（锁住 ≠ 拦住）：须分支保护勾选「Require review from Code
+#   Owners」（01-建设方案.md §五 P1：main 要求 PR + required check `gates` +
+#   不 bypass）。缺该勾选则本件不产生任何拒绝。
+# ★ 非判官路径不锁（本件无 `* @feasy898` 全局兜底行）：仓根 README.md 等
+#   说明面归工人 App 自己推。这是对 CODEOWNERS.template.md「默认兜底：全仓归
+#   @feasy898（最严口径；仓内只放必要协作者时改这行）」的有意裁剪。
+# =============================================================================
+
+# —— 1. 工具面在役件（tools/ 全部 .py / .sh / .list，含子目录）———————————
+# 收录口径（factory-os README §一）：*.py（含 tools/otel/ 子目录）、*.sh、
+#   *.list 为在役件；*.bak / __pycache__ / *.pid / *.lock / *.log 不入库。
+# 本仓实存 161 件 = 135 py（tools/ 一级 127 + tools/otel/ 8）+ 24 sh
+#   （22 + 2）+ 2 list（tools/gate-pins.list、tools/test-manifest.list）；
+#   暂存树内 .bak 0 件、__pycache__ 0 件（入库前 scrub 已剥）。
+# 覆盖：all-gates.sh（L1-L6 统一门本体）+ 各门件/探针（ledger / anchor /
+#   otel / gate-pins 钉桩面 / test-manifest.list 名册 / wave-runner /
+#   mirror-disclose.sh 等）——改其中任一件 = 改门本身。
+/tools/                               @feasy898
+
+# —— 2. 账本三件套（append-only 证明面）—————————————————————————
+# git 历史自建仓起承担 append-only 证明（README §二）：修改只允许「翻状态格 +
+# 行尾 append 依据句」，整文件先备、改完即 commit。锁面即证明面。
+/账本/                                @feasy898
+
+# —— 3. 波次清单与自转制度（append-only 制度面）——————————————————————
+# 波次清单/制度-v1.md = 波次自转制度正本；wave-01/02/03.json + wave-03-draft.md
+# = 波次清单件（wave-runner.py 消费面）。制度文档与清单同锁（docs/judge-paths.md
+# §二末行「制度文档」）。
+/波次清单/                             @feasy898

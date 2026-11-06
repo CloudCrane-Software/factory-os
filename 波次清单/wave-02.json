@@ -1,0 +1,185 @@
+{
+ "schema": "af.wave/1",
+ "wave": "wave-02",
+ "created": "2026-11-06T08:30+0800",
+ "policy": "制度 v1；local-api 卡=step 子代理 ssh-anolis 施工（本机永禁 cargo）；merge-check 长杆走本地后台监督",
+ "base_sha": "04b5a5eafa7a",
+ "cards": [
+  {
+   "task_id": "s17-registry-batch-a",
+   "debt": "D-58",
+   "channel": "local-api",
+   "mem_budget_g": 0,
+   "title": "①类 7 条真注册执行批（C058/C121/C098/C118/C087/C105 S 批+C126 M 记录型 builtin）",
+   "merge": {
+    "branches": [
+     {
+      "ref": "feature/s17-registry-batch-a",
+      "msg": "merge(af-dsl): s17 注册批 A——①类 7 条真注册（components.json+计数钉同步+模板面按需）"
+     }
+    ]
+   },
+   "ledger": {
+    "rows": [
+     {
+      "file": "计划/阶段欠账台账.md",
+      "row_key": "\\|\\s*D-58\\s*\\|",
+      "evidence": "〔wave-02 收卷：s17 注册批 A 合线——全量门绿+strategies_check 44→51 三态如实〕"
+     }
+    ]
+   },
+   "state": "ledgered",
+   "mc_wt": "/data/bench/wt-mc-s17-all",
+   "mc_ref": "merge-check/s17-all",
+   "merge_result": "单树六支批量合线 FF push 04b5a5e→5ee16ec；全量门绿（TEST/CLIPPY RC=0·164 套件）",
+   "ledger_result": "落账 1 行：计划/阶段欠账台账.md"
+  },
+  {
+   "task_id": "s17-honest-degrade-doc",
+   "debt": "D-59",
+   "channel": "local-api",
+   "mem_budget_g": 0,
+   "title": "②类 6 条如实降级批（C063/C080/C054/C114/C128/C046 na_reason 精确化）",
+   "merge": {
+    "branches": [
+     {
+      "ref": "feature/s17-honest-degrade-doc",
+      "msg": "docs(strategies): s17 降级批——②类 6 条 na_reason 精确化（禁造空转件宣言）"
+     }
+    ]
+   },
+   "ledger": {
+    "rows": [
+     {
+      "file": "计划/阶段欠账台账.md",
+      "row_key": "\\|\\s*D-59\\s*\\|",
+      "evidence": "〔wave-02 收卷：s17 降级批合线——strategies_check 绿+三态 44/0/11 如实〕"
+     }
+    ]
+   },
+   "state": "ledgered",
+   "mc_wt": "/data/bench/wt-mc-s17-all",
+   "mc_ref": "merge-check/s17-all",
+   "merge_result": "单树六支批量合线 FF push 04b5a5e→5ee16ec；全量门绿（TEST/CLIPPY RC=0·164 套件）",
+   "ledger_result": "落账 1 行：计划/阶段欠账台账.md"
+  },
+  {
+   "task_id": "s17-harness-regression-gate",
+   "debt": "D-54",
+   "channel": "local-api",
+   "mem_budget_g": 0,
+   "title": "harness 版本级回归门（设计稿 §七.1：固定回归集+劣化阈值阻断+负例夹具）",
+   "merge": {
+    "branches": [
+     {
+      "ref": "feature/s17-harness-regression-gate",
+      "msg": "feat(ci): s17 harness 版本级回归门（D-54）"
+     }
+    ]
+   },
+   "ledger": {
+    "rows": [
+     {
+      "file": "计划/阶段欠账台账.md",
+      "row_key": "\\|\\s*D-54\\s*\\|",
+      "evidence": "〔wave-02 收卷：回归门合线+负例夹具实测〕"
+     }
+    ]
+   },
+   "state": "ledgered",
+   "mc_wt": "/data/bench/wt-mc-s17-all",
+   "mc_ref": "merge-check/s17-all",
+   "merge_result": "单树六支批量合线 FF push 04b5a5e→5ee16ec；全量门绿（TEST/CLIPPY RC=0·164 套件）",
+   "ledger_result": "落账 1 行：计划/阶段欠账台账.md"
+  },
+  {
+   "task_id": "s17-trace-attribution-batch",
+   "debt": "D-55",
+   "channel": "local-api",
+   "mem_budget_g": 0,
+   "title": "失败模式聚类归因离线批面（§七.2：轨迹集合+标注数据面）",
+   "merge": {
+    "branches": [
+     {
+      "ref": "feature/s17-trace-attribution-batch",
+      "msg": "feat(poc): s17 轨迹归因批面（D-55）"
+     }
+    ]
+   },
+   "ledger": {
+    "rows": [
+     {
+      "file": "计划/阶段欠账台账.md",
+      "row_key": "\\|\\s*D-55\\s*\\|",
+      "evidence": "〔wave-02 收卷：归因批面合线〕"
+     }
+    ]
+   },
+   "state": "ledgered",
+   "mc_wt": "/data/bench/wt-mc-s17-all",
+   "mc_ref": "merge-check/s17-all",
+   "merge_result": "单树六支批量合线 FF push 04b5a5e→5ee16ec；全量门绿（TEST/CLIPPY RC=0·164 套件）",
+   "ledger_result": "落账 1 行：计划/阶段欠账台账.md"
+  },
+  {
+   "task_id": "s17-training-artifact-registry",
+   "debt": "D-56",
+   "channel": "local-api",
+   "mem_budget_g": 0,
+   "title": "训练产物注册回注切片（§七.3）",
+   "merge": {
+    "branches": [
+     {
+      "ref": "feature/s17-training-artifact-registry",
+      "msg": "feat(poc): s17 训练产物注册回注（D-56）"
+     }
+    ]
+   },
+   "ledger": {
+    "rows": [
+     {
+      "file": "计划/阶段欠账台账.md",
+      "row_key": "\\|\\s*D-56\\s*\\|",
+      "evidence": "〔wave-02 收卷：回注切片合线〕"
+     }
+    ]
+   },
+   "state": "ledgered",
+   "mc_wt": "/data/bench/wt-mc-s17-all",
+   "mc_ref": "merge-check/s17-all",
+   "merge_result": "单树六支批量合线 FF push 04b5a5e→5ee16ec；全量门绿（TEST/CLIPPY RC=0·164 套件）",
+   "ledger_result": "落账 1 行：计划/阶段欠账台账.md"
+  },
+  {
+   "task_id": "s17-judge-reliability-protocol",
+   "debt": "D-57",
+   "channel": "local-api",
+   "mem_budget_g": 0,
+   "title": "判分可信度协议（§七.4：三值 verdict 契约+评委校准+污染审计）",
+   "merge": {
+    "branches": [
+     {
+      "ref": "feature/s17-judge-reliability-protocol",
+      "msg": "feat(af-execline): s17 判分可信度协议（D-57）"
+     }
+    ]
+   },
+   "ledger": {
+    "rows": [
+     {
+      "file": "计划/阶段欠账台账.md",
+      "row_key": "\\|\\s*D-57\\s*\\|",
+      "evidence": "〔wave-02 收卷：可信度协议合线〕"
+     }
+    ]
+   },
+   "state": "ledgered",
+   "mc_wt": "/data/bench/wt-mc-s17-all",
+   "mc_ref": "merge-check/s17-all",
+   "merge_result": "单树六支批量合线 FF push 04b5a5e→5ee16ec；全量门绿（TEST/CLIPPY RC=0·164 套件）",
+   "ledger_result": "落账 1 行：计划/阶段欠账台账.md"
+  }
+ ],
+ "_file": "wave-02.json",
+ "runner_touched_at": "2026-11-06T11:04:36+0800"
+}
