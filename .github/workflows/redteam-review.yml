@@ -83,6 +83,10 @@ env:
   LLM_MODEL: 'deepseek-v4.1-flash-1017'
   LLM_PROVIDER: 'tokenrhythm'
   MAX_API_CALLS_PER_HOUR: '2'
+  # 配额状态副本（绝对路径：评审步 cd factory-os 后运行，相对路径会找不到
+  # ——2026-11-07 二跑实况：缺副本 ⇒ 配额闸 fail-closed 拒调（闸本身正确，
+  # 但接线须把路径钉对，否则夜间窗永远空转）。
+  QUOTA_STATUS: ${{ github.workspace }}/governance/planner/quota-status.json
   # —— 分诊步（试点三 jev-p3-reviewtriage/D4）：注入负控不过 ⇒ 出厂钉关 ——
   TRIAGE_ENABLED: 'false'
   RUN_REASON: ${{ inputs.reason || 'cron' }}
@@ -220,6 +224,8 @@ jobs:
           set -eu
           cd factory-os
           REP="${GITHUB_WORKSPACE}/redteam-review-summary.json"
+          export REP   # 指纹/评论文本两段 python 都经 os.environ 取（二跑实况：
+                      # 未 export ⇒ KeyError 'REP' 作业红——shell 变量不进 python 环境）
           if [ ! -f out/redteam-review-summary.json ]; then
             echo "无评审产物（无开 PR 或未产出）——不落板"
             exit 0
