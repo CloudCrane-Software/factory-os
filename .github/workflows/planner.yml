@@ -1085,6 +1085,14 @@ jobs:
           #    不破 ≤2/h 配额；step 08 仍是终裁 fail-closed，本段只改良候选）──
           def _m1_errors(m):
               out = []
+              # base_sha 生成侧预检（M-3/白名单同源规则；step 08 仍终裁）：
+              # 输入无钉桩基线 ⇒ 字段必须整体省略；有 ⇒ 只许逐字取自白名单。
+              bs = m.get("base_sha")
+              allowed_bs = inputs.get("allowed_base_shas") or []
+              if bs is not None and not allowed_bs:
+                  out.append("base_sha：输入 allowed_base_shas 为空——该字段必须整体省略（禁编造，实得 %r）" % bs)
+              elif bs is not None and bs not in allowed_bs:
+                  out.append("base_sha 必须逐字取自输入 allowed_base_shas=%s（实得 %r）" % (allowed_bs, bs))
               for i, c in enumerate(m.get("cards") or []):
                   if not isinstance(c, dict):
                       continue
