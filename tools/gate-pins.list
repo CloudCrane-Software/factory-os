@@ -32,7 +32,7 @@ L2_MIN_ITEMS=32
 #   本值取 91 = 门本体原硬编码值（同值搬位，不改语义）。
 L1_MIN_PY=91
 # --- 被钉件摘要（改任一件 → 须跑 tools/gate-pins-refresh.sh 重锚，否则钉桩对账红）---
-sha256 tools/all-gates.sh 52bad50059e6f6c85eb4e71017acd20218b35d8f41513344e622b5d143bfc9ef
+sha256 tools/all-gates.sh 0fd10920fe896b014e97afcde62e809a348f81a2d2fd236832e9c3ba5fe4d7fb
 sha256 tools/deploy-consistency-probe.sh a9a9b29c809f78d80b4b9d7656cd4746baefb2c595c7bd90350d9810c4985890
 sha256 tools/caddy-deploy-integrity-probe.sh dbcf72d156cfe869bf97a84c9a11472b60527a1117d92fa065816ce8425cb611
 sha256 tools/sil-verdict-probe.py 87be7627379526744dd3998faa5fd2014baaa4e3c33b344e4d66100779ed3b25

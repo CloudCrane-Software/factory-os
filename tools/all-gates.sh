@@ -1098,6 +1098,22 @@ register_L3() {
     "python3 '$TOOLS/otel/otel-reconcile-probe.py' --selftest"
   add_item L3 "otel-reconcile-probe.py --check（OTel lane 对账实查消费面）" 60 \
     "python3 '$TOOLS/otel/otel-reconcile-probe.py' --check"
+  # OBS-D6 manifest 复核消费门（2026-11-06 RT-E228-M/D-74 消费腿批接入，常驻非 selftest）：
+  # OBS-D6 归档批 sha256 清单（参考/legacy/bench-infra-retired-20261029/00-manifest-sha256.txt，
+  # 判据正本=计划/研究组/OBS回头批-20261031/OBS-D6-判据.md C1/C2）的复核命令此前零机器消费腿
+  # （crontab grep manifest=0、本文件 grep bench-infra-retired=0——台账 计划/阶段欠账台账.md:115
+  # RT-E228-M 自记），在役件漂移已第 10 代（第5/6/7x/8/10 代多次零登记零重锚），每代都靠人肉
+  # 想起跑复核命令才暴露。本门=消费腿（判据不复制：直接实跑 manifest 文件自带的 sha256sum -c
+  # 复核命令本体，形态先例=otel-reconcile-probe --check 真源直查同族）：
+  #   rc=0 绿；任一对象漂移/失踪（FAILED open or read）→ sha256sum rc=1 红；
+  #   manifest 缺件/不可读 → grep rc=2 非零即红（run_item 口径：缺件也按红点名对账，不静默 SKIP）。
+  #   门红=「盘面相对清单漂了」的信号：处置=循 计划/30-遗产处置.md 对象④行及各批台账取最新代
+  #   哈希、30 秒窗口双测稳定后重锚补登（manifest 头注纪律），勿回滚在役件迁就清单。
+  #   禁 crontab 接线（P4 cron 在飞面）；本项即 RT-E151 拦截②的 all-gates 腿落位。
+  #   （仓面注：manifest/参考/ 与 计划/ 取数源按收录口径不在本仓，本项在仓检出树上实跑将按
+  #   rc=2 如实红——与 anchor-check 等既有 $WS/计划/ 依赖项同环境口径；工厂正本面为运行位。）
+  add_item L3 "OBS-D6 manifest 复核（bench-infra-retired sha256 清单消费门）" 60 \
+    "cd '$WS' && grep -vE '^#' '参考/legacy/bench-infra-retired-20261029/00-manifest-sha256.txt' | sha256sum -c -"
   # G7 巡检自身健康/事件馈活性门（2026-11-03 确证发现修复批接入，常驻非 selftest +
   # 判别力自测）：obs-patrol（cron 每小时 :17）修复前 ①扫描根事件馈 2026-10-24 起死亡，
   # 「候选=0 退出码=0」恒绿 10 天（死馈/空馈/根被删三态在退出码上与正常不可区分），
