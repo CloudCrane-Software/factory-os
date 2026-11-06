@@ -65,6 +65,15 @@
             **读到旧判据不得报 green**——「把陈旧判据当成活」正是 268h 静默前科的
             失败形态。与 event-router 自写的 trigger-inbox-silent 摘要行**不同码
             不同义**（那行=安灯在跑但收件箱静默；本行=安灯腿本身失活），不重复记。
+  一次性 amber bench-arm-vanished  某臂目录消失（exists=false）：臂态显式化为
+            三态之一（在跑/退役/缺失，见 classify_arm_states），**禁以 0 冒充
+            在案**——n_total=0 对缺失臂是"无数据"不是"零失败"。每个消失
+            episode 只报一次（首见即报、记入 watch-state 不再复报；臂复活后
+            再次消失算新 episode 重报）；持续缺失 ≥ARM_RETIRE_AFTER_S 天转
+            retired 态（panel 标记），不再复报。
+            （D-112/factory-os#80，夜轨C2 红队分诊 H4：18 臂 exists=false
+            全零 + scheduler alive=true、alarms 仅 A4/A7 amber——人无法分辨
+            退役 vs 死了；本灯+三态字段即收口该盲区）
 
 容错：bench-fix1-* 目录尚未生成/工厂重启后空目录/结果行有空行或坏 JSON（逐行
       try/except 跳过并计数 n_bad_lines，不整文件失败、不漏坏行之后的所有行——
@@ -116,6 +125,30 @@ IMG_STALL_S = 7200           # 镜像数停滞判定窗 → A7
 IMAGE_TARGET = 120
 ARCHIVE_MATURITY_S = 6 * 3600  # results.jsonl mtime 超此龄且无关联在跑进程 → 臂归档（A1/A2 免报）
 RELAY_FAIL_MIN = 3           # 连败阈值 → A5
+# ---- D-112（factory-os#80，夜轨C2 红队分诊 H4）：bench 臂退役态显式化 ----
+# 缺口实录（2026-11-07 分诊复核留证）：anolis /tmp/bench-fix1-* 0 目录（ssh
+# 实测）；公网 /static/data.json 与本地 状态/看板/data.json 均照常呈现 18 臂
+# exists=false 全零 + scheduler alive=true，alarms 仅 A4/A7 amber——**人无法
+# 分辨退役 vs 死了**（目录消失被渲染成与"在案但零产出"完全同形的全零行），
+# 且消失时长无独立记录（逐臂时刻不可证：memory-readings 无 bench-fix1 行；
+# 旁证=bench-infra-retired-20261029 清单+旧链 /tmp 日志末次 mtime 10-21~10-24，
+# 量级 14.7-17 天，但不可独立复算）。
+# 收口三件（只增不改，全部落在 data.json 生成侧=本文件；判据/判官件零改动）：
+#   ① 臂态三态字段 arm_state（running/retired/missing，见 classify_arm_states）
+#      ——独立字段进 data.json arms[]（发布面顶层键集冻结不受影响：DATA_TOP
+#      只钉顶层，臂级新键不入冻结集）；
+#   ② 一次性告警码 bench-arm-vanished（每个消失 episode 只报一次）；
+#   ③ scheduler alive 摘要与臂态解耦呈现（render_report 显式声明 alive≠臂在案）。
+ARM_VANISH_CODE = "bench-arm-vanished"   # 一次性告警码（卡面正本命名；任务转述
+                                         # "arm_missing" 即此码——臂缺失显式态）
+ARM_RETIRE_AFTER_S = 14 * 86400          # exists=false 持续 ≥14 天 → retired 态
+# N=14 天取值依据：红队分诊实测消失量级 14.7-17 天（旁证）；与厂内 14 天归档
+# 惯例同值（D-116 sunset-audit --days 14 缺省）。<14 天保持 missing（新近消失，
+# 告警/epilogue 仍认）；≥14 天转 retired（慢性，panel 标记）。时钟起点=watch
+# **首次显式观测到缺失**的时刻（记入 watch-state.json arm_missing_seen）——
+# 历史消失时刻不可证（分诊留证），不拿 last_new_row_age 之类间接信号倒推伪造
+# 消失时刻；末次新结果行年龄仍以既有 last_new_row_age_s 字段原样呈现（下界
+# 参照，非消失时刻）。
 # A4L 本机 /tmp 安灯线（D-24，patch-tmpfs-alarm-watch-A4L-R2 / 方案 P1-1）：/tmp=
 # 7.5G tmpfs+usrquota，与判分结果/任务 json/调度器三件套共居；EDQUOT 实测于仅余
 # ~1.7G（mes500-根因报告.md:42）。校准线 2662MiB≈2.6GiB=factory-sched tmpfs 闸 WARN；
@@ -264,6 +297,9 @@ def load_state():
     st.pop("img_hist", None)             # 2026-10-22：A7 口径由 anolis SSH 计数改本机 feed 盘点，旧历史作废
     st.setdefault("alarm_open", {})      # {key: epoch} 报警条件首次持续出现时刻
     st.setdefault("alarm_logged", {})    # {key: epoch} 上次写入 alarms.log 时刻
+    # D-112：{dir: epoch} watch 首次显式观测到该臂目录缺失的时刻（三态时钟+
+    # 一次性 bench-arm-vanished 的 episode 判据；臂复活即除，再消失算新 episode）
+    st.setdefault("arm_missing_seen", {})
     st.setdefault("proc_miss_streak", 0)
     return st
 
@@ -1029,6 +1065,55 @@ def classify_archived(arms, sched, extras, t):
     return archived, active
 
 
+# ---------- D-112 臂态三态分类（在跑/退役/缺失；与 classify_archived 边界对齐） ----------
+
+def classify_arm_states(arms, archived, state, t):
+    """臂态显式化（D-112/factory-os#80，红队分诊 H4）：每个臂标注三态之一。
+
+      running  目录在案且未达自然退役边界（=不在 classify_archived 归档集）
+      retired  两种慢性终态之一：
+               (a) 自然退役：目录在案但 results.jsonl mtime>ARCHIVE_MATURITY_S
+                   且无关联在跑进程（=classify_archived 归档集成员——**边界
+                   完全对齐，不另立口径**）；
+               (b) 消失退役：目录缺失且自 watch 首见缺失起持续
+                   ≥ARM_RETIRE_AFTER_S 天。
+      missing  目录缺失（exists=false）且持续 <ARM_RETIRE_AFTER_S 天——
+               **禁以 0 冒充在案**：此态臂的 n_total=0 是"无数据"不是"零失败"。
+
+    一次性告警 episode 判据：目录缺失首见（arm_missing_seen 无记录）时在臂上
+    打 vanished_new=True（build_alarms 据此报一次 bench-arm-vanished 并记录）；
+    目录复活（exists 回真）即除记录——再次消失算新 episode 重报。
+
+    返回 annotate 后的 arms（原地补 arm_state / arm_missing_since_s /
+    arm_missing_age_s / vanished_new 四键；既有键一律不动——只增不改）。
+    """
+    seen = state.setdefault("arm_missing_seen", {})
+    archived_dirs = {a["dir"] for a in (archived or [])}
+    for a in arms:
+        a["vanished_new"] = False
+        a["arm_missing_since_s"] = None
+        a["arm_missing_age_s"] = None
+        if not a.get("exists"):
+            first = seen.get(a["dir"])
+            if first is None:
+                # 首见缺失：记时并标记新 episode（本轮由 build_alarms 报一次性码）
+                first = int(t)
+                seen[a["dir"]] = first
+                a["vanished_new"] = True
+            age = int(t - first)
+            a["arm_missing_since_s"] = int(first)
+            a["arm_missing_age_s"] = age
+            a["arm_state"] = "retired" if age >= ARM_RETIRE_AFTER_S else "missing"
+        elif a["dir"] in seen:
+            # 目录复活：清 episode 记录（再消失算新 episode）；在案性仍按
+            # classify_archived 边界判（复活即带着旧结果的臂照样可归档）
+            seen.pop(a["dir"], None)
+            a["arm_state"] = "retired" if a["dir"] in archived_dirs else "running"
+        else:
+            a["arm_state"] = "retired" if a["dir"] in archived_dirs else "running"
+    return arms
+
+
 def probe_local_tmp_mb():
     """本机 /tmp 可用（MiB）。statvfs 本地读 f_bavail（tmpfs 无 root 保留，与 df 同值）。
     异常 → (-1, True)=盘点失败（fail-closed 口径；与真写满同码 A4L:tmp 但文案强制区分）。
@@ -1240,6 +1325,26 @@ def build_alarms(arms, sched, anolis, relay, plan, state, t, extras=None, archiv
                 "——安灯腿没在跑（比收件箱静默更严重）；读数取自判据文件"
                 "（event-router 每轮重写＝报活心跳）", t)
 
+    # D-112 一次性 bench-arm-vanished（红队分诊 H4：目录消失禁以 0 冒充在案）。
+    # 每个消失 episode 只报一次：vanished_new 由 classify_arm_states 在**首见**
+    # 缺失时置位（记录落 watch-state.json arm_missing_seen，重启不重报；臂复活
+    # 清记录，再消失算新 episode 重报）。持续缺失的慢性真相由臂态字段
+    # arm_state（missing/retired）每轮承载，不靠本灯复报——故本灯是一次性
+    # 事件通知，不是持续性条件灯（A 族编号灯的复报语义不适用于此）。
+    # 档位=amber：bench 基础设施退役是已登记事项（bench-infra-retired-20261029），
+    # 本灯要的是"可分辨"（人看得见消失发生了），不是"当急事叫人"；真急事
+    # （调度器死/失败率/写即失败）由 A0/A1/A2/A4W 红级承担。
+    for a in arms:
+        if not a.get("vanished_new"):
+            continue
+        name = f"{a['tier']}-{a['profile']}"
+        add("amber", ARM_VANISH_CODE, f"{ARM_VANISH_CODE}:{name}",
+            f"臂 {name} 目录消失（{a['dir']}，exists=false）——臂态显式化为 "
+            f"{a['arm_state']}；该臂 n_total=0 是「无数据」不是「零失败」，"
+            f"禁以 0 冒充在案。持续缺失 ≥{ARM_RETIRE_AFTER_S // 86400} 天转 "
+            f"retired 态；本码每个消失 episode 只报一次（chronic 真相以臂态"
+            f"字段承载）。scheduler alive 与臂在案性无关，勿据 alive 推断臂在跑", t)
+
     # since 持续性：条件消失即清；持续则沿用首次时刻
     open_keys = {}
     for al in alarms:
@@ -1312,6 +1417,17 @@ def build_snapshot(arms, plan, sched, anolis, relay, alarms, mode, extras=None, 
             "n_tasks", "task_run_failed", "task_zero_patch", "n_bad_lines",
             "judged_tasks", "resolved_tasks", "rows_10m", "last_new_row_age_s",
         )} | {
+            # D-112 臂态三态显式化（H4 收口）：arm_state=running/retired/missing；
+            # arm_missing_since_s/arm_missing_age_s=缺失时钟（首见缺失 epoch/
+            # 持续秒数，非缺失臂为 null）。臂级新键——data.json 顶层键集冻结
+            # （publish-scrub-gate DATA_TOP）不受影响（只钉顶层）。
+            # 容错：未经 classify_arm_states 注解的臂（旧调用路径/单测桩）按
+            # exists 回落推导，不 KeyError（只增不改——旧形状调用方不崩）。
+            "arm_state": a.get("arm_state") or (
+                "missing" if not a.get("exists") else "running"),
+            "arm_missing_since_s": a.get("arm_missing_since_s"),
+            "arm_missing_age_s": a.get("arm_missing_age_s"),
+        } | {
             "avg_turns": round(a["sum_turns"] / a["n_turns"], 1) if a["n_turns"] else None,
             "avg_tokens_in": int(a["sum_tin"] / a["n_tokens"]) if a["n_tokens"] else None,
             "avg_tokens_out": int(a["sum_tout"] / a["n_tokens"]) if a["n_tokens"] else None,
@@ -1373,12 +1489,16 @@ def render_report(s):
              f"（{os.path.basename(SAMPLE)}）"
              + (f"  F2={s['plan']['tiers'].get('F2', 0)}（实验线 fix2 重跑）"
                 if "F2" in s["plan"]["tiers"] else ""))
-    L.append(f"  {'档/档案':<18}{'目录':<4}{'总行':>5}{'通过':>5}{'完成未过':>7}"
+    L.append(f"  {'档/档案':<18}{'臂态':<4}{'总行':>5}{'通过':>5}{'完成未过':>7}"
              f"{'run_fail':>9}{'拦截':>5}{'判分题':>6}{'10min':>6}"
              f"{'avg turns':>10}{'avg wall':>10}")
+    # D-112 三态灯位（在跑/退役/缺失）——目录缺失不再渲染成与"在案零产出"
+    # 同形的全零行（H4：人无法分辨退役 vs 死了）
+    arm_state_label = {"running": "在跑", "retired": "退役", "missing": "缺失"}
     for a in s["arms"]:
+        st = a.get("arm_state") or ("missing" if not a["exists"] else "running")
         L.append(f"  {a['tier']}-{a['profile']:<13}"
-                 f"{'有' if a['exists'] else '无':>4}"
+                 f"{arm_state_label.get(st, st):>4}"
                  f"{a['n_total']:>6}{a['n_reward_true']:>6}"
                  f"{a['n_completed_not_reward']:>8}{a['n_run_failed']:>9}"
                  f"{a['n_blocked']:>6}{a['judged_tasks']:>7}{a['rows_10m']:>7}"
@@ -1386,6 +1506,19 @@ def render_report(s):
     t = s["totals"]
     L.append(f"  合计: 行 {t['n_total']}，reward=true {t['n_reward_true']}，"
              f"run_failed {t['n_run_failed']}，最近10分钟新增 {t['rows_10m']} 行")
+    # 臂态普查 + 解耦声明（D-112）：缺失臂的 0 是"无数据"不是"零失败"；
+    # scheduler alive 只说明调度进程/状态在，不构成臂在案证据。
+    n_run = sum(1 for a in s["arms"] if (a.get("arm_state") or "running") == "running")
+    n_ret = sum(1 for a in s["arms"] if a.get("arm_state") == "retired")
+    n_mis = sum(1 for a in s["arms"] if a.get("arm_state") == "missing")
+    L.append(f"[臂态普查] 在跑 {n_run} · 自然/消失退役 {n_ret} · 目录缺失 {n_mis}"
+             f"（共 {len(s['arms'])} 臂；缺失臂禁以 0 冒充在案——其 0=无数据非零失败；"
+             f"缺失持续 ≥{ARM_RETIRE_AFTER_S // 86400} 天转 retired，"
+             f"时钟=watch 首见缺失时刻，末次新结果行年龄见各行 last_new_row_age_s 为下界参照）")
+    if n_mis or n_ret:
+        L.append("[臂态解耦] scheduler alive 摘要与臂态解耦：alive 只说明调度进程在、"
+                 "状态文件在刷新，不构成臂在案证据——臂在案性以臂态列（在跑/退役/缺失）"
+                 "与一次性 bench-arm-vanished 码为准")
 
     # 口径明细（2026-10-22 修）：A1/A2 按任务级末行判定；行级=历史 attempt 仅诊断
     data_arms = [a for a in s["arms"]
@@ -1493,6 +1626,9 @@ def one_round(state, mode):
     # （写入方=event-router），把安灯读数抬进机器可读全量快照。
     trigger_liveness = scan_trigger_liveness(t)
     archived, _active = classify_archived(arms, sched, extras, t)
+    # D-112：臂态三态标注（与 classify_archived 边界对齐）+ 缺失 episode 计时
+    # （arm_missing_seen 落 watch-state，重启不重报一次性码）
+    classify_arm_states(arms, archived, state, t)
     alarms = build_alarms(arms, sched, anolis, relay, plan, state, t, extras, archived,
                           portal=portal, trigger_liveness=trigger_liveness)
     snap = build_snapshot(arms, plan, sched, anolis, relay, alarms, mode, extras, archived,
@@ -1520,9 +1656,213 @@ def one_round(state, mode):
     return snap
 
 
+# ---------- D-112 三态夹具自检（--selftest：零生产副作用） ----------
+
+def _selftest():
+    """D-112（factory-os#80）臂态三态显式化自检：在跑/自然退役/目录消失三态
+    夹具各一 + 负例（禁 0 冒充在案/一次性/复活重报/≥N 天转 retired/legacy
+    兼容）。纪律照 test-tmp-write-admission.py：零生产副作用——不跑真实 watch
+    轮（不写生产 latest.json/data.json/watch-state.json/alarms.log，全部路径
+    重定向沙箱）；bench_proc_dirs 打桩（不依赖 /proc 实况）。
+
+    跑法：python3 -I tools/factory-watch.py --selftest   （期望末行 ALL PASS，rc=0）
+    """
+    global bench_proc_dirs, LATEST, DASH_DATA, ALARMS_LOG, STATE_FILE
+    import importlib.util
+    import shutil
+    import tempfile
+
+    sandbox = tempfile.mkdtemp(prefix="factory-watch-d112-selftest-")
+    LATEST, DASH_DATA = f"{sandbox}/latest.json", f"{sandbox}/data.json"
+    ALARMS_LOG, STATE_FILE = f"{sandbox}/alarms.log", f"{sandbox}/watch-state.json"
+    bench_proc_dirs = lambda: set()   # 打桩：episode 判据不依赖 /proc 实况
+    PASS, FAIL = [], []
+
+    def check(name, cond, detail=""):
+        (PASS if cond else FAIL).append(name)
+        print(f"{'PASS' if cond else 'FAIL'} {name}" + (f"  [{detail}]" if detail and not cond else ""))
+
+    T = 1792610000.0
+    RETIRE_S = ARM_RETIRE_AFTER_S
+    d_run = os.path.join(sandbox, "bench-fix1-d1-glm-cp")      # 夹具①在跑
+    d_ret = os.path.join(sandbox, "bench-fix1-d1-step5")       # 夹具②自然退役
+    d_mis = os.path.join(sandbox, "bench-fix1-d2-m31f")        # 夹具③目录消失（不建）
+    RES_ROWS = (
+        '{"task_id": "t1", "status": "completed", "reward": true}\n'
+        '{"task_id": "t2", "status": "completed", "reward": false}\n')
+
+    def write_res(d, age_s):
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "results.jsonl"), "w", encoding="utf-8") as f:
+            f.write(RES_ROWS)
+        os.utime(os.path.join(d, "results.jsonl"), (T - age_s, T - age_s))
+
+    def one_round(state, t):
+        """一轮（夹具面）：scan_arm→classify_archived→classify_arm_states→build_alarms。"""
+        arms = []
+        for tier, prof, path in (("D1", "glm-cp", d_run), ("D1", "step-5", d_ret),
+                                 ("D2", "mavis-m31f", d_mis)):
+            a = scan_arm(path)
+            a["tier"], a["profile"] = tier, prof
+            # scan_all_arms 常补的两个键（快照 totals/键集要用）；夹具面无历史线
+            a["rows_10m"] = 0
+            a["last_new_row_age_s"] = None
+            arms.append(a)
+        archived, _ = classify_archived(arms, {"running_arms": []}, [], t)
+        classify_arm_states(arms, archived, state, t)
+        alarms = build_alarms(
+            arms, {"status_file_exists": True, "mtime_stale": False,
+                   "proc_confirmed_down": False, "alive": False, "running_arms": []},
+            {}, {"consecutive_failures": 0, "last_event": "-"}, [], state, t,
+            extras=None, archived=archived, portal=None, trigger_liveness=None)
+        return arms, archived, alarms
+
+    try:
+        write_res(d_run, 60)                                   # 在跑：60s 前有结果
+        write_res(d_ret, ARCHIVE_MATURITY_S + 120)             # 自然退役：>6h 无关联进程
+        st = {"alarm_open": {}, "alarm_logged": {}, "sweb_img_hist": []}
+
+        # ---- 夹具①在跑 ----
+        arms, archived, alarms = one_round(st, T)
+        a_run = arms[0]
+        check("夹具①在跑：目录在案+结果新鲜", a_run["exists"] and a_run["n_tasks"] == 2)
+        check("夹具①在跑：arm_state=running", a_run["arm_state"] == "running",
+              f"got {a_run.get('arm_state')}")
+        check("夹具①在跑：不入 classify_archived 归档集",
+              d_run not in {x["dir"] for x in archived})
+        check("夹具①在跑：无 bench-arm-vanished（本臂键）",
+              not [x for x in alarms if x["key"] == f"{ARM_VANISH_CODE}:D1-glm-cp"])
+
+        # ---- 夹具②自然退役（与 classify_archived 边界对齐）----
+        a_ret = arms[1]
+        check("夹具②自然退役：入归档集（mtime>6h 无关联进程）",
+              d_ret in {x["dir"] for x in archived})
+        check("夹具②自然退役：arm_state=retired", a_ret["arm_state"] == "retired",
+              f"got {a_ret.get('arm_state')}")
+        check("夹具②自然退役：无 bench-arm-vanished（目录在案≠消失，本臂键）",
+              not [x for x in alarms if x["key"] == f"{ARM_VANISH_CODE}:D1-step-5"])
+
+        # ---- 夹具③目录消失 ----
+        a_mis = arms[2]
+        check("夹具③目录消失：exists=false 且全零", (not a_mis["exists"])
+              and a_mis["n_total"] == 0 and a_mis["n_tasks"] == 0)
+        check("夹具③目录消失：arm_state=missing", a_mis["arm_state"] == "missing",
+              f"got {a_mis.get('arm_state')}")
+        check("夹具③目录消失：vanished_new=True（首见即报）", a_mis["vanished_new"] is True)
+        van = [x for x in alarms if x["code"] == ARM_VANISH_CODE]
+        check("夹具③目录消失：一次性 bench-arm-vanished 报警在列", len(van) == 1,
+              f"got {len(van)}")
+        check("夹具③目录消失：amber 级+键含臂名",
+              van and van[0]["level"] == "amber"
+              and van[0]["key"] == f"{ARM_VANISH_CODE}:D2-mavis-m31f")
+        # 负例：禁以 0 冒充在案——缺失臂不在归档集、A1/A2 边界不受影响、
+        # 且告警存在（不静默）
+        check("负例-禁0冒充在案：缺失臂不入归档集（A1/A2 边界不动）",
+              d_mis not in {x["dir"] for x in archived})
+        check("负例-禁0冒充在案：缺失臂有显式告警（不静默全零）", len(van) == 1)
+        check("负例-禁0冒充在案：since=首见缺失时刻",
+              van and van[0]["since"] == time.strftime("%F %T", time.localtime(T)))
+
+        # ---- 一次性语义：持续缺失不复报 ----
+        _, _, alarms2 = one_round(st, T + 60)
+        van2 = [x for x in alarms2 if x["code"] == ARM_VANISH_CODE]
+        check("一次性：第二轮持续缺失零复报", len(van2) == 0, f"got {len(van2)}")
+        check("一次性：arm_state 仍为 missing（慢性真相由字段承载）",
+              one_round(st, T + 60)[0][2]["arm_state"] == "missing")
+
+        # ---- 复活重报：目录回来清 episode，再消失算新 episode ----
+        write_res(d_mis, 30)
+        arms3, _, alarms3 = one_round(st, T + 120)
+        check("复活：arm_state 回归 running", arms3[2]["arm_state"] == "running",
+              f"got {arms3[2].get('arm_state')}")
+        check("复活：无 bench-arm-vanished", not [x for x in alarms3 if x["code"] == ARM_VANISH_CODE])
+        shutil.rmtree(d_mis)
+        _, _, alarms4 = one_round(st, T + 180)
+        van4 = [x for x in alarms4 if x["code"] == ARM_VANISH_CODE]
+        check("复活后再消失：新 episode 重报一次", len(van4) == 1, f"got {len(van4)}")
+
+        # ---- ≥N 天转 retired（消失退役）----
+        st2 = {"alarm_open": {}, "alarm_logged": {}, "sweb_img_hist": [],
+               "arm_missing_seen": {d_mis: int(T - RETIRE_S - 60)}}
+        arms5, _, alarms5 = one_round(st2, T)
+        check("≥N天：arm_state=retired（消失退役）", arms5[2]["arm_state"] == "retired",
+              f"got {arms5[2].get('arm_state')}")
+        check("≥N天：age_s≥阈值且不再复报",
+              arms5[2]["arm_missing_age_s"] >= RETIRE_S
+              and not [x for x in alarms5 if x["code"] == ARM_VANISH_CODE])
+
+        # ---- data.json 接线（build_snapshot 键集 + render_report 呈现）----
+        arms6, archived6, alarms6 = one_round(st2, T)
+        snap = build_snapshot(
+            arms6, {"D1": 40, "D2": 40, "D3": 40},
+            {"status_file_exists": True, "mtime_age_s": 5, "pids": [1], "alive": True,
+             "summary": {"running": 0, "done": 0, "failed": 0, "partial": 0,
+                         "pending": 0, "ts": "-"}},
+            {"ok": False, "error": "selftest-stub"},
+            {"consecutive_failures": 0, "last_event": "-"}, alarms6, "once",
+            extras=None, archived=archived6, portal=None, trigger_liveness=None)
+        keys = {"arm_state", "arm_missing_since_s", "arm_missing_age_s"}
+        check("data.json：arms[] 带三态键（独立字段）",
+              all(keys <= set(a) for a in snap["arms"]))
+        # 顶层键集冻结对账：真源=tools/publish-scrub-gate.py DATA_TOP（按路径加载，
+        # 与 scrub 真源同款加载方式）；真源缺席则该检查显式 SKIP（不假装验过）
+        _gate_top = None
+        try:
+            _gs = importlib.util.spec_from_file_location(
+                "af_publish_gate_data_top",
+                os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             "publish-scrub-gate.py"))
+            _gm = importlib.util.module_from_spec(_gs)
+            _gs.loader.exec_module(_gm)
+            _gate_top = _gm.DATA_TOP
+        except Exception:  # noqa: BLE001 —— 真源缺席=不可证，SKIP 不猜
+            _gate_top = None
+        if _gate_top is None:
+            print("SKIP data.json 顶层键集冻结对账（publish-scrub-gate.py 真源缺席）")
+        else:
+            # 对账面=发布面 pub（one_round 同款剥离 trigger_liveness——该键只进
+            # 本地 latest.json，不进公网 data.json，2026-11-04 活性安灯批既定）
+            pub_top = {k for k in snap if k != "trigger_liveness"}
+            check("data.json：顶层键集≡DATA_TOP 冻结集（零新顶层键）",
+                  pub_top == set(_gate_top),
+                  f"extra={sorted(pub_top - set(_gate_top))}")
+        rep = render_report(snap)
+        check("报告：三态灯位+普查+解耦三行在列",
+              all(k in rep for k in ("在跑", "退役", "缺失", "[臂态普查]", "[臂态解耦]")))
+
+        # ---- 负例：legacy 臂（无三态注解，如旧单测桩）不产幽灵报警 ----
+        legacy = [dict(scan_arm(d_run), tier="D1", profile="glm-cp",
+                       rows_10m=0, last_new_row_age_s=None)]
+        la = build_alarms(
+            legacy, {"status_file_exists": True, "mtime_stale": False,
+                     "proc_confirmed_down": False, "alive": False, "running_arms": []},
+            {}, {"consecutive_failures": 0, "last_event": "-"}, [],
+            {"alarm_open": {}, "alarm_logged": {}, "sweb_img_hist": []}, T,
+            extras=None, archived=None, portal=None, trigger_liveness=None)
+        check("负例-legacy：无三态注解的臂零幽灵 bench-arm-vanished",
+              not [x for x in la if x["code"] == ARM_VANISH_CODE])
+        check("负例-legacy：render_report 对缺 arm_state 快照不崩（回落 exists 判）",
+              "在跑" in render_report(build_snapshot(
+                  legacy, {"D1": 40, "D2": 40, "D3": 40},
+                  {"status_file_exists": True, "alive": False,
+                                       "pids": [], "mtime_age_s": None, "summary": None},
+                  {"ok": False, "error": "stub"},
+                  {"consecutive_failures": 0, "last_event": "-"}, [], "once")))
+    finally:
+        shutil.rmtree(sandbox, ignore_errors=True)
+
+    print(f"\n{'ALL PASS' if not FAIL else 'HAS FAIL'} ({len(PASS)}/{len(PASS) + len(FAIL)})")
+    return 0 if not FAIL else 1
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--once", action="store_true", help="单轮扫描并打印巡检报告")
+    ap.add_argument("--selftest", action="store_true",
+                    help="D-112 臂态三态夹具自检（零生产副作用，沙箱内跑）")
+    args = ap.parse_args()
+    if args.selftest:
+        sys.exit(_selftest())
     args = ap.parse_args()
     os.makedirs(OBS_DIR, exist_ok=True)
     os.makedirs(DASH_DIR, exist_ok=True)
