@@ -22,16 +22,19 @@
 #    ledgered/parked + legacy）。若运营者裁定板落 af 仓：BOARD_REPO 改 af 且
 #    planner 须改跑 af 仓（manifest 随之落 af）或整体改用 App token——P4 上线前
 #    定论，禁两仓双板。
-# 3. STEP_API_KEY 配于 factory-os 的 repo secret 或 org secret。钥匙源头 openBao
-#    secret/stepfun（状态/openBao.md:55）。纪律：明文只进 secret；禁入 git、禁打印、
-#    禁进 artifact（01-建设方案 §八）。
+# 3. LLM_API_KEY 配于 factory-os 的 repo secret。钥匙源头 openBao
+#    kv/data/company/LLM-upstream/Zhipu/zhipu-bigmodel-CodingPlan-1（bigmodel
+#    individual coding plan；运营者 2026-11-06 裁定：规划环 LLM 调用改用
+#    GLM-5.3-Flash）。STEP_API_KEY（stepfun 备用通道）同为使役 secret，默认不走。
+#    纪律：明文只进 secret；禁入 git、禁打印、禁进 artifact（01-建设方案 §八）。
 # 4. Runner = ubuntu-latest（GitHub 托管；公开仓免费分钟前提见 02-清单 ④）。
 #    anolis-heavy 自托管（P2）只服务 gates.yml——规划环不吃算力、不碰 cargo。
-# 5. 配额现实（状态/模型配额停用-20261105.json · 2026-11-06 09:25 版）：
-#    rank1 唯一主通道 = new-provider/step-5-preview（key 2026-12-05 20:00 过期）；
-#    GLM 全账户停用至 2026-11-06 18:00、start-plan 免费窗 09:00 EXPIRED、
-#    minimax 周额度 EXHAUSTED（禁用至周重置）⇒ 通道集仅 anolis-build / local-api /
-#    bot-lane；GLM/start-plan 通道在 quota-status.json 解禁前一律不派。
+# 5. 配额现实（状态/模型配额停用-20261105.json workflow_model_policy 段 · 运营者
+#    2026-11-06 裁定）：individual plan GLM-5.3-Flash 全面放开，规划环 LLM 调用
+#    rank1 = account:bigmodel-individual-coding-plan/GLM-5.3-Flash；fallback =
+#    new-provider/step-5-preview（key 2026-12-05 20:00 过期）。GLM-5.3 与其余
+#    GLM 账户仍持至 2026-11-06 18:00、minimax 周额度 EXHAUSTED（禁用至周重置）
+#    ⇒ 施工通道集仍为 anolis-build / local-api / bot-lane（规划环自用模型走 GLM）。
 # 6. 调用预算：cron 每小时 :05 一次 ⇒ 稳态 1 次/h；单跑硬顶 2 次（首发 + 1 重试）；
 #    workflow_dispatch 手动跑同样计数（跨跑守卫见 03a/03b/03c，Actions cache
 #    best-effort——cache 可能 miss/evict，故单跑硬顶才是主闸）。
@@ -42,16 +45,19 @@
 # 8. GITHUB_TOKEN 的 push 默认不触发其它工作流——不会形成 gates 重跑环。
 #
 # 【模型与配额实读口径（注释留证；密钥绝不硬编码）】
-#   provider_id = new-provider（阶跃星辰）　model_id = step-5-preview
-#   base_url    = https://api.stepfun.com/step_plan/v1（OpenAI 兼容 /chat/completions）
+#   provider_id = account:bigmodel-individual-coding-plan（智谱 individual coding plan）
+#   model_id    = GLM-5.3-Flash
+#   base_url    = https://open.bigmodel.cn/api/coding/paas/v4（OpenAI 兼容 /chat/completions）
+#   改向依据：运营者 2026-11-06 裁定（状态/模型配额停用-20261105.json
+#     workflow_model_policy 段：rank1=account:bigmodel-individual-coding-plan/
+#     GLM-5.3-Flash；fallback=new-provider/step-5-preview；applies_to 含规划环）。
 #   实读来源（2026-11-06）：
-#     ① 本机 ~/.zcode/v2/provider_config.json：new-provider.api.baseUrl 同上，
-#        api.type = openai-chat-completions，personalModelIds 含 step-5-preview；
-#     ② 仓内同值钉扎：30-工件/外派/g3-manifest-review/r2-scratch/crates/af-bench/
-#        src/main.rs:240（key_ref = stepfun-plan）等多处一致；
-#     ③ 状态/openBao.md:55：openBao secret/ 命名空间含 stepfun（钥匙在位证据）；
-#     ④ 状态/模型配额停用-20261105.json priority[0]：rank1 唯一主通道、key 过期日。
-#   机器可读副本：.github 仓 planner/quota-status.json（P4 上线前由主代理从
+#     ① openBao kv/data/company/LLM-upstream/Zhipu/zhipu-bigmodel-CodingPlan-1：
+#        api_key + base_url（同上）成对在位；本机实测 GLM-5.3-Flash 200 出词；
+#     ② 本机 ~/.zcode/v2/config.json provider/builtin:bigmodel-coding-plan 同族
+#        （Anthropic 形态端点，非本环取用形态）；
+#     ③ 状态/模型配额停用-20261105.json workflow_model_policy：改向裁定真源。
+#   机器可读副本：.github 仓 planner/quota-status.json（主代理从
 #   状态/模型配额停用-*.json 同步；该状态件按 factory-os README §三 不入 factory-os）。
 # ============================================================================
 
@@ -96,9 +102,10 @@ env:
   # 任务书口径「factory-os/波次/」= 仓内实况 波次清单/（staging/factory-os/README.md §一）
   WAVE_DIR: '波次清单'
   LEDGER_FILE: '账本/阶段欠账台账.md'
-  # —— step-5-preview 实读口径（见文件头注释；密钥只走 secret STEP_API_KEY）——
-  STEP_BASE_URL: 'https://api.stepfun.com/step_plan/v1'
-  STEP_MODEL: 'step-5-preview'
+  # —— GLM-5.3-Flash 实读口径（见文件头注释；密钥只走 secret LLM_API_KEY）——
+  LLM_BASE_URL: 'https://open.bigmodel.cn/api/coding/paas/v4'
+  LLM_MODEL: 'GLM-5.3-Flash'
+  LLM_PROVIDER: 'account:bigmodel-individual-coding-plan'
   # —— 硬配额与预算（= 制度-v1 §五 + wave-01.json budgets 真源）——
   MAX_API_CALLS_PER_HOUR: '2'
   MAX_CARDS_PER_WAVE: '20'
@@ -117,6 +124,7 @@ jobs:
     timeout-minutes: 25
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # gh api 全程只用内置 Token（01-建设方案 §二）
+      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}   # 规划环 LLM 钥匙（GLM-5.3-Flash；明文只进 secret，不回显）
     steps:
       - name: '00 · 运行参数回显（禁打印任何密钥）'
         run: |
@@ -125,7 +133,7 @@ jobs:
             echo "- run_id=${GITHUB_RUN_ID} · trigger=${GITHUB_EVENT_NAME} · reason=${RUN_REASON}"
             echo "- dry_run=${DRY_RUN} · wave_override=${WAVE_OVERRIDE:-<auto>}"
             echo "- board=${ORG}/${BOARD_REPO} · wave_dir=${WAVE_DIR}"
-            echo "- model=${STEP_MODEL} @ ${STEP_BASE_URL}（key 走 secret STEP_API_KEY，不回显）"
+            echo "- model=${LLM_MODEL} @ ${LLM_BASE_URL}（key 走 secret LLM_API_KEY，不回显）"
           } >> "$GITHUB_STEP_SUMMARY"
 
       # ── 双仓落盘：.github 治理面（模板+配额副本）与 factory-os（账面+板）──
@@ -200,12 +208,12 @@ jobs:
           provider = rank1.get("provider_id")
           result["rank1"] = {"provider_id": provider, "model_id": model, "note": rank1.get("note")}
 
-          ok_rank1 = (model == os.environ["STEP_MODEL"] and provider == "new-provider")
-          result["checks"].append({"check": "rank1 == new-provider/step-5-preview", "ok": bool(ok_rank1)})
+          ok_rank1 = (model == os.environ["LLM_MODEL"] and provider == os.environ["LLM_PROVIDER"])
+          result["checks"].append({"check": "rank1 == %s/%s" % (os.environ["LLM_PROVIDER"], os.environ["LLM_MODEL"]), "ok": bool(ok_rank1)})
 
           banned = set(((q.get("banned") or {}).get("model_ids")) or [])
-          ok_not_banned = os.environ["STEP_MODEL"] not in banned
-          result["checks"].append({"check": "step-5-preview 不在 banned.model_ids", "ok": bool(ok_not_banned)})
+          ok_not_banned = os.environ["LLM_MODEL"] not in banned
+          result["checks"].append({"check": "%s 不在 banned.model_ids" % os.environ["LLM_MODEL"], "ok": bool(ok_not_banned)})
 
           m = re.search(r"(\d{4}-\d{2}-\d{2})(?:\s+(\d{2}:\d{2}))?", rank1.get("note") or "")
           if m:
@@ -214,7 +222,7 @@ jobs:
                   days = (exp - now).days
                   result["key_expiry"] = exp.isoformat(timespec="minutes")
                   if days <= 14:
-                      result["warnings"].append("STEP_API_KEY %d 天后过期（%s）——轮换统一批前置预警"
+                      result["warnings"].append("LLM_API_KEY %d 天后过期（%s）——轮换统一批前置预警"
                                                 % (days, exp.date().isoformat()))
               except ValueError:
                   pass
@@ -235,9 +243,9 @@ jobs:
           if not result["plan_allowed"]:
               bits = []
               if not ok_rank1:
-                  bits.append("rank1 非 step-5-preview（%s/%s）" % (provider, model))
+                  bits.append("rank1 非 %s/%s（实得 %s/%s）" % (os.environ["LLM_PROVIDER"], os.environ["LLM_MODEL"], provider, model))
               if not ok_not_banned:
-                  bits.append("step-5-preview 在停用清单")
+                  bits.append("%s 在停用清单" % os.environ["LLM_MODEL"])
               if len(calls) >= cap:
                   bits.append("本小时调用已满 %d 次（≤%d 次/h 纪律）" % (len(calls), cap))
               result["skip_reason"] = "；".join(bits)
@@ -432,9 +440,10 @@ jobs:
               "ledger_summary": ledger,
               "quota_status": {
                   "rank1": quota.get("rank1"),
-                  "banned_model_ids": ["GLM-5.3", "GLM-5.3-Flash", "MiniMax-M3.1-Flash"],
+                  "banned_model_ids": ["GLM-5.3", "MiniMax-M3.1-Flash"],
                   "hold_until": "2026-11-06T18:00:00+0800",
                   "key_expiry": quota.get("key_expiry"),
+                  "ruling": "运营者 2026-11-06 裁定：individual plan GLM-5.3-Flash 全面放开，规划环 LLM 调用改用 GLM-5.3-Flash（workflow_model_policy）；GLM-5.3 与其余 GLM 账户仍持至 18:00",
                   "source": "状态/模型配额停用-20261105.json（治理副本 governance/planner/quota-status.json）",
               },
               "oom_admission": {
@@ -455,7 +464,7 @@ jobs:
               "channels_allowed": ["anolis-build", "local-api", "bot-lane"],
               "channels_banned": [
                   {"channel": "GLM/start-plan",
-                   "reason": "start-plan 免费窗 2026-11-06 09:00 EXPIRED（状态/模型配额停用-20261105.json）；配额副本解禁前不派"}
+                   "reason": "start-plan 免费窗 2026-11-06 09:00 EXPIRED、start-plan/offpeak/highspeed 账户仍停用（状态/模型配额停用-20261105.json）⇒ 施工通道不派；规划环自用模型已按运营者 2026-11-06 裁定改走 individual plan GLM-5.3-Flash"}
               ],
               "legacy_backlog": legacy,
               "constraints": {
@@ -478,8 +487,8 @@ jobs:
                    len(board.get("in_flight_task_ids") or []), inputs["base_sha"] or "<none>"))
           PY
 
-      # ── 调 step-5-preview：≤2 次/h（首发+1 重试）；凭据只从 secret 取，禁打印 ──
-      - name: '07 · 调 step-5-preview API（fail-closed）'
+      # ── 调 GLM-5.3-Flash：≤2 次/h（首发+1 重试）；凭据只从 secret 取，禁打印 ──
+      - name: '07 · 调 GLM-5.3-Flash API（fail-closed）'
         if: steps.quota.outputs.plan_allowed == 'true'
         run: |
           set -euo pipefail
@@ -487,14 +496,14 @@ jobs:
           import json, os, re, sys, time, urllib.error, urllib.request
           from datetime import datetime, timezone, timedelta
 
-          key = os.environ.get("STEP_API_KEY") or ""
+          key = os.environ.get("LLM_API_KEY") or ""
           if not key:
-              print("STEP_API_KEY 缺席——fail-closed（P4 上线前须在 factory-os 配 repo/org secret；"
-                    "钥匙源头 openBao secret/stepfun）", file=sys.stderr)
+              print("LLM_API_KEY 缺席——fail-closed（P4 上线前须在 factory-os 配 repo secret；"
+                    "钥匙源头 openBao kv/data/company/LLM-upstream/Zhipu/zhipu-bigmodel-CodingPlan-1）", file=sys.stderr)
               sys.exit(3)
 
-          base = os.environ["STEP_BASE_URL"].rstrip("/")
-          model = os.environ["STEP_MODEL"]
+          base = os.environ["LLM_BASE_URL"].rstrip("/")
+          model = os.environ["LLM_MODEL"]
           with open("governance/planner/planner-prompt.md", encoding="utf-8") as f:
               prompt = f.read()
           with open("planner-inputs.json", encoding="utf-8") as f:
