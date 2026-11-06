@@ -14,8 +14,19 @@
 #     合法；零 uses 形态）。
 #   · 消费面文件全部随本 PR 落 `.github/ci-gates-trial/`（造册清单/钉值面（机生成
 #     sha256sum 格式）/豁免面（path+reason）/扫描根/长杆清单/scale 读数件/lint 扫面）。
-#     ★标定常量留仓内（卡面禁项）：rods 清单 800/120/60、余量 800s、下限 900000ms
+#     ★标定常量留仓内（卡面禁项）：rods 清单 800/120、余量 800s、下限 900000ms
 #     均为本仓试用政策值，不入 org 件。
+#
+# 批3 追加点选（D-90 / .github#17 / A-2＋A-6 同批——RT-E121 同批卫=roster_enable 共用）：
+#   · A-2 roster-check 对**实名册** tools/test-manifest.list 跑四面对账：在库 32 件逐件
+#     工作树实位；自声明 #L2_ITEMS_COUNT/#L1_PY_COUNT_MIN 段核；件数下限对账（在列≡
+#     声明；人口（tools/*.py＋tools/otel/*.py，counted_cmd 实读）≥ 下限 96）；变更留痕
+#     对账（名册现 sha256 登记串须在留痕面）。--require-git 版本面前提 fail-closed。
+#   · A-6 mutation-drill 对名册列名件 test-minimax-dispatch-gate.py 做删-验-还（删件⇒
+#     必红「在库缺席」→字节级复原⇒必绿；工作树零残留）。MUT 探针只钉名册列名件。
+#   · 留痕面：`.github/ci-gates-trial/roster-changelog.list`＝运营区正本留痕（计划/变更
+#     日志.md，登记串 test-manifest.list sha256=cc58fc7008da… 见 :48648 行）的仓内试跑
+#     镜像面；正本登记串若更新，须同步本镜像面（对账红即显式提醒）。
 # =============================================================================
 name: ci-gates-org
 
@@ -57,3 +68,13 @@ jobs:
       hygiene_dir: '.github/workflows'
       secure_lint_enable: 'true'
       secure_lint_paths: '.github/ci-gates-trial/lint-target'
+      # —— 批3 双件点选（D-90：A-2/A-6 同批共用 roster_enable——RT-E121 同批卫） ——
+      roster_enable: 'true'
+      roster_list: 'tools/test-manifest.list'
+      roster_root: 'tools'
+      roster_count_key: 'L2_ITEMS_COUNT'
+      roster_min_key: 'L1_PY_COUNT_MIN'
+      roster_count_min: '96'
+      roster_changelog: '.github/ci-gates-trial/roster-changelog.list'
+      roster_counted_cmd: 'find tools -maxdepth 2 -name "*.py" | wc -l'
+      mutation_target: 'test-minimax-dispatch-gate.py'

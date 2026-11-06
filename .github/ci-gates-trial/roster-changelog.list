@@ -1,0 +1,10 @@
+# roster-changelog.list — A-2 变更留痕对账「仓内试跑镜像面」（卡 .github#17 / D-90）
+#
+# 定位：实名册 tools/test-manifest.list 的正本留痕面在运营区 计划/变更日志.md（不在
+# git 仓内——RT-E84④ 时代 tools/ 无版本面所设的留痕通道）。CI（anolis runner）拿不到
+# 运营区，本件=正本登记串的仓内镜像面，供 org ci-gates 批3 roster-check --changelog
+# 点选消费。纪律：正本登记串更新（名册任何改动）必须同步本镜像面——对账红即显式提醒，
+# 禁静默摘行（名册只许变严，摘门必须显式改清单+声明+留痕，A-16）。
+#
+# 登记串（与运营区正本 计划/变更日志.md:48648 逐字一致，2026-11-06 RT-E161 部署窗登记）：
+test-manifest.list sha256=cc58fc7008da55b5aeb7239af9cf3e9bc76afa12128eb6d8ab3144a1fd1e3918
