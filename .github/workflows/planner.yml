@@ -960,10 +960,12 @@ jobs:
           PY
 
       # ── 调 GLM-5.3-Flash：≤2 次/h（首发+1 重试）；凭据只从 secret 取，禁打印 ──
-      - name: '07 · 调 GLM-5.3-Flash API（fail-closed）'
+      - name: '07 · 调规划 LLM API（fail-closed）'
         if: steps.quota.outputs.plan_allowed == 'true'
         run: |
           set -euo pipefail
+          # tokenrhythm.studio 经 gov 代理会 200-空响应（2026-11-06 anolis 实测：直连 2.5s 正常 / 代理 1.3s 空）——LLM 调用绕代理直连
+          export NO_PROXY="tokenrhythm.studio,${NO_PROXY:-}" no_proxy="tokenrhythm.studio,${no_proxy:-}"
           python3 -I - <<'PY'
           import json, os, re, sys, time, urllib.error, urllib.request
           from datetime import datetime, timezone, timedelta
