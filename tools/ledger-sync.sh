@@ -888,19 +888,54 @@ except Exception:
 done
 echo "[sync] drain=$DRAIN（上界到即继续：required gates 已绿）"
 
-# ---- 步骤 12：squash 合线（PUT 非 POST）+ 删远端分支 ----------------------------
-export_GH_PROXY
-MRG_CODE="$(curl -sS -m 60 -K "$CF_PAT" -X PUT \
-  "https://api.github.com/repos/$REPO_SLUG/pulls/$PR_NUM/merge" \
-  -d "$(python3 -I -c "
+# ---- 步骤 12：squash 合线（PUT 非 POST；405 竞速自愈 ≤2 轮）+ 删远端分支 -------
+_MERGE_OK=0
+for _attempt in 1 2; do
+  export_GH_PROXY
+  MRG_CODE="$(curl -sS -m 60 -K "$CF_PAT" -X PUT \
+    "https://api.github.com/repos/$REPO_SLUG/pulls/$PR_NUM/merge" \
+    -d "$(python3 -I -c "
 import json
 print(json.dumps({'merge_method':'squash',
   'commit_title': '''$COMMIT_TITLE (#$PR_NUM)''',
   'commit_message': '''$COMMIT_BODY'''}))")" \
-  -o "$RUN_DIR/merge.json" -w '%{http_code}')" || fatal 5 "merge" "merge curl 失败"
-unset_GH_PROXY
-MERGE_SHA="$(printf '%s' "$(cat "$RUN_DIR/merge.json")" | python3 -I -c "import json,sys;print(json.load(sys.stdin).get('sha',''))" 2>/dev/null || true)"
-[ "$MRG_CODE" = "200" ] && [ -n "$MERGE_SHA" ] || fatal 5 "merge" "squash 合线 rc=$MRG_CODE（读数 $RUN_DIR/merge.json）"
+    -o "$RUN_DIR/merge.json" -w '%{http_code}')" || MRG_CODE="curl"
+  unset_GH_PROXY
+  MERGE_SHA="$(printf '%s' "$(cat "$RUN_DIR/merge.json")" | python3 -I -c "import json,sys;print(json.load(sys.stdin).get('sha',''))" 2>/dev/null || true)"
+  if [ "$MRG_CODE" = "200" ] && [ -n "$MERGE_SHA" ]; then _MERGE_OK=1; break; fi
+  grep -q "Required status check" "$RUN_DIR/merge.json" || break
+  [ "$_attempt" = "2" ] && break
+  echo "[sync] merge 405（竞速）→update-branch 自愈第 ${_attempt} 轮"
+  export_GH_PROXY
+  curl -sS -m 60 -K "$CF_APP" -X PUT -d '{}' \
+    "https://api.github.com/repos/$REPO_SLUG/pulls/$PR_NUM/update-branch" -o /dev/null || true
+  unset_GH_PROXY
+  _w=0; GATES="pending"
+  while [ "$_w" -lt 18 ]; do
+    sleep 20; _w=$((_w+1))
+    export_GH_PROXY
+    HEAD_SHA="$(curl -sS -m 60 -K "$CF_PAT" "https://api.github.com/repos/$REPO_SLUG/pulls/$PR_NUM" 2>/dev/null | python3 -I -c "import json,sys;print(json.load(sys.stdin)['head']['sha'])" 2>/dev/null || true)"
+    CR="$(curl -sS -m 60 -K "$CF_PAT" "https://api.github.com/repos/$REPO_SLUG/commits/$HEAD_SHA/check-runs" 2>/dev/null || echo '{}')"
+    unset_GH_PROXY
+    GATES="$(printf '%s' "$CR" | python3 -I -c "
+import json,sys
+try:
+  d=json.load(sys.stdin)
+  runs=[r for r in d.get('check_runs',[]) if r.get('name')=='gates']
+  print('pending' if not runs else (runs[0]['status'] if runs[0]['status']!='completed' else runs[0]['conclusion']))
+except Exception:
+  print('pending')")"
+    [ "$GATES" = "success" ] && break
+    case "$GATES" in failure|timed_out|cancelled) break;; esac
+  done
+  [ "$GATES" = "success" ] || { echo "[sync] 自愈轮 gates=$GATES，放弃"; break; }
+  export_GH_PROXY
+  curl -sS -m 60 -K "$CF_PAT" -X POST \
+    -d '{"event":"APPROVE","body":"PAT 判官复审（分支更新后·405 自愈环）"}' \
+    "https://api.github.com/repos/$REPO_SLUG/pulls/$PR_NUM/reviews" -o /dev/null || true
+  unset_GH_PROXY
+done
+[ "$_MERGE_OK" = "1" ] || fatal 5 "merge" "squash 合线 rc=$MRG_CODE（含 405 自愈轮；读数 $RUN_DIR/merge.json）"
 export_GH_PROXY
 curl -sS -m 60 -K "$CF_APP" -X DELETE "https://api.github.com/repos/$REPO_SLUG/git/refs/heads/$BRANCH" \
   -o /dev/null || true
