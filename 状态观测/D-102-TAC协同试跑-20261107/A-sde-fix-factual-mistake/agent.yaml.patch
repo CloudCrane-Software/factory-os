@@ -1,0 +1,15 @@
+diff --git a/agenthub/micro/math_agent/agent.yaml b/agenthub/micro/math_agent/agent.yaml
+index 9f7dd20c6..9630e48f5 100644
+--- a/agenthub/micro/math_agent/agent.yaml
++++ b/agenthub/micro/math_agent/agent.yaml
+@@ -17,8 +17,8 @@ examples:
+   - inputs:
+       task: "What day of the week is 2099-01-01?"
+     outputs:
+-      answer: "Saturday"
++      answer: "Thursday"
+   - inputs:
+       task: "What is the integral of sin(x^2) evaluated from -1 to 1?"
+     outputs:
+-      answer: "0.603848"
++      answer: "0.620537"
