@@ -137,15 +137,32 @@ jobs:
             exit 0
           fi
           git commit -m "obs-nightly: 周窗读数落盘（run ${GITHUB_RUN_ID} · gate=${GATE_VERDICT:-see-log}）"
+          # push 凭据：GIT_ASKPASS 脚本形态（Username→x-access-token；Password→cat
+          # 令牌文件）——token 不进 argv/URL/日志（GH_TOKEN 在日志被 mask）。
+          # 首跑 42252732706 实证：匿名 clone 无凭据 ⇒ 'could not read Username'，
+          # 当时被误标为「分支保护拒推」——本版改为按 git 真实 stderr 分类记录。
+          TF="$(mktemp)"; chmod 600 "$TF"
+          AP="$(mktemp)"; chmod 700 "$AP"
+          printf '%s' "$GH_TOKEN" > "$TF"
+          printf '#!/bin/bash\ncase "$1" in Username*) printf "x-access-token\\n" ;; Password*) cat "%s" ;; esac\n' "$TF" > "$AP"
           push_rc=0
-          git push origin "HEAD:${GITHUB_REF_NAME}" || push_rc=$?
+          err_file="$(mktemp)"; chmod 600 "$err_file"
+          GIT_ASKPASS="$AP" GIT_TERMINAL_PROMPT=0 git push origin "HEAD:${GITHUB_REF_NAME}" 2> "$err_file" || push_rc=$?
           if [ "$push_rc" = "0" ]; then
             echo "push_status=pushed → ${GITHUB_REF_NAME}"
             echo "push_status=pushed" >> "$GITHUB_OUTPUT"
           else
-            echo "push_status=rejected（分支保护拒推）——读数改落板面 Issue（显式记录，不静默换面）"
-            echo "push_status=rejected" >> "$GITHUB_OUTPUT"
+            reason="$(tr '\n' ' ' < "$err_file" | tail -c 200)"
+            case "$reason" in
+              *'could not read Username'*) cls="auth-no-cred" ;;
+              *'protected branch'*|*'required status check'*|*'protected') cls="protected-rejected" ;;
+              *) cls="other" ;;
+            esac
+            echo "push_status=failed(${cls})——真实 git stderr：${reason}"
+            echo "push_status=failed(${cls})" >> "$GITHUB_OUTPUT"
+            echo "读数改落板面 Issue（显式记录，不静默换面）"
           fi
+          shred -u "$TF" "$AP" "$err_file" 2>/dev/null || rm -f "$TF" "$AP" "$err_file"
           exit 0
 
       - name: '05 · 板面落档＋文件回读（指纹节流；回读 sha 进日志）'
