@@ -38,11 +38,15 @@
 # 6. 调用预算：cron 每小时 :05 一次 ⇒ 稳态 1 次/h；单跑硬顶 2 次（首发 + 1 重试）；
 #    workflow_dispatch 手动跑同样计数（跨跑守卫见 03a/03b/03c，Actions cache
 #    best-effort——cache 可能 miss/evict，故单跑硬顶才是主闸）。
-# 7. factory-os main 若启用「要求 PR」分支保护，planner 直推会被拒——P4 前须裁定：
-#    factory-os main 对 planner（GITHUB_TOKEN）放开直推，或改走
-#    「planner/<wave> 分支 + auto-merge」两段式（pull-requests:write 已在权限内）。
-#    本稿取直推（append-only 只增不改，见 factory-os README §二）。
+# 7. 分支保护实况（P4 落地实测）：factory-os main = 要求 PR + required check
+#    `gates` + enforce_admins ⇒ planner 直推必被 GitHub 拒。故取两段式（已落地）：
+#    manifest 先推 `planner/<wave>` 分支 → gh api 开 PR（base main）→ 轮询
+#    `gates` 绿后本环 PUT squash 合入（pull-requests:write + contents:write 均
+#    已在权限内）。波次清单/wave-*.json 已按口径修正移出 CODEOWNERS 判官锁
+#    （manifest 是规划产物非判据件）⇒ planner PR 0 批准即可合。gates 未绿 ⇒
+#    PR 留开、run 红，fail-loud 留运营者处置（禁假绿）。
 # 8. GITHUB_TOKEN 的 push 默认不触发其它工作流——不会形成 gates 重跑环。
+#    （planner/<wave> 分支 push 不触发；PR 开立触发 gates 一次，即 09b 轮询的那次。）
 #
 # 【模型与配额实读口径（注释留证；密钥绝不硬编码）】
 #   provider_id = account:bigmodel-individual-coding-plan（智谱 individual coding plan）
@@ -799,7 +803,8 @@ jobs:
           PY
 
       # ── commit manifest：append-only 只增不改；禁 force（factory-os README §二）──
-      - name: '09 · commit manifest 到 factory-os（append-only；禁 force）'
+      # 两段式第一段：推 planner/<wave> 分支（main 有分支保护，直推必拒）。
+      - name: '09 · commit manifest 到 planner/<wave> 分支（append-only；禁 force）'
         id: commit
         if: steps.quota.outputs.plan_allowed == 'true' && steps.validate.outputs.outcome == 'plan' && inputs.dry_run != 'true'
         env:
@@ -809,7 +814,7 @@ jobs:
           set -euo pipefail
           cd factory-os
           git config user.name "planner-bot"
-          git config user.email "planner-bot@users.norepress.github.com"
+          git config user.email "planner-bot@users.noreply.github.com"
           if [ -n "$(git status --porcelain)" ]; then
             echo "factory-os 工作树不干净——拒 commit（fail-closed）" >&2
             exit 8
@@ -817,20 +822,81 @@ jobs:
           mkdir -p "${WAVE_DIR}"
           target="${WAVE_DIR}/${WAVE}.json"
           if git cat-file -e "HEAD:${target}" 2>/dev/null; then
-            # 波次文件已存在：内容一致=幂等重跑跳过；不一致=波次号冲突 fail-closed
+            # 波次文件已入 main：内容一致=幂等重跑跳过；不一致=波次号冲突 fail-closed
             git show "HEAD:${target}" > /tmp/existing-manifest.json
             if diff -q /tmp/existing-manifest.json ../manifest-candidate.json >/dev/null; then
-              echo "manifest 无变化（幂等重跑）——跳过 commit"
+              echo "manifest 已在 main 且无变化（幂等重跑）——跳过"
               exit 0
             fi
-            echo "波次文件 ${target} 已存在且内容不同——波次号冲突，fail-closed（禁改历史 manifest）" >&2
+            echo "波次文件 ${target} 已在 main 且内容不同——波次号冲突，fail-closed（禁改历史 manifest）" >&2
             exit 9
           fi
+          branch="planner/${WAVE}"
           cp ../manifest-candidate.json "${target}"
           git add "${target}"
           git commit -m "planner: ${WAVE} manifest · ${NEW_CARDS} cards · run ${GITHUB_RUN_ID}"
-          git push origin "HEAD:main"
-          echo "committed: ${target}"
+          # 推专用分支（非 main）；禁 force——远端分支已存在且与本次产出分叉时 fail-closed 留人工
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+            git fetch origin "$branch"
+            if ! git merge-base --is-ancestor "FETCH_HEAD" HEAD; then
+              echo "分支 ${branch} 远端已存在且与本次产出分叉——fail-closed（禁 force，留人工处置）" >&2
+              exit 9
+            fi
+          fi
+          git push origin "HEAD:refs/heads/${branch}"
+          echo "committed: ${target} -> ${branch}"
+
+      # ── 两段式第二段：开 PR → 轮询 gates → 绿后 squash 合入 main ──
+      - name: '09b · 开 PR 并 gates 绿后 squash 合入 main'
+        id: merge_pr
+        if: steps.quota.outputs.plan_allowed == 'true' && steps.validate.outputs.outcome == 'plan' && inputs.dry_run != 'true'
+        env:
+          WAVE: ${{ steps.validate.outputs.wave }}
+          NEW_CARDS: ${{ steps.validate.outputs.new_cards }}
+        run: |
+          set -euo pipefail
+          branch="planner/${WAVE}"
+          target="${WAVE_DIR}/${WAVE}.json"
+          # 幂等：同分支已有 open PR 则复用（重跑不重复开）
+          pr_num=$(gh api "repos/${ORG}/${BOARD_REPO}/pulls?head=${ORG}:${branch}&state=open&per_page=1" \
+                   --jq '.[0].number // empty' 2>/dev/null || true)
+          if [ -z "$pr_num" ]; then
+            pr_num=$(gh api -X POST "repos/${ORG}/${BOARD_REPO}/pulls" \
+              -f title="planner: ${WAVE} manifest · ${NEW_CARDS} cards" \
+              -f head="$branch" -f base="main" \
+              -f body="P4 规划环自动 PR（run ${GITHUB_RUN_ID} · ${RUN_REASON}）。manifest：\`${target}\`。
+
+          append-only 只增不改；\`波次清单/wave-*.json\` 为规划产物（非判据件，已移出 CODEOWNERS 判官锁 ⇒ 本 PR 0 批准）。
+          合线条件：required check \`gates\` 绿；未绿则本 PR 留开、run 红，留运营者处置。" --jq '.number')
+          fi
+          echo "PR #${pr_num}（${branch} -> main）"
+          head_sha=$(gh api "repos/${ORG}/${BOARD_REPO}/pulls/${pr_num}" --jq '.head.sha')
+          # 轮询 gates（anolis-heavy 自托管；≤15 分钟）。pending/null 继续等；出结论即断
+          verdict=""
+          for i in $(seq 1 30); do
+            verdict=$(gh api "repos/${ORG}/${BOARD_REPO}/commits/${head_sha}/check-runs" \
+              --jq '[.check_runs[] | select(.name=="gates")][0].conclusion // "pending"' 2>/dev/null || echo "pending")
+            echo "[gates ${i}/30] ${verdict}"
+            if [ "$verdict" != "pending" ] && [ "$verdict" != "null" ] && [ -n "$verdict" ]; then break; fi
+            sleep 30
+          done
+          if [ "$verdict" != "success" ]; then
+            echo "gates 未绿（verdict=${verdict:-超时}）——PR #${pr_num} 留开不合并；fail-loud 留运营者处置（禁假绿）" >&2
+            exit 10
+          fi
+          # 合入：squash（分支保护要求 PR；0 批准 + gates 绿即可合）
+          gh api -X PUT "repos/${ORG}/${BOARD_REPO}/pulls/${pr_num}/merge" \
+            -f merge_method="squash" \
+            -f commit_title="planner: ${WAVE} manifest 合线（PR #${pr_num} · gates 绿）" \
+            --jq '{merged, sha}'
+          # 合后核验：manifest 确已入 main HEAD（防「合并 API 200 但内容没进」的假绿）
+          git fetch origin main
+          if git cat-file -e "FETCH_HEAD:${target}" 2>/dev/null; then
+            echo "merged-to-main: ${target}"
+          else
+            echo "合后核验失败：${target} 不在 main HEAD——fail-loud" >&2
+            exit 11
+          fi
 
       # ── 按卡建 Issue：幂等；label: wave + 状态机起点 state:queued ──
       - name: '10 · 按卡建 Issue（卡面=禁项置顶+证据+验收命令集+pinned base）'
