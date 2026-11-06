@@ -692,7 +692,7 @@ if [ "$SELF_ONLY" = 1 ]; then
 base=origin/main ${BASE_SHA}
 夜轨C3-20261107 · ledger-sync.sh"
 else
-  COMMIT_TITLE="ledgersync(夜轨C3): 账本缺行追加 ${APPEND_COUNT} 行（${UPDATE_COUNT} 处状态列）$( [ "$SYNC_SCRIPT_IN_TREE" = 1 ] && echo "＋同步腿 tools/ledger-sync.sh 首落/更新" )"
+  COMMIT_TITLE="ledgersync(夜轨C3): 账本缺行追加 ${APPEND_COUNT} 行（${UPDATE_COUNT} 处状态列）$(if [ "$SYNC_SCRIPT_IN_TREE" = 1 ]; then echo "＋同步腿 tools/ledger-sync.sh 首落/更新"; fi)"
   COMMIT_BODY="正本=工作区 计划/阶段欠账台账.md → 仓内 账本/阶段欠账台账.md（断点4：登记→planner 可见）
 base=origin/main ${BASE_SHA}
 diff 形态=追加行 ${APPEND_COUNT}＋状态列变更 ${UPDATE_COUNT}（append-only：禁改区=既有行前 5 格，逐行 sha 对账过，读数见 PR）
