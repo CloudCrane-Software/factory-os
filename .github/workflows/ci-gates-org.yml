@@ -1,0 +1,59 @@
+# =============================================================================
+# ci-gates-org.yml — factory-os 仓点选试用接线件（卡 .github#16 / D-89 第二批四门点选）
+#
+# 定位：org 可复用 ci-gates.yml（.github 仓正本，第二批 A-5/A-15/A-22/A-17 四门）
+#   的本仓点选试用面。仓内默认剖面 gates.yml（五步内联 python 剖面）零触碰——
+#   本件只新增，作业链不互替；required check `gates` 仍由默认剖面提供。
+#
+# 点选值（inputs 传参，批2 四门全开 + batch2-only 执行域）：
+#   · g2_scope=batch2-only：只跑批2四门（本仓无 tools/ci-gates-* 批1消费面；
+#     批1另批接线，本件不装）。org-gates 批1作业按卫自动 skipped。
+#   · g2_runs_on=anolis-heavy：本仓自托管 runner label（runs-on: ubuntu-latest
+#     在本仓不可满足——org 件批1作业 runs-on 不动，正是本卫存在的原因）。
+#   · g2_checkout_url/ref=PR 头仓/头分支：org 件批2匿名 clone 自检出面（公开仓
+#     合法；零 uses 形态）。
+#   · 消费面文件全部随本 PR 落 `.github/ci-gates-trial/`（造册清单/钉值面（机生成
+#     sha256sum 格式）/豁免面（path+reason）/扫描根/长杆清单/scale 读数件/lint 扫面）。
+#     ★标定常量留仓内（卡面禁项）：rods 清单 800/120/60、余量 800s、下限 900000ms
+#     均为本仓试用政策值，不入 org 件。
+# =============================================================================
+name: ci-gates-org
+
+on:
+  pull_request:
+    branches:
+      - main
+
+# 权限最小化（org 件 R05 口径）：只读。
+permissions:
+  contents: read
+
+# 并发策略（R13 口径）：同一 PR 分支重复推送只保最新一次。
+concurrency:
+  group: ci-gates-org-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  org-ci-gates:
+    name: org-ci-gates（.github#16 第二批四门点选试用）
+    uses: CloudCrane-Software/.github/.github/workflows/ci-gates.yml@main
+    with:
+      g2_scope: 'batch2-only'
+      g2_runs_on: 'anolis-heavy'
+      g2_checkout_url: ${{ github.event.pull_request.head.repo.clone_url }}
+      g2_checkout_ref: ${{ github.event.pull_request.head.ref }}
+      pin_check_enable: 'true'
+      pin_list: '.github/ci-gates-trial/gate-inputs.list'
+      pin_values: '.github/ci-gates-trial/gate-inputs.sha256'
+      pin_scan_dir: '.github/ci-gates-trial/scan-root'
+      pin_scan_exts: 'yaml yml json tsv txt md'
+      pin_exclusions: '.github/ci-gates-trial/gate-inputs-exclusions.list'
+      budget_enable: 'true'
+      budget_scale_cmd: 'python3 -I .github/ci-gates-trial/scale.py'
+      budget_rods: '.github/ci-gates-trial/gates-budget-rods.list'
+      budget_margin_seconds: '800'
+      budget_floor_ms: '900000'
+      hygiene_enable: 'true'
+      hygiene_dir: '.github/workflows'
+      secure_lint_enable: 'true'
+      secure_lint_paths: '.github/ci-gates-trial/lint-target'
