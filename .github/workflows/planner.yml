@@ -27,10 +27,11 @@
 #    ledgered/parked + legacy）。若运营者裁定板落 af 仓：BOARD_REPO 改 af 且
 #    planner 须改跑 af 仓（manifest 随之落 af）或整体改用 App token——P4 上线前
 #    定论，禁两仓双板。
-# 3. LLM_API_KEY 配于 factory-os 的 repo secret。钥匙源头 openBao
-#    kv/data/company/LLM-upstream/Zhipu/zhipu-bigmodel-CodingPlan-1（bigmodel
-#    individual coding plan；运营者 2026-11-06 裁定：规划环 LLM 调用改用
-#    GLM-5.3-Flash）。STEP_API_KEY（stepfun 备用通道）同为使役 secret，默认不走。
+# 3. LLM_API_KEY 配于 factory-os 的 repo secret。当前钥匙源头 openBao
+#    kv/data/company/LLM-upstream/TokenRhythm-neohorse（基元律动 TokenRhythm；
+#    运营者 2026-11-06 夜间指令：规划环 LLM 切 deepseek-v4.1-flash-1017）。
+#    前源 kv/data/company/LLM-upstream/Zhipu/zhipu-bigmodel-CodingPlan-1（GLM，
+#    已降 fallback）。STEP_API_KEY（stepfun 备用通道）同为使役 secret，默认不走。
 #    纪律：明文只进 secret；禁入 git、禁打印、禁进 artifact（01-建设方案 §八）。
 # 4. Runner = ubuntu-latest（GitHub 托管；公开仓免费分钟前提见 02-清单 ④）。
 #    anolis-heavy 自托管（P2）只服务 gates.yml——规划环不吃算力、不碰 cargo。
@@ -135,10 +136,12 @@ env:
   # 任务书口径「factory-os/波次/」= 仓内实况 波次清单/（staging/factory-os/README.md §一）
   WAVE_DIR: '波次清单'
   LEDGER_FILE: '账本/阶段欠账台账.md'
-  # —— GLM-5.3-Flash 实读口径（见文件头注释；密钥只走 secret LLM_API_KEY）——
-  LLM_BASE_URL: 'https://open.bigmodel.cn/api/coding/paas/v4'
-  LLM_MODEL: 'GLM-5.3-Flash'
-  LLM_PROVIDER: 'account:bigmodel-individual-coding-plan'
+  # —— 规划环 LLM：基元律动 TokenRhythm deepseek（运营者 2026-11-06 夜间指令：
+  #    GLM 高峰期 manifest M-1 形制漂移 4/5 败 14:40-15:20Z 实读；deepseek 探针
+  #    3/3 守约、2.5-3.6s；密钥只走 secret LLM_API_KEY）——
+  LLM_BASE_URL: 'https://tokenrhythm.studio/v1'
+  LLM_MODEL: 'deepseek-v4.1-flash-1017'
+  LLM_PROVIDER: 'tokenrhythm'
   # —— 硬配额与预算（= 制度-v1 §五 + wave-01.json budgets 真源）——
   MAX_API_CALLS_PER_HOUR: '2'
   MAX_CARDS_PER_WAVE: '20'
@@ -980,7 +983,6 @@ jobs:
 
           body = {
               "model": model,
-              "thinking": {"type": "disabled"},
               "temperature": 0.2,
               "max_tokens": 8192,
               "messages": [
@@ -988,6 +990,10 @@ jobs:
                   {"role": "user", "content": json.dumps(inputs, ensure_ascii=False)},
               ],
           }
+          if "bigmodel" in base:
+              # GLM 系才认 thinking 开关；基元律动 OpenAI 兼容面无此参（带上恐 422）
+              # ——按 base_url 条件注入（2026-11-06 切 deepseek-v4.1-flash-1017 时加）。
+              body["thinking"] = {"type": "disabled"}
           meta = {"model": model, "attempts": 0, "calls": []}
           content = None
           max_attempts = 2   # 硬顶：首发 + 1 重试 = 单跑 ≤2 次（叠加 cron 稳态 1 次/h 仍 ≤2 次/h）
@@ -1074,6 +1080,85 @@ jobs:
           if not isinstance(manifest, dict):
               print("manifest 非对象——fail-closed", file=sys.stderr)
               sys.exit(7)
+
+          # ── M-1 形制预检 + 矫正重试（provider 无关；与传输重试共用 ≤2 次/跑硬顶，
+          #    不破 ≤2/h 配额；step 08 仍是终裁 fail-closed，本段只改良候选）──
+          def _m1_errors(m):
+              out = []
+              for i, c in enumerate(m.get("cards") or []):
+                  if not isinstance(c, dict):
+                      continue
+                  tag = "card[%d]" % i
+                  ac = c.get("acceptance")
+                  if not isinstance(ac, list) or not ac or not all(
+                          isinstance(x, str) and x.strip() for x in ac):
+                      out.append("%s acceptance 必须为非空字符串数组" % tag)
+                  else:
+                      for j, a in enumerate(ac):
+                          if not re.search(r"→\s*rc\s*=\s*\d+", a):
+                              out.append("M-1: %s acceptance[%d] 缺「→ rc=N」尾标：%r"
+                                         % (tag, j, a[:60]))
+              return out
+
+          fmt = _m1_errors(manifest)
+          if fmt and meta["attempts"] < 2:
+              meta["corrective_retry"] = fmt[:5]
+              body["messages"] = body["messages"] + [
+                  {"role": "assistant", "content": text},
+                  {"role": "user", "content": json.dumps({
+                      "correction_required": True,
+                      "violations": fmt[:10],
+                      "rule": "acceptance 数组每条必须以「→ rc=N」（N=数字）结尾；"
+                              "只输出修正后的完整 manifest JSON，无解释无围栏。",
+                  }, ensure_ascii=False)},
+              ]
+              meta["attempts"] += 1
+              t0 = time.monotonic()
+              try:
+                  req2 = urllib.request.Request(
+                      base + "/chat/completions",
+                      data=json.dumps(body).encode("utf-8"),
+                      headers={"Authorization": "Bearer " + key,
+                               "Content-Type": "application/json"},
+                      method="POST")
+                  with urllib.request.urlopen(req2, timeout=300) as resp2:
+                      payload2 = json.loads(resp2.read().decode("utf-8"))
+                  usage2 = payload2.get("usage") or {}
+                  meta["calls"].append({"attempt": meta["attempts"], "http": 200,
+                                        "ms": int((time.monotonic() - t0) * 1000),
+                                        "prompt_tk": usage2.get("prompt_tokens"),
+                                        "completion_tk": usage2.get("completion_tokens"),
+                                        "note": "corrective"})
+                  now2 = datetime.now(timezone(timedelta(hours=8)))
+                  log2 = []
+                  if os.path.exists("planner-call-log.json"):
+                      try:
+                          log2 = json.load(open("planner-call-log.json", encoding="utf-8"))
+                      except Exception:
+                          log2 = []
+                  log2.append({"hour": now2.strftime("%Y%m%d%H"),
+                               "run_id": os.environ["GITHUB_RUN_ID"],
+                               "attempt": meta["attempts"], "http": 200,
+                               "prompt_tk": usage2.get("prompt_tokens"),
+                               "completion_tk": usage2.get("completion_tokens")})
+                  with open("planner-call-log.json", "w", encoding="utf-8") as f:
+                      json.dump(log2[-500:], f, ensure_ascii=False)
+                  txt2 = ((payload2.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+                  txt2 = re.sub(r"^```(?:json)?\s*", "", txt2.strip())
+                  txt2 = re.sub(r"\s*```$", "", txt2)
+                  try:
+                      m2 = json.loads(txt2)
+                      if isinstance(m2, dict):
+                          fmt2 = _m1_errors(m2)
+                          if not fmt2:
+                              manifest = m2
+                              print("矫正重试命中：首发 %d 条 M-1 违规已修正" % len(fmt))
+                          else:
+                              print("矫正重试后仍有 %d 条形制违规——交 step 08 终裁" % len(fmt2))
+                  except Exception:
+                      print("矫正重试响应非 JSON——保留首发候选交 step 08 终裁")
+              except Exception as e:
+                  print("矫正重试调用失败 %s——保留首发候选交 step 08 终裁" % type(e).__name__)
           with open("manifest-candidate.json", "w", encoding="utf-8") as f:
               json.dump(manifest, f, ensure_ascii=False, indent=1)
           print("manifest 候选落盘：cards=%d · attempts=%d（响应内容不进日志/artifact 元数据）"
