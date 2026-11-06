@@ -1,0 +1,15 @@
+diff --git a/README.md b/README.md
+index 5c9acd4de..0fc856d6b 100644
+--- a/README.md
++++ b/README.md
+@@ -108,6 +108,10 @@ Let's make software engineering better together!
+ 
+ Distributed under the MIT License. See [`LICENSE`](./LICENSE) for more information.
+ 
++## Contribute to this project
++
++We welcome contributions to this project. Please follow the guidelines to contribute.
++
+ [contributors-shield]: https://img.shields.io/github/contributors/opendevin/opendevin?style=for-the-badge
+ [contributors-url]: https://github.com/OpenDevin/OpenDevin/graphs/contributors
+ [forks-shield]: https://img.shields.io/github/forks/opendevin/opendevin?style=for-the-badge
