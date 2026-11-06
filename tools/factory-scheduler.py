@@ -37,6 +37,18 @@
      消费序提示：mm 条目文件名 90-mm- 段（与 rr55 同段，排在编号池之后）——step-first
      燃尽纪律（10-30 step 到期前知识生产优先上 step）下不会被优先弹出；要立即起用双道，
      把 MM_PREFIX 改 "00-"（rr80 同段，排序最前）即可，条目 schema 不变。
+     2026-11-07（D-110 / 红队分诊 H5+H6，配额闸三件套之调度侧两件）：
+     · **两道全关告警码**：step.go=false ∧ mm.go=false 持续 N 轮（FS_QUOTA_BOTH_CLOSED_N，
+       缺省 5）→ 日志 [ALERT] + 状态观测/alarms.log `QUOTA-BOTH-CLOSED`（red）。此前两道
+       全关只写一行日志，机器可读面零信号=**静默停派**无人知（H6 复核：本件 grep
+       "[ALERT]"=0 处）。判据与台账 D-110 验收门逐字一致；去重/刷新/恢复复位与
+       health_round 同构（30min 同码刷新，对齐 factory-watch DEDUP_WINDOW）。
+     · **step 缺段 fail-closed**：quota.json 可读但无 step 段 ⇒ step_missing ⇒ 按 step 道
+       停用处理（缺段≠在役；修前落到 step_go=None 被当作在役、仍等 8/8 满 ⇒ 该形态下
+       minimax 道结构永闭）。另出 `QUOTA-STEP-SEGMENT-MISSING`（amber）专码。
+       不弱化既有保护：step.go=true 时原 8/8 溢出语义一字不改；mm_go 闸/源过期闸/
+       mm 封顶/候选池全保留。停用令消费腿本体在 tools/quota-governor.py（H5），
+       本件只消费它写进 quota.json 的 minimax.go/error。
   ④ STOP 熔断 + 状态文件 + 每轮一行摘要日志（队列/在途/三守护/配额四元组）。
 
 守护启动命令（写死；② 探活缺位时按此尝试拉起）：
@@ -48,10 +60,14 @@ STOP 文件: tools/.factory-scheduler.STOP（在位即全局熔断，与 burn-ru
 状态文件: 状态观测/factory-scheduler-state.json（熔断/冷却/供给时间戳等跨轮记忆）
 摘要日志: 状态观测/factory-scheduler.log（每轮一行四元组 + 动作行）
 变更日志: 计划/变更日志.md（只记真实触发/告警，与 event-router 同格式）
-用法: factory-scheduler.py [--once] [--dry-run] [--force-supply] [--status]
+告警流水: 状态观测/alarms.log（2026-11-07 D-110 新增；配额两道全关/step 缺段两个专码，
+      JSONL 格式同 tools/factory-watch.py:1258 log_alarms。**产出侧数据面**：哨兵/看板的
+      安灯出带在 night-sentinel/（夜轨B 域），不在本件范围）
+用法: factory-scheduler.py [--once] [--dry-run] [--force-supply] [--status] [--selftest]
       --once 单轮即退（自测用）；--dry-run 只探不写（不落盘/不 scp/不拉起/不改变更日志，
       与 event-router 的 ROUTER_DRY 同语义）；--force-supply 越过 pending<20 闸强制会商
-      供给层（自测跳过分支用）；--status 打印状态文件即退。
+      供给层（自测跳过分支用）；--status 打印状态文件即退；
+      --selftest 配额告警腿内置夹具自测（D-110/H6；零网络，观测面全指沙箱）。
 环境变量（缺省=生产值）: FS_INTERVAL=60 FS_PENDING_FLOOR=20 FS_SWEV_POOL_LIMIT=40
       FS_REPORT_FEEDER_LIMIT=4 FS_REPORT_FEEDER_MIN_GAP_S=7200 FS_MINIMAX=1
       FS_FEEDER_EMERGENCY_GAP_S=1800（旁路下限）FS_FEEDER_ZERO_STOP=6（连续零产出→STOP 熔断）
@@ -59,6 +75,8 @@ STOP 文件: tools/.factory-scheduler.STOP（在位即全局熔断，与 burn-ru
       FS_MINIMAX_PROFILE=mavis-m3 FS_MINIMAX_LIMIT=4 FS_MINIMAX_CAP=8
       FS_MINIMAX_MAX_TURNS=55 FS_MINIMAX_SPEND_CAP=300 FS_RESTART_COOLDOWN=300
       FS_QUOTA_STALE_S=600 FS_STATE= FS_LOG= FS_CHANGELOG= FS_STOP= FS_REPORT_FEEDER=
+      FS_ALARMS=（告警流水路径，缺省 dirname(STATE)/alarms.log）
+      FS_QUOTA_BOTH_CLOSED_N=5（两道全关持续 N 轮才出告警码）FS_QUOTA_BOTH_CLOSED_REFRESH_S=1800
       FS_PORTAL_SEEDER= FS_SEEDER_LOCK= FS_DRY=1
       FS_PORTAL_SEEDER_MIN_OPEN=15 FS_PORTAL_SEEDER_MIN_GAP_S=300（防抖）FS_PORTAL_SEEDER_LIMIT=24
       FS_QUALITY_CARDS= FS_QUALITY_CARDS_TOP=200 FS_QUALITY_CARDS_MIN_GAP_S=7200（2h 一轮）
@@ -179,6 +197,19 @@ CHANGELOG = os.environ.get("FS_CHANGELOG") or WS + "/计划/变更日志.md"
 STOP = os.environ.get("FS_STOP") or WS + "/tools/.factory-scheduler.STOP"
 FEEDER = os.environ.get("FS_REPORT_FEEDER") or WS + "/tools/report-feeder.py"
 QUOTA = WS + "/状态观测/quota.json"
+# 2026-11-07（D-110 / 红队分诊 H6）：配额告警面。根因=step.go=false ∧ mm.go=false
+# （两道全关）时本件只写 log 一行，机器可读面零信号——**静默停派**无人知
+# （H6 复核留证：本件 grep "[ALERT]" = 0 处；哨兵 8 检查无 quota 类）。
+# 出带设计：告警码进 状态观测/alarms.log（与 tools/factory-watch.py:1258 log_alarms
+# 同 JSONL 格式：ts/level/code/message/since）——**产出侧数据面**；哨兵/看板的
+# 安灯出带在 night-sentinel/（夜轨B 域），不在本件 allowed_paths，此处只留对接注记。
+# 路径派生自 STATE（同 SA_STATE 先例：夹具/回归只重定向 FS_STATE 一处即连带改道，
+# 不零声写生产告警流水）；显式指向可用 FS_ALARMS 覆盖。
+ALARMS = os.environ.get("FS_ALARMS") or os.path.join(os.path.dirname(STATE), "alarms.log")
+BOTH_CLOSED_N = _env_int("FS_QUOTA_BOTH_CLOSED_N", 5)   # 两道全关持续 N 轮才告警（60s/轮≈5min）
+BOTH_CLOSED_REFRESH_S = 1800   # 同 episode 内刷新告警的间隔（对齐 watch DEDUP_WINDOW=1800）
+CODE_BOTH_CLOSED = "QUOTA-BOTH-CLOSED"            # step.go=false ∧ mm.go=false（静默停派）
+CODE_STEP_MISSING = "QUOTA-STEP-SEGMENT-MISSING"  # quota.json 缺 step 段（缺段≠在役）
 
 # RT-E161（2026-11-06，shadow .rt161wip）供给活性对账门常量：判据口径见文件头
 # 「供给活性对账门」段与 _supply_activity_gate docstring（两处同文，改判据须同改）。
@@ -877,10 +908,16 @@ def read_quota():
     DEB-7：quota-governor 的 step/minimax 段错误形态已统一为 {"go": false, "error": "<一句>"}
     （旧形态 {"error": ...} 无 go 键 → go 为 None、形态两义）。故此处 go 恒为布尔：
     False=明确不放行（并带 error 真因），None 只可能来自「quota.json 无该段」。
+
+    2026-11-07（D-110 / H6）：step **缺段**显式化成 step_missing 位——「quota.json 可读
+    但无 step 段」与「quota.json 整体不可读」是两件事：后者已被 stale 腿拦（不进 mm 闸），
+    前者此前落到 step_go=None、被当作「step 在役」处理（fail-open：仍要求 8/8 满才溢出，
+    等于该形态下 minimax 道结构永闭）。缺段≠在役（判据不可得 ⇒ 按停用处理），
+    判据见 _step_dead()。
     """
     q = {"stale": True, "step_go": None, "step_used": None, "mm_go": None,
          "mm_5h": None, "mm_wk": None, "age_s": None, "note": "",
-         "step_err": None, "mm_err": None}
+         "step_err": None, "mm_err": None, "step_missing": None}
     try:
         st = json.load(open(QUOTA, encoding="utf-8"))
     except Exception as e:
@@ -890,6 +927,9 @@ def read_quota():
     age_ms = time.time() * 1000 - ts
     q["age_s"] = int(age_ms / 1000)
     q["stale"] = age_ms > QUOTA_STALE * 1000
+    # 缺段判据：文件可读但 step 段不在/不是对象（DEB-7 后 governor 恒写该段，
+    # 缺段只可能是状态文件被外部改坏/旧版残留 ⇒ 判据不可得）
+    q["step_missing"] = not isinstance(st.get("step"), dict)
     step, mm = st.get("step") or {}, st.get("minimax") or {}
     q["step_go"], q["step_used"] = step.get("go"), step.get("used_percent")
     q["mm_go"], q["mm_5h"], q["mm_wk"] = mm.get("go"), mm.get("five_hour_remaining_pct"), mm.get("weekly_remaining_pct")
@@ -906,6 +946,124 @@ def read_quota():
 
 
 # ---------- ① 队列守恒 ----------
+
+def _step_dead(q):
+    """step 道停用判据（D-110 / H6 fail-closed 化后的唯一判据）。
+
+    ① quota.json 明确 step.go=false（套餐到期/额度耗尽/读取失败——governor 死态统一形状）
+    ② quota.json **缺 step 段**（step_missing：判据不可得 ⇒ 按停用处理，缺段≠在役）
+
+    H6 复核留证：修前判据 `q.get("step_go") is False` 对「文件可读但无 step 段」落到
+    None ⇒ 不当停用、仍按 8 槽在役等溢出 ⇒ 该形态下 minimax 道结构永闭（fail-open）。
+    修后两种「不可用」同判停用；**不弱化任何既有保护**：step.go=true 时原溢出语义
+    （未满不派、step 优先）一字不变，mm_go 闸/源过期闸/mm 封顶/候选池全保留。
+    """
+    return q.get("step_go") is False or bool(q.get("step_missing"))
+
+
+def _alarm(level, code, message, since):
+    """告警流水一行（状态观测/alarms.log JSONL；格式同 tools/factory-watch.py:1258）。
+
+    产出侧数据面：只追加本件自己的配额专码，不改哨兵/看板（夜轨B 域在改面）。
+    fail-loud：写失败记日志并回报 False（不静默吞——M7 同族：告警面写失败必须留痕）。
+    """
+    line = json.dumps({"ts": time.strftime("%Y-%m-%d %H:%M:%S"), "level": level,
+                       "code": code, "message": message, "since": since},
+                      ensure_ascii=False)
+    if _DRY[0]:
+        log("告警(DRY 跳过落盘): " + line)
+        return False
+    try:
+        os.makedirs(os.path.dirname(ALARMS), exist_ok=True)
+        with open(ALARMS, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+        return True
+    except OSError as e:
+        log(f"告警落盘失败（{ALARMS}）: {e}")
+        return False
+
+
+def quota_alarm_round(st, d):
+    """配额告警轮（D-110 / H6）：两道全关 + step 缺段两个专码，持续 N 轮才出。
+
+    判据（与台账 D-110 验收门逐字一致）：step 道停用 ∧ mm_go=false 持续 N 轮
+    → [ALERT] + alarms.log `QUOTA-BOTH-CLOSED`（red：派发环零动作=静默停派）。
+    「step 道停用」走 _step_dead()（=step.go=false **或** 缺段 fail-closed 腿）——
+    缺段形态下 minimax 也承不了活，两道同样是全关，不分码会漏报。
+    quota.json 缺 step 段 → `QUOTA-STEP-SEGMENT-MISSING`（amber：fail-closed 已生效；
+    minimax 道仍可在 mm_go 放行下承活，故单独缺段不谎报成全停）。
+    去重/刷新：同 episode 内每 BOTH_CLOSED_REFRESH_S 刷新一次（对齐 watch 的 30min
+    同码去重口径），恢复即复位连击窗并留一行恢复日志（与 health_round 同构）。
+    """
+    q = d["quota"]
+    acts = []
+    now = time.time()
+    both_closed = _step_dead(q) and (q.get("mm_go") is False)
+    step_missing = bool(q.get("step_missing")) and not q.get("stale")
+    box = st.setdefault("quota_alarm", {})
+
+    def _episode(key):
+        return box.setdefault(key, {"n": 0, "since": None, "last_alarm_ts": 0.0})
+
+    if both_closed:
+        rec = _episode("both_closed")
+        rec["n"] += 1
+        if rec["since"] is None:
+            rec["since"] = time.strftime("%Y-%m-%d %H:%M:%S")
+        step_why = ("quota.json 缺 step 段（判据不可得，按停用）" if q.get("step_missing")
+                    else str(q.get("step_err") or "quota step.go=false")[:60])
+        why = ("step 真因=%s；minimax 真因=%s" % (
+            step_why,
+            str(q.get("mm_err") or ("5h 剩 %s%%/周池剩 %s%% 低于闸阈" % (q.get("mm_5h"), q.get("mm_wk"))))[:60]))
+        msg = ("配额两道全关：step 道停用 ∧ minimax.go=false 已持续 %d 轮（约 %d 分钟）"
+               "——派发环零动作（静默停派）。%s。恢复=运营者处理配额/停用令"
+               "（停用令消费腿在 tools/quota-governor.py，解除由运营者改令文件）。"
+               % (rec["n"], rec["n"] * INTERVAL // 60, why))
+        if rec["n"] >= BOTH_CLOSED_N and now - rec["last_alarm_ts"] >= BOTH_CLOSED_REFRESH_S:
+            rec["last_alarm_ts"] = now
+            ok = _alarm("red", CODE_BOTH_CLOSED, msg, rec["since"])
+            log(f"[ALERT] {CODE_BOTH_CLOSED}（持续 {rec['n']} 轮）：{msg}")
+            if not _DRY[0] and ok:
+                changelog(f"配额告警：{CODE_BOTH_CLOSED} 持续 {rec['n']} 轮——{msg}")
+            acts.append(f"alarm:{CODE_BOTH_CLOSED}({rec['n']})")
+        else:
+            log(f"配额两道全关计时中（{rec['n']}/{BOTH_CLOSED_N} 轮）：{why}")
+    else:
+        rec = _episode("both_closed")
+        if rec["n"]:
+            log(f"配额两道全关解除（曾持续 {rec['n']} 轮）")
+            if not _DRY[0]:
+                changelog(f"配额告警解除：{CODE_BOTH_CLOSED} 曾持续 {rec['n']} 轮后恢复"
+                          f"（step_go={q.get('step_go')} mm_go={q.get('mm_go')}）")
+            acts.append("alarm:both-closed-recovered")
+        rec["n"], rec["since"], rec["last_alarm_ts"] = 0, None, 0.0
+
+    if step_missing:
+        rec = _episode("step_missing")
+        rec["n"] += 1
+        if rec["since"] is None:
+            rec["since"] = time.strftime("%Y-%m-%d %H:%M:%S")
+        msg = ("quota.json 缺 step 段（%s 无 step 键/非对象）——判据不可得，按 step 道停用"
+               "处理（fail-closed：缺段≠在役，H6）。已持续 %d 轮。真因=quota-governor 未写"
+               "或写坏该段（DEB-7 后恒写），查在役 daemon 与状态文件。"
+               % (os.path.basename(QUOTA), rec["n"]))
+        if rec["n"] >= BOTH_CLOSED_N and now - rec["last_alarm_ts"] >= BOTH_CLOSED_REFRESH_S:
+            rec["last_alarm_ts"] = now
+            ok = _alarm("amber", CODE_STEP_MISSING, msg, rec["since"])
+            log(f"[ALERT] {CODE_STEP_MISSING}（持续 {rec['n']} 轮）：{msg}")
+            if not _DRY[0] and ok:
+                changelog(f"配额告警：{CODE_STEP_MISSING} 持续 {rec['n']} 轮——{msg}")
+            acts.append(f"alarm:{CODE_STEP_MISSING}({rec['n']})")
+        else:
+            log(f"quota.json 缺 step 段计时中（{rec['n']}/{BOTH_CLOSED_N} 轮，fail-closed 已生效）")
+    else:
+        rec = _episode("step_missing")
+        if rec["n"]:
+            log(f"quota.json step 段恢复（曾缺段 {rec['n']} 轮）")
+            acts.append("alarm:step-segment-recovered")
+        rec["n"], rec["since"], rec["last_alarm_ts"] = 0, None, 0.0
+    return acts
+
 
 def _feeder_landed(out):
     """从 feeder 末行 stdout 抽「落 N 篇」的 N；无匹配返回 None（触发失败/超时）。"""
@@ -1213,7 +1371,13 @@ def minimax_round(st, d):
         return acts
     if not q["mm_go"]:
         if q.get("mm_err"):
-            log(f"minimax 双道：配额读数失败（{str(q['mm_err'])[:60]}），跳过")
+            # 2026-11-07（D-110/H5）：mm_err 现有两个来源——① 治理器读数失败（API/密钥）
+            # ② 运营者停用令命中（governor 把真因写进同一 error 键，见 quota-governor.py
+            # poll 段）。文案分开：前者要查采集链，后者只能由运营者改令解禁，处置方向不同。
+            if "停用令" in str(q["mm_err"]):
+                log(f"minimax 双道：minimax 停用令生效（{str(q['mm_err'])[:70]}），跳过")
+            else:
+                log(f"minimax 双道：配额读数失败（{str(q['mm_err'])[:60]}），跳过")
         elif q["mm_go"] is None:
             log("minimax 双道：配额读数缺失（quota.json 无 minimax 段），跳过")
         else:
@@ -1232,7 +1396,10 @@ def minimax_round(st, d):
     #   step_go=None（quota.json 无 step 段，判据不可得）→ 按 step 在役处理，
     #     仍须 8/8 满（fail-closed，不猜）。
     # 不弱化任何既有保护：mm_go 闸、源过期闸、mm 条目封顶、候选池/去重全部保留。
-    step_dead = q.get("step_go") is False
+    # 2026-11-07（D-110 / H6）：末条按「缺段≠在役」收口——quota.json 可读但无 step
+    # 段（step_missing）也判停用（_step_dead ②），不再落到「按在役、等 8/8」的
+    # fail-open 形态（该形态下 minimax 道结构永闭）。step.go=true 的原语义不变。
+    step_dead = _step_dead(q)
     if step_dead:
         gate_why = (f"step 道不可用（{str(q.get('step_err') or 'quota step.go=false')[:60]}）"
                     f"→ minimax 承活")
@@ -1289,6 +1456,8 @@ def load_state():
                              "last_quality_cards_ts": 0, "last_quality_cards_out": ""})
     st.setdefault("health", {n: {"fail": 0, "last_alarm_ts": 0, "last_restart_ts": 0} for n in DAEMONS})
     st.setdefault("minimax", {"profile": MM_PROFILE, "written_total": 0, "last_write_ts": 0, "last_tasks": []})
+    # 2026-11-07（D-110/H6）：配额告警 episode 记忆（两道全关/step 缺段的连击窗）
+    st.setdefault("quota_alarm", {})
     st.setdefault("last_round", {})
     # RT-E161（2026-11-06 shadow）：供给活性窗口回灌——工厂状态文件缺段（首部署/
     # 状态重置）时从独立观测面 supply-activity.json 取回连击窗口，避免部署即丢史。
@@ -1329,7 +1498,7 @@ def _mm_posture(d, acts):
     「minimax 道已放行」的相反结论。故把闸姿态（主通道/溢出待 step）与本轮
     是否真产出 mm 动作显式写进摘要，与状态文件 last_round.mm_dispatch 段同源。"""
     q = d.get("quota") or {}
-    if q.get("step_go") is False:
+    if _step_dead(q):
         gate = "主通道(step停用)"
     else:
         si = d.get("step_inflight")
@@ -1412,6 +1581,9 @@ def round_once(st, force):
     acts += health_round(st, d)
     mm_acts = minimax_round(st, d)
     acts += mm_acts
+    # 2026-11-07（D-110/H6）：配额告警腿——两道全关/step 缺段专码（此前只进 log 一行，
+    # 机器可读面零信号=静默停派）。放在 mm 闸之后：读的是同一份 d["quota"] 快照。
+    acts += quota_alarm_round(st, d)
     st["rounds"] += 1
     line = summary(d, acts)
     log(line)
@@ -1424,10 +1596,16 @@ def round_once(st, force):
                         # 「step_go=false, mm_go=true」——读者据此会得出「minimax 道已
                         # 放行」的结论，而闸闭时（8/8 闸永闭）实际零派发。补本段让
                         # 派发姿态机器可读：闸判据(step_go/step_inflight) + 本轮 mm 动作。
+                        # 2026-11-07（D-110/H6）：step_dead 改走 _step_dead()（含缺段
+                        # fail-closed 腿），step_missing 位一并落状态文件（缺段可机读）。
                         "mm_dispatch": {"step_go": d["quota"].get("step_go"),
-                                        "step_dead": d["quota"].get("step_go") is False,
+                                        "step_dead": _step_dead(d["quota"]),
+                                        "step_missing": d["quota"].get("step_missing"),
                                         "step_inflight": d["step_inflight"],
                                         "acts": list(mm_acts)},
+                        # 配额告警 episode 状态（D-110/H6）：连击窗/起始时刻/上次告警时刻，
+                        # 跨轮记忆——复位即「恢复」，与 health 段同构。
+                        "quota_alarm": st.get("quota_alarm", {}),
                         "error": d["error"]}
     if d["error"]:
         log(f"本轮探针降级：{d['error']}（相关分项 fail-closed 跳过）")
@@ -1440,14 +1618,180 @@ def round_once(st, force):
     return acts
 
 
+def _quota_selftest():
+    """配额告警腿内置夹具自测（D-110/H6；`python3 -I tools/factory-scheduler.py --selftest`）。
+
+    零网络、零生产写入：STATE/LOG/CHANGELOG/QUOTA/ALARMS 全部改道沙箱临时目录
+    （派生口径的受益面——只改常量一处，五个观测面连带改道）。正负例成对：
+      ③ 缺段 fail-closed：缺段⇒判停用⇒minimax 承活；step.go=true 的原 8/8 溢出语义
+         逐字保留（负控），mm 闸不因缺段而被绕过（负控）。
+      ② 两道全关告警：N 轮前零告警、第 N 轮出 red 专码、刷新间隔内不重复、恢复即复位；
+         step 缺段另出 amber 专码；stale 形态不冒缺段码（stale 腿已拦，不双报）。
+    """
+    import contextlib
+    import io
+    import tempfile
+
+    results, failures = [], []
+
+    def check(name, got, want):
+        ok = got == want
+        results.append((ok, name, got, want))
+        if not ok:
+            failures.append("%s：实得 %r 期望 %r" % (name, got, want))
+
+    def quiet(fn, *a, **kw):
+        with contextlib.redirect_stdout(io.StringIO()):
+            return fn(*a, **kw)
+
+    def alarm_lines():
+        try:
+            with open(ALARMS, encoding="utf-8") as f:
+                return [json.loads(l) for l in f if l.strip()]
+        except OSError:
+            return []
+
+    def log_text():
+        try:
+            with open(LOG, encoding="utf-8") as f:
+                return f.read()
+        except OSError:
+            return ""
+
+    with tempfile.TemporaryDirectory(prefix="sched-quota-selftest.") as td:
+        # ---- 五个观测面全部改道沙箱（含派生口径的 ALARMS：dirname(STATE)/alarms.log）----
+        globals()["STATE"] = os.path.join(td, "factory-scheduler-state.json")
+        globals()["LOG"] = os.path.join(td, "factory-scheduler.log")
+        globals()["CHANGELOG"] = os.path.join(td, "变更日志.md")
+        globals()["QUOTA"] = os.path.join(td, "quota.json")
+        globals()["ALARMS"] = os.path.join(os.path.dirname(globals()["STATE"]), "alarms.log")
+        now_ms = int(time.time() * 1000)
+        mm_ok = {"go": True, "five_hour_remaining_pct": 83, "weekly_remaining_pct": 49}
+
+        def put(doc):
+            with open(globals()["QUOTA"], "w", encoding="utf-8") as f:
+                json.dump(doc, f, ensure_ascii=False)
+
+        # ================= ③ step 缺段 fail-closed =================
+        put({"ts": now_ms, "minimax": dict(mm_ok)})
+        q = read_quota()
+        check("缺段→step_missing=True", q["step_missing"], True)
+        check("缺段→step_go 仍 None（不伪造读数）", q["step_go"], None)
+        check("缺段→不判 stale（新鲜度与缺段是两件事）", q["stale"], False)
+        check("缺段→_step_dead True（缺段≠在役）", _step_dead(q), True)
+        put({"ts": now_ms, "step": {"go": True}, "minimax": dict(mm_ok)})
+        check("负控 step.go=true→不判停用", _step_dead(read_quota()), False)
+        put({"ts": now_ms, "step": {"go": False}, "minimax": dict(mm_ok)})
+        check("负控 step.go=false→判停用（既有行为不变）", _step_dead(read_quota()), True)
+        put({"ts": now_ms, "step": None, "minimax": dict(mm_ok)})
+        check("step=null→判缺段（非对象同缺段）", read_quota()["step_missing"], True)
+        with open(globals()["QUOTA"], "w", encoding="utf-8") as f:
+            f.write("{ 坏 JSON")
+        q_bad = read_quota()
+        check("负控 quota.json 不可读→stale", q_bad["stale"], True)
+        check("负控 不可读→不记缺段（stale 腿已拦，不双报）", q_bad["step_missing"], None)
+
+        # ---- ③ 派发行为：缺段⇒承活；step 在役⇒原 8/8 语义一字不改 ----
+        globals()["_DRY"][0] = True      # DRY：只探不写（不落条目、不触 anolis）
+        base_q = {"stale": False, "mm_go": True, "mm_5h": 83, "mm_wk": 49,
+                  "mm_err": None, "note": "", "step_err": None}
+        d_miss = {"error": "", "step_inflight": 0, "mm_count": 0,
+                  "pool": ["t-miss"], "pending_tasks": ["t-miss"], "mm_tasks": [],
+                  "quota": dict(base_q, step_go=None, step_missing=True)}
+        check("缺段+mm go→minimax 承活（不再等 8/8）",
+              bool(quiet(minimax_round, {}, d_miss)), True)
+        d_live = dict(d_miss, quota=dict(base_q, step_go=True, step_missing=None))
+        check("负控 step 在役+在途 0/8→不派（原溢出语义保留）",
+              quiet(minimax_round, {}, d_live), [])
+        check("负控 step 在役+在途 8/8→派（原溢出语义保留）",
+              bool(quiet(minimax_round, {}, dict(d_live, step_inflight=8))), True)
+        check("负控 mm 不放行→缺段也不派（mm 闸未被缺段腿绕过）",
+              quiet(minimax_round, {}, dict(d_miss, quota=dict(base_q, mm_go=False,
+                                                                step_go=None, step_missing=True))), [])
+        globals()["_DRY"][0] = False     # 告警腿走真写路径（落沙箱 alarms.log/变更日志）
+
+        # ================= ② 两道全关告警 =================
+        st = {}
+        q_closed = dict(base_q, step_go=False, mm_go=False, step_missing=None)
+        d_closed = {"quota": q_closed}
+        for _ in range(BOTH_CLOSED_N - 1):
+            quiet(quota_alarm_round, st, d_closed)
+        check("N-1 轮→告警流水零行", alarm_lines(), [])
+        quiet(quota_alarm_round, st, d_closed)          # 第 N 轮
+        lines = alarm_lines()
+        check("第 N 轮→出 QUOTA-BOTH-CLOSED", [l.get("code") for l in lines], [CODE_BOTH_CLOSED])
+        check("level=red（静默停派）", lines and lines[0].get("level"), "red")
+        check("message 点名两道全关",
+              bool(lines) and "step 道停用" in lines[0]["message"]
+              and "minimax.go=false" in lines[0]["message"], True)
+        check("message 带 step 真因（step.go=false 形态）",
+              bool(lines) and "quota step.go=false" in lines[0]["message"], True)
+        check("message 带持续轮数", bool(lines) and ("%d 轮" % BOTH_CLOSED_N) in lines[0]["message"], True)
+        check("日志带 [ALERT] 标记", "[ALERT]" in log_text(), True)
+        quiet(quota_alarm_round, st, d_closed)          # 刷新间隔内
+        check("刷新间隔内不重复写", len(alarm_lines()), 1)
+        quiet(quota_alarm_round, st, {"quota": dict(q_closed, mm_go=True)})   # 恢复
+        check("恢复→episode 连击窗复位", st["quota_alarm"]["both_closed"]["n"], 0)
+        check("恢复→变更日志留解除行",
+              "配额告警解除" in (open(globals()["CHANGELOG"], encoding="utf-8").read()
+                              if os.path.exists(globals()["CHANGELOG"]) else ""), True)
+        # 负控：只关一道（step 关、mm 开）⇒ 不出全关码（仍只有正例那一条）
+        st_half = {}
+        for _ in range(BOTH_CLOSED_N + 1):
+            quiet(quota_alarm_round, st_half, {"quota": dict(q_closed, mm_go=True)})
+        check("负控 只关一道→不新增全关码",
+              len([l for l in alarm_lines() if l.get("code") == CODE_BOTH_CLOSED]), 1)
+
+        # ---- ② step 缺段专码（amber；与全关码分码）----
+        st_miss = {}
+        q_miss = dict(base_q, step_go=None, step_missing=True, mm_go=True)
+        for _ in range(BOTH_CLOSED_N):
+            quiet(quota_alarm_round, st_miss, {"quota": q_miss})
+        miss_codes = [l.get("code") for l in alarm_lines() if l.get("code") == CODE_STEP_MISSING]
+        check("缺段 N 轮→出 QUOTA-STEP-SEGMENT-MISSING", miss_codes, [CODE_STEP_MISSING])
+        check("缺段码 level=amber（minimax 仍可承活，不谎报成全停）",
+              [l.get("level") for l in alarm_lines() if l.get("code") == CODE_STEP_MISSING], ["amber"])
+        # 负控：stale 形态（读数过期）不冒缺段码——stale 腿已拦，不双报
+        st_stale = {}
+        for _ in range(BOTH_CLOSED_N + 1):
+            quiet(quota_alarm_round, st_stale, {"quota": dict(q_miss, stale=True)})
+        check("负控 stale→不冒缺段码（stale 腿已拦）",
+              len([l for l in alarm_lines() if l.get("code") == CODE_STEP_MISSING]), 1)
+
+        # ---- ② 缺段 ∧ mm 也关 ⇒ 两道全关 red 码同出（缺段下 minimax 也承不了活）----
+        st_both = {}
+        q_both = dict(base_q, step_go=None, step_missing=True, mm_go=False)
+        for _ in range(BOTH_CLOSED_N):
+            quiet(quota_alarm_round, st_both, {"quota": q_both})
+        reds = [l for l in alarm_lines() if l.get("code") == CODE_BOTH_CLOSED]
+        check("缺段+mm 关→两道全关 red 码同出（不止 step_missing 一条）", len(reds), 2)
+        check("缺段形态的 step 真因点名缺段", "缺 step 段" in reds[-1]["message"], True)
+
+    for ok, name, got, want in results:
+        print("  %s %s（实得 %r）" % ("PASS" if ok else "FAIL", name, got))
+    if failures:
+        for f in failures:
+            print("FAIL %s" % f)
+        sys.exit(1)
+    print("PASS factory-scheduler 配额告警腿夹具 %d 例全过（缺段读段 4 正/5 负控、"
+          "派发语义 1 正/3 负控、两道全关 red 码 11 项、缺段 amber 码 3 项、"
+          "缺段∧mm 关双码 2 项）" % len(results))
+    sys.exit(0)
+
+
 def main():
     ap = argparse.ArgumentParser(description="黑灯工厂调度中枢机械层（60s 周期常驻）")
     ap.add_argument("--once", action="store_true", help="单轮即退（自测用）")
     ap.add_argument("--dry-run", action="store_true", help="只探不写（不落盘/不 scp/不拉起/不改变更日志）")
     ap.add_argument("--force-supply", action="store_true", help="越过 pending<20 闸强制会商供给层（自测用）")
     ap.add_argument("--status", action="store_true", help="打印状态文件即退")
+    ap.add_argument("--selftest", action="store_true",
+                    help="配额告警腿内置夹具自测（D-110/H6；零网络、观测面全指沙箱）")
     a = ap.parse_args()
     _DRY[0] = a.dry_run or os.environ.get("FS_DRY", "") == "1"
+    if a.selftest:
+        _quota_selftest()
+        return
     if a.status:
         print(json.dumps(load_state(), ensure_ascii=False, indent=1))
         return

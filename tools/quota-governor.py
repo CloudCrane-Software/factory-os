@@ -41,6 +41,23 @@ DEB-7（2026-10-31 义务批）两处收敛：
      不再出现 {'error': ...}（无 go 键）的形态——消费方 step.get('go') 恒得 False
      而非 None，死态形态唯一。minimax 段同款收敛。
 
+2026-11-07（D-110 / 红队分诊 H5 确认项）：**模型配额停用令消费腿**。
+  根因（H5 复核留证）：本件 mm_go 只判两窗百分比（5h>15% ∧ 周池>20%），全文 0 处读
+  运营者停用令（状态/模型配额停用-*.json：banned.providers 含 account:minimax-token-plan、
+  banned.model_ids 含 MiniMax-M3.1-Flash，minimax_week_quota=EXHAUSTED「禁用至周重置」）
+  ⇒ 周池重置瞬间 weekly_remaining_pct>20 即自动翻 true 恢复写 mm 条目，绕开运营者令。
+  停用令的消费面此前只有外派闸（tools/wf-gate.py:170、tools/wf-model-hold-check.py），
+  **派发环零消费**。本件补该腿：mm_go 增「banned 命中即 false」判据，与百分比判据 AND；
+  解除仍由运营者改令文件（本件只读令，不写令、不自动解禁）。
+  目录解析纪律（与 tools/factory-scheduler.py SA_STATE 同款先例）：停用令目录**派生自
+  STATE** 而非写死 WS/状态——夹具/回归只重定向 STATE 一处，停用令面即连带改道，不会
+  零声读生产停用令（tools/test-quota-gate-criteria-parity.py 的 B/F/G 段只重定向
+  STATE；若写死生产路径，该门会把「运营者令在役」误判成「闸面被弱化」而红）。
+  显式指向可用 AF_MODEL_HOLD_DIR 覆盖（人工核查/单测用）。
+  键集纪律：命中只覆写 minimax 段**既有** error 键，不新增键——quota.json 整本被
+  tools/factory-status-push.py:160 推上公网，其 minimax 段键集已被
+  tools/publish-scrub-gate.py:167 QUOTA_MINI 冻结（新键即拦、停更不停线）。
+
 2026-11-03 订正（RT 确证发现，修复员-35-常役基设-quota-gove）：
   本件此前另有两道**输出面**，实测确认二者均为零消费者死码，本次一并下线：
     ① /tmp/quota-gate/mavis-hold 闸文件（落闸写 / go=true 时删）——全仓 grep
@@ -87,22 +104,97 @@ PIDFILE = os.path.join(WS, "tools/.quota-governor.pid")
 DAEMON_INTERVAL_S = 60
 ERR_MAX = 120          # error 文案截断（与旧行为同长）
 
+# ---------- 2026-11-07（D-110 / H5）：模型配额停用令消费腿 ----------
+# 停用令=运营者意志的机器可读面（schema af.model-quota-hold.v2）：banned.providers /
+# banned.model_ids 两个集合 + statement 文案。本闸（minimax/mavis 道）管的通道身份 =
+# 调度器头部 profile 考据段那两个 mavis 档案名（mavis-m3 → MiniMax-M3、
+# mavis-m31f → MiniMax-M3.1-Flash-Preview）与其 token plan 账户。
+HOLD_DIR_ENV = "AF_MODEL_HOLD_DIR"        # 显式指向覆盖（人工核查/单测）
+HOLD_NAME_PREFIX = "模型配额停用-"
+HOLD_NAME_SUFFIX = ".json"
+MM_PROVIDER = "account:minimax-token-plan"   # 本闸管的 minimax 账户（令文件 banned.providers 同值）
+MM_MODEL_IDS = ("MiniMax-M3", "MiniMax-M3.1-Flash")   # 本闸管的两档档案模型名
 
-def mm_go(five_hour_remaining_pct, weekly_remaining_pct):
-    """mavis 放行判据（**唯一事实源**）：两窗剩余均高于闸阈才放行。
+
+def hold_order_paths():
+    """现行模型配额停用令文件列表（按文件名升序；末个=最新令）。
+
+    目录派生自 STATE（dirname(dirname(STATE))/状态）——夹具/回归只改 STATE 一处即
+    连带改道，不零声读生产停用令（先例：factory-scheduler.py SA_STATE）。生产态
+    STATE=<WS>/状态观测/quota.json ⇒ 令目录=<WS>/状态。无文件=无令。
+    """
+    d = os.environ.get(HOLD_DIR_ENV) or os.path.join(
+        os.path.dirname(os.path.dirname(STATE)), "状态")
+    try:
+        names = sorted(n for n in os.listdir(d)
+                       if n.startswith(HOLD_NAME_PREFIX) and n.endswith(HOLD_NAME_SUFFIX))
+    except OSError:
+        return []
+    return [os.path.join(d, n) for n in names]
+
+
+def hold_hit(model_ids=None, provider_id=MM_PROVIDER):
+    """停用令命中判定 → (hit: bool, reason: str)。只读，不写令。
+
+    命中口径与外派闸同族（tools/wf-model-hold-check.py 的 banned.providers /
+    banned.model_ids 集合成员判定）——同一份运营者令，两个消费面不得各立一套口径。
+    fail-closed（与 tools/wf-gate.py:180-186 同口径）：令文件在但读不出/解析失败
+    ⇒ 按命中处理（运营者意志不可机读 ⇒ 不派发），reason 明写「不可读」。
+    令目录空/不存在 ⇒ 不命中（没有令就没有令，不自行加码）。
+    多份令按**最新**一份判（文件名日期戳升序取末个；外派闸 wf-gate 取 holds[0]
+    的行为不在本件范围，本件不复制那一处）。
+    """
+    paths = hold_order_paths()
+    if not paths:
+        return False, ""
+    path = paths[-1]
+    name = os.path.basename(path)
+    try:
+        with open(path, encoding="utf-8") as f:
+            hold = json.load(f)
+        banned = hold.get("banned") or {}
+        b_prov = set(banned.get("providers") or [])
+        b_model = set(banned.get("model_ids") or [])
+    except Exception as e:   # noqa: BLE001 —— 令不可读≠无令：fail-closed 按命中
+        return True, "停用令不可读（fail-closed 按命中处理）：%s %s" % (
+            name, _one_sentence(e, "")[:60])
+    ids = MM_MODEL_IDS if model_ids is None else tuple(model_ids or ())
+    hits = []
+    if provider_id and provider_id in b_prov:
+        hits.append("provider=%s" % provider_id)
+    for m in ids:
+        if m in b_model:
+            hits.append("model=%s" % m)
+    if not hits:
+        return False, ""
+    return True, "运营者停用令生效（%s 命中 banned；令=%s）" % ("/".join(hits), name)
+
+
+def mm_go(five_hour_remaining_pct, weekly_remaining_pct, hold=None):
+    """mavis 放行判据（**唯一事实源**）：两窗剩余均高于闸阈 **且** 未命中停用令才放行。
 
     2026-11-03（配额闸两侧对账）：派发侧（本函数 → quota.json 的 minimax.go，
     调度器 factory-scheduler.py 按它写 mm 条目）与执行侧（factory-status-push.py
     下发的 gate.json 的 mm_ok，burn-runner 按它逐条收/拒）此前各判各的（8/8 vs
     15/20）→ 同一份 quota.json 得出相反裁决。现在两侧共用本函数判据与本件常量，
     裁决恒等（分歧带清零）。fail-closed：读数缺失/非法 → 不放行。
+
+    2026-11-07（D-110 / 红队分诊 H5）：增**停用令消费腿**——此前只判百分比，周池
+    重置瞬间即自动恢复派发、绕开运营者停用令（停用令消费面仅外派闸，派发环零消费）。
+    现在 banned 命中即 false，与百分比判据 AND；hold=None 时本函数自行读令，
+    poll 可传预演算的 (hit, reason) 避免同轮重复读。签名向后兼容：既有两侧调用
+    （status-push 只取常量、poll 传两窗读数）不受影响。
     """
     try:
         p5 = float(five_hour_remaining_pct or 0)
         pwk = float(weekly_remaining_pct or 0)
     except (TypeError, ValueError):
         return False
-    return p5 > HOLD_FLOOR_PCT and pwk > WEEKLY_HOLD_FLOOR_PCT
+    if not (p5 > HOLD_FLOOR_PCT and pwk > WEEKLY_HOLD_FLOOR_PCT):
+        return False
+    if hold is None:
+        hold = hold_hit()
+    return not bool(hold[0])
 
 
 def _one_sentence(msg, prefix=""):
@@ -170,8 +262,15 @@ def poll():
             "five_hour_remaining_pct": gen["current_interval_remaining_percent"],
             "weekly_remaining_pct": gen["current_weekly_remaining_percent"],
         }
+        # 2026-11-07（D-110/H5）：停用令腿——先读令（一次），再判 go（AND）。
+        # 命中时把真因写进**既有** error 键（不新增键：minimax 段键集已被
+        # publish-scrub-gate.py QUOTA_MINI 冻结，且整本 quota.json 上公网）。
+        # 读数是真读数，照写——周重置后回不回升由运营者改令决定，不靠藏读数。
+        hold = hold_hit()
         st["minimax"]["go"] = mm_go(st["minimax"]["five_hour_remaining_pct"],
-                                    st["minimax"]["weekly_remaining_pct"])
+                                    st["minimax"]["weekly_remaining_pct"], hold=hold)
+        if not st["minimax"]["go"] and hold[0]:
+            st["minimax"]["error"] = hold[1]
     except Exception as e:
         # DEB-7：minimax 段同款收敛（读不到即 go=false，fail-closed 方向一致）
         st["minimax"] = {"go": False, "error": _one_sentence(e, "minimax 配额读取失败：")}
@@ -237,6 +336,102 @@ def daemon(interval_s=DAEMON_INTERVAL_S):
         release_pidfile()
 
 
+def _selftest():
+    """停用令消费腿内置夹具自测（D-110/H5；`python3 -I tools/quota-governor.py selftest`）。
+
+    零网络、零真令读取：令目录指到临时夹具目录（AF_MODEL_HOLD_DIR），STATE 指到沙箱
+    （本函数不改生产状态面、不读生产停用令）。正负例成对：既证「banned 命中即 false」，
+    也证「未命中不自行加码」（否则这条腿会把 minimax 道永久焊死，反而制造停派）。
+    """
+    import tempfile
+
+    global STATE          # 沙箱状态面（函数内改、finally 恢复；不落生产）
+
+    def _order(dirpath, name, doc):
+        os.makedirs(dirpath, exist_ok=True)
+        with open(os.path.join(dirpath, name), "w", encoding="utf-8") as f:
+            if isinstance(doc, str):
+                f.write(doc)
+            else:
+                json.dump(doc, f, ensure_ascii=False)
+
+    def _banned(providers=(), models=()):
+        return {"schema": "af.model-quota-hold.v2", "statement": "夹具",
+                "banned": {"providers": list(providers), "model_ids": list(models)}}
+
+    results, failures = [], []
+
+    def check(name, got, want):
+        ok = got == want
+        results.append((ok, name, got, want))
+        if not ok:
+            failures.append("%s：实得 %r 期望 %r" % (name, got, want))
+
+    with tempfile.TemporaryDirectory(prefix="quota-gov-selftest.") as td:
+        hold_dir = os.path.join(td, "状态")
+        os.environ[HOLD_DIR_ENV] = hold_dir
+        old_state = STATE
+        STATE = os.path.join(td, "状态观测", "quota.json")   # 沙箱状态面（不落生产）
+        try:
+            # ---- 负例①：无令（目录空）⇒ 不命中、不自行加码 ----
+            check("无令目录→不命中", hold_hit(), (False, ""))
+            check("无令+阈上→放行（旧行为不回归）", mm_go(83, 49), True)
+            check("无令+阈下→不放行（百分比闸仍在）", mm_go(7, 3), False)
+            # ---- 负例②：令在但本通道未列（只停 GLM/bigmodel）⇒ 不命中 ----
+            _order(hold_dir, "模型配额停用-20260101.json",
+                   _banned(["account:bigmodel-highspeed-card"], ["GLM-5.3"]))
+            hit, why = hold_hit()
+            check("令在但本通道未列→不命中", hit, False)
+            check("令在但本通道未列→reason 空", why, "")
+            check("令在但本通道未列+阈上→放行", mm_go(83, 49), True)
+            check("令在但本通道未列+阈下→不放行", mm_go(7, 3), False)
+            # ---- 正例①：banned.providers 命中 account:minimax-token-plan ----
+            _order(hold_dir, "模型配额停用-20261105.json",
+                   _banned(["account:bigmodel-offpeak-idle-plan", "account:minimax-token-plan"],
+                           ["GLM-5.3", "MiniMax-M3.1-Flash"]))
+            hit, why = hold_hit()
+            check("provider 命中→hit", hit, True)
+            check("provider 命中→reason 带令名", "模型配额停用-20261105.json" in why, True)
+            check("provider 命中→reason 带身份", "account:minimax-token-plan" in why, True)
+            check("provider 命中+两窗满→不放行（H5 根因形态）", mm_go(100, 100), False)
+            check("provider 命中+阈下→不放行（AND 不反向放行）", mm_go(1, 1), False)
+            # ---- 正例②：只禁 model_ids（provider 未列）同样命中 ----
+            _order(hold_dir, "模型配额停用-20261106.json", _banned([], ["MiniMax-M3.1-Flash"]))
+            check("model 命中→hit", hold_hit()[0], True)
+            check("model 命中+两窗满→不放行", mm_go(99, 99), False)
+            # ---- 正例③：多令取**最新**一份（旧令禁 minimax、新令不禁 ⇒ 放行）----
+            _order(hold_dir, "模型配额停用-20261107.json", _banned(["account:x"], ["GLM-5.3"]))
+            check("多令取最新→不命中", hold_hit()[0], False)
+            check("多令取最新+阈上→放行", mm_go(83, 49), True)
+            # ---- fail-closed：令在但不可读 ⇒ 按命中处理（与 wf-gate 同口径）----
+            _order(hold_dir, "模型配额停用-20261108.json", "{ 这不是 JSON")
+            hit, why = hold_hit()
+            check("令不可读→fail-closed 命中", hit, True)
+            check("令不可读→reason 明写不可读", "不可读" in why, True)
+            check("令不可读+两窗满→不放行", mm_go(100, 100), False)
+            # ---- 预演算 hold 直传（poll 同轮不重复读令）----
+            _order(hold_dir, "模型配额停用-20261109.json", _banned([], []))
+            check("空 banned→不命中", hold_hit()[0], False)
+            check("预演算 hold 直传(命中)→不放行", mm_go(100, 100, hold=(True, "夹具")), False)
+            check("预演算 hold 直传(未命中)+阈上→放行", mm_go(100, 100, hold=(False, "")), True)
+            # ---- 读数缺/非法 ⇒ fail-closed 不变 ----
+            check("读数缺失→不放行", mm_go(None, None), False)
+            check("读数非法→不放行", mm_go("abc", 99), False)
+        finally:
+            STATE = old_state
+            del os.environ[HOLD_DIR_ENV]
+
+    for ok, name, got, want in results:
+        print("  %s %s（实得 %r）" % ("PASS" if ok else "FAIL", name, got))
+    if failures:
+        for f in failures:
+            print("FAIL %s" % f)
+        sys.exit(1)
+    print("PASS quota-governor 停用令消费腿夹具 %d 例全过（正例 3 组/负例 2 组/"
+          "fail-closed 1 组/多令取最新/预演算直传/读数 fail-closed）" % len(results))
+    sys.exit(0)
+
+
 def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else "poll"
     if cmd == "poll":
@@ -244,13 +439,23 @@ def main():
     elif cmd == "gates":
         # 只读打印本件当前配额裁决姿态（2026-11-03：死面 mavis_hold_file 字段已下线
         # ——该闸文件全仓零消费者，落闸真判据在 quota.json 的 minimax.go）
+        # 2026-11-07（D-110/H5）：增停用令腿读数（minimax_hold）——此前「闸为何闭」
+        # 只有百分比一个来源，停用令命中在 gates 面不可见（读令文件才知）。
         st = json.load(open(STATE)) if os.path.exists(STATE) else poll()
+        hold = hold_hit()
         print(json.dumps({"step_go": st.get("step", {}).get("go"),
                           "minimax_go": st.get("minimax", {}).get("go"),
+                          "minimax_hold": {"hit": hold[0], "reason": hold[1],
+                                           "order_files": [os.path.basename(p) for p in hold_order_paths()]},
                           "step_seconds_to_expiry": st.get("step", {}).get("seconds_to_expiry"),
                           "minimax_5h_pct": st.get("minimax", {}).get("five_hour_remaining_pct"),
                           "minimax_wk_pct": st.get("minimax", {}).get("weekly_remaining_pct")},
                          ensure_ascii=False, indent=1))
+    elif cmd == "selftest":
+        # 2026-11-07（D-110/H5）：停用令腿内置夹具自测（零网络、零真令读取——
+        # 令目录指到临时夹具目录，STATE 指到沙箱）。正负例各覆盖
+        # 「命中即 false」与「未命中不自行加码」两个方向，另覆 fail-closed（令不可读）。
+        _selftest()
     elif cmd == "daemon":
         # DEB-7：轮询周期可覆盖（默认 60s；「≥300s 一轮」下界的 1/5）
         iv = int(sys.argv[2]) if len(sys.argv) > 2 else DAEMON_INTERVAL_S
