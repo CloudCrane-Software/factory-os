@@ -1298,6 +1298,34 @@ jobs:
           model = os.environ["LLM_MODEL"]
           with open("governance/planner/planner-prompt.md", encoding="utf-8") as f:
               prompt = f.read()
+          # ── D-171（factory-os#191）：closeout 卡验收命令模板好例区（生成面 · append-only）──
+          # 08b 干跑在钉桩基线树实跑 acceptance——收卷卡验收命令若断言「卡自己要产出的
+          # 终态」（台账行 grep '✅' 类），钉桩树上必 rc=1 ⇒ cmd-red invalid fail-closed
+          # （wave-10 w10-d135/w10-d136-ledger-close 实证，run 42417721683/42419314047，
+          # 干跑读数在 /tmp 旁证与 run 日志：板面 gh issue view 系绿、台账行 ✅ 断言红）。
+          # 正确模板=板面 #159（w09-d118-closeout）验收命令集形制。判定面零改动：
+          # 08/08b/08c 校验一字不动，本段只进提示词（软指引，§四.4 同族；母本
+          # planner-prompt.md 在治理仓，不在本卡 allowed_paths ⇒ 在组装面注入）。
+          prompt += (
+              "\n\n## 七、closeout（收卷）卡验收命令模板好例区（D-171 · factory-os#191；"
+              "先例=板面 #159 w09-d118-closeout 的验收命令集）\n"
+              "\n"
+              "收卷对账类卡（task_id 含 closeout，或任务为「收卷对账/台账收卷」）的验收命令集\n"
+              "限定以下可证形态——每条都必须在钉桩基线树上、开工前即成立（step 08b 干跑就在\n"
+              "pinned base 树实跑）：\n"
+              "1. 板面事实系（被收卷实施卡已带合线标签＝派发时点已成立的事实）：\n"
+              "   gh issue view <实施卡Issue号> --json labels -q '.labels[].name' | grep -qx 'state:merged' → rc=0\n"
+              "   （<实施卡Issue号> 只许取输入里的真号，禁编造；期望标签按卡面实况取。）\n"
+              "2. 台账行存在系（证「行在」，不证「行已收卷」）：\n"
+              "   grep -n '<债号>' 账本/阶段欠账台账.md → rc=0\n"
+              "   sha256sum 账本/阶段欠账台账.md → rc=0\n"
+              "3. 禁「终态先行」断言：收卷卡的活就是把台账行标 ✅——acceptance 禁写\n"
+              "   grep '<债号>' 账本/阶段欠账台账.md | grep -q '✅' 这类把施工后终态当施工前\n"
+              "   可证状态的命令（钉桩树上该行还没有 ✅ ⇒ rc=1 ⇒ 08b cmd-red 整波作废）。\n"
+              "   上一拍红案：w10-d135-ledger-close / w10-d136-ledger-close（run 42417721683）。\n"
+              "4. 「→ rc=N」尾标硬形制与 §3.2/M-1 不变；本区是模板好例（软指引），禁当新\n"
+              "   机检项——step 08/08b/08c 校验集零改动。\n"
+          )
           with open("planner-inputs.json", encoding="utf-8") as f:
               inputs = json.load(f)
 
