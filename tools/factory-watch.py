@@ -95,12 +95,22 @@
 """
 import argparse
 import glob
+import importlib.util
 import json
 import os
 import re
 import subprocess
 import sys
 import time
+
+# D-140（债 D-129，卡 factory-os#155）：判活阈值单源——SCHED_STALE_S 不再本地
+# 硬编码，改由 tools/factory-thresholds.py 供值（与 factory-keepalive.py
+# LOCAL_GUARDS scheduler 判活线同源同值；口径演变只改模块一处，recon 闸守对等）。
+_ft_spec = importlib.util.spec_from_file_location(
+    "factory_thresholds",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "factory-thresholds.py"))
+_ft = importlib.util.module_from_spec(_ft_spec)
+_ft_spec.loader.exec_module(_ft)
 
 WS = "/home/pan-ding/workspace/agent黑灯工厂"
 SAMPLE = f"{WS}/计划/s1-swev-120.json"          # D1/D2/D3 分母来源（读取用绝对路径）
@@ -126,12 +136,10 @@ DASH_DATA = f"{DASH_DIR}/data.json"
 
 INTERVAL = 60                # 常驻轮询周期（s）
 DEDUP_WINDOW = 1800          # 同种报警 30 分钟内不重复记（s）
-SCHED_STALE_S = 2400         # 状态文件 mtime 超此值 → A0（DEB57-A0 2026-11-02 由 300 改
-                             # 2400：现役 factory-scheduler 单轮含 anolis/gov 多路 ssh，
-                             # 实测 round 间隔 p99=784s/max=1258s、7.4% 轮次>300s（近 3 天
-                             # 119 轮）——300 阈必假红抖动；2400 与 keepalive scheduler
-                             # 判活线同值（factory-keepalive.py LOCAL_GUARDS stale_s=2400），
-                             # 两个监督面共用一套世界模型）
+SCHED_STALE_S = _ft.SCHED_STALE_S  # 状态文件 mtime 超此值 → A0；值与校准演变注
+                             # （DEB57-A0 2026-11-02 由 300 改 2400 的实测依据）见
+                             # factory-thresholds.py 单源 docstring——两个监督面共用
+                             # 一套世界模型，改阈值只改模块一处（D-140 收编）
 RUNNING_STALL_S = 1800       # running 臂无新结果行 → A6
 RUNS_FRESH_S = 600           # runs/ 最新子目录 10 分钟内有写入 → A6 豁免（慢任务在跑）
 IMG_STALL_S = 7200           # 镜像数停滞判定窗 → A7
