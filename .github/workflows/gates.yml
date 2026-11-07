@@ -136,6 +136,15 @@ jobs:
   gates:
     runs-on: [anolis-heavy]
     timeout-minutes: 45
+    # ★ A1 fork 守卫（红队 H1 收紧 · 2026-11-07 · 运营者批 A1）：
+    #   自托管 runner（anolis-heavy）不得执行未批 fork PR 的 PR 树代码。
+    #   · 非 pull_request 事件 ⇒ 原样放行（本件现触发面只有 pull_request；
+    #     未来若加 push/schedule/dispatch 等触发不受影响）；
+    #   · pull_request 事件 ⇒ 仅放行同仓分支头（head.repo.fork == false）；
+    #     fork 头整 job 跳过（check 报 skipped——不判红、不拦合流）。
+    #   双保险：仓级设置 fork-pr-contributor-approval=all_external_contributors
+    #   （设置腿）先拦于 workflow 触发前，本守卫腿兜底于 job 调度层。
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
     steps:
       - name: 分工声明（factory-os 判官面 PR 级反馈：语法/脱敏/对账判别力）
         run: |

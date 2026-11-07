@@ -169,6 +169,10 @@ jobs:
   wake:
     name: '唤醒闸 · Jev 决策 + 确定性兜底三连'
     runs-on: anolis-heavy
+    # ★ A1 fork 守卫（红队 H1 收紧 · 2026-11-07 · 运营者批 A1）：
+    #   本件触发面 = workflow_run(planner) + workflow_dispatch，无 pull_request
+    #   面 ⇒ 本式当前恒真、行为零变化；未来若本件新增 PR 类触发即自动生效。
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
     timeout-minutes: 3
     outputs:
       decision: ${{ steps.gate.outputs.decision }}
@@ -487,7 +491,7 @@ jobs:
 
   plan:
     needs: wake
-    if: needs.wake.outputs.decision != 'skip' || inputs.dry_run == 'true'   # skip ⇒ 跳过；shadow（D-91 验收①）：DRY_RUN=true 决策不生效照跑全链留证
+    if: (needs.wake.outputs.decision != 'skip' || inputs.dry_run == 'true') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false)   # skip ⇒ 跳过；shadow（D-91 验收①）：DRY_RUN=true 决策不生效照跑全链留证；A1 fork 守卫（H1）：fork PR 头不上自托管 runner（本件无 PR 触发面 ⇒ 恒真；未来新增 PR 类触发即生效）
     runs-on: anolis-heavy
     timeout-minutes: 25
     env:
