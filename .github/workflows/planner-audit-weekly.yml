@@ -130,6 +130,18 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           persist-credentials: true
 
+      # ── 自测门（回归夹具先行；零网络零板写）──────────────────────────────────
+      # 为什么先跑：周审计自身的读数面出过「解析 bug 使失败模式恒空 ⇒ q09 恒满分」
+      # 事故（红队 A3：2026-W45 首份周报 q09=10 系缺陷，修复后真值=2）。夹具含
+      # 真实源件快照（tools/fixtures/planner-audit-weekly-quality-2026W45.jsonl，
+      # 逐行录自波次清单/wave-0{1,2,6}.quality.json）钉死 top_failure_modes=
+      # 11/10/7/6/4/3（与一期遥测同源同值）+ 坏形式 fail-loud 断言——采集前先证
+      # 审计器没瞎，禁带着坏解析器出周报（advisory 也要先自证可复现）。
+      - name: '01b · 审计器自测（回归夹具：A3 事故复发防护；失败即红不出报）'
+        run: |
+          set -euo pipefail
+          python3 -I tools/planner-audit-weekly.py --self-test
+
       # ── 采集：manifest 近 7 天 + 板面结局 + planner-quality 读数 + 上周周报基线 ──
       # 工件（audit-inputs/answers/summary）一律落 $RUNNER_TEMP——**禁入 git 检出树**：
       # 本工作流 checkout 在 runner 根（与 planner 的 factory-os/ 子目录检出不同），
