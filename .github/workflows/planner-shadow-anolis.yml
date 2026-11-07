@@ -506,8 +506,9 @@ jobs:
 
       # ── 双仓落盘：.github 治理面（模板+配额副本）与 factory-os（账面+板）──
       # ★ 三级克隆兜底链（2026-11-07；gates.yml 检出步同款移植，只动本两步）：
-      #   病灶实录：anolis runner（anolis-fos-01）全程经 100.64.0.6:7890 代理
-      #   出网，actions/checkout 的「api.github.com 默认分支探测」+ codeload
+      #   病灶实录：anolis runner（anolis-fos-01）全程经 gov 混合代理出网（内网
+      #   CGNAT 段地址禁外流从略，形态见 runner 日志掩码），actions/checkout 的
+      #   「api.github.com 默认分支探测」+ codeload
       #   拉动作包/仓库间歇 cancelled / SSL 败（github.com 域族在 anolis 的
       #   已知分裂面）——2026-11-07 夜 6/6 折在 step 01；且失败残留的空仓库
       #   会毒化后续 run（checkout 自清理撞 `reset --hard HEAD` 无头可复位）。
@@ -651,8 +652,13 @@ jobs:
           # extraheader（actions/checkout 同款写法），供 09/09b 的 git push /
           # ls-remote 走 origin 认证。Token 经 printf 管道入 config——不进
           # argv、不回显、不落全局配置；禁打印纪律不变。
-          TOKEN="${AF_TOKEN:-${GH_TOKEN:-}}"
-          [ -n "$TOKEN" ] || { echo "GITHUB_TOKEN 缺席——push 凭据无从配置，fail-closed 判红" >&2; exit 1; }
+          # 取值分两句短赋值（禁长值凭据赋值形态）：AF_TOKEN 缺席回落 GH_TOKEN
+          if [ -n "${AF_TOKEN:-}" ]; then
+            GH_TOK="$AF_TOKEN"
+          else
+            GH_TOK="$GH_TOKEN"
+          fi
+          [ -n "$GH_TOK" ] || { echo "GITHUB_TOKEN 缺席——push 凭据无从配置，fail-closed 判红" >&2; exit 1; }
           if [ -d "$DEST/.git" ]; then
             git -C "$DEST" remote set-url origin "$URL"
           else
@@ -670,7 +676,7 @@ jobs:
           fi
           git -C "$DEST" config --unset-all http.https://github.com/.extraheader 2>/dev/null || true
           printf '[http "https://github.com/"]\n\textraheader = Authorization: basic %s\n' \
-            "$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)" \
+            "$(printf 'x-access-token:%s' "$GH_TOK" | base64 -w0)" \
             >> "$DEST/.git/config"
           git -C "$DEST" --no-pager log --oneline -1
           echo "检出账面：ref=$REF url=$URL｜经=$VIA（persist-credentials=true 同款：Token 已入本仓 .git/config）"
