@@ -36,6 +36,10 @@
 # 禁项（卡面）：P1 零凭据纪律；P2 禁删存量副本（只盘点，收敛择窗）；P3 判据 /
 #   判官件零改动；P4 git 不可逆动作全禁、不 force push、405 自愈 ≤2 轮后失败即停。
 #
+# 健壮性（实测修正，2026-11-08 PR 流现场）：自愈环内任一步传输失败（curl 错 /
+#   head.sha 缺席 / 空 sha）即停——禁拿空 sha 空转轮询（卡面 P4「失败即停」；
+#   selftest F5g-i 三断言锁定该形态）。
+#
 # 验收命令集（root = factory-os 仓；卡面七条，逐条 rc=0）：
 #   1. bash -n tools/gh-app-auth.sh（语法面）
 #   2. bash tools/gh-app-auth.sh --selftest（五族断言全桩）
@@ -284,13 +288,22 @@ except Exception:
 PY
 }
 
-fetch_pr_head() {  # $1=slug $2=pr $3=cfg $4=代理 → head sha
+fetch_pr_head() {  # $1=slug $2=pr $3=cfg $4=代理 → head sha（传输错/字段缺席即失败，禁空值下传）
   local -a px=()
   [ -n "$4" ] && px=(-x "$4")
   new_sec pr.json
-  curl -sS -m "$CURL_TIMEOUT" -K "$3" "${px[@]}" \
-    "$API_BASE/repos/$1/pulls/$2" -o "$SEC_PATH" 2>/dev/null || true
-  json_path "$SEC_PATH" head.sha
+  if ! curl -sS -m "$CURL_TIMEOUT" -K "$3" "${px[@]}" \
+      "$API_BASE/repos/$1/pulls/$2" -o "$SEC_PATH" 2>/dev/null; then
+    printf '[gh-app-auth] PR 状态刷新失败（curl 传输错）: %s#%s\n' "$1" "$2" >&2
+    return 1
+  fi
+  local sha
+  sha="$(json_path "$SEC_PATH" head.sha)"
+  if [ -z "$sha" ]; then
+    printf '[gh-app-auth] PR 状态刷新失败（head.sha 缺席）: %s#%s\n' "$1" "$2" >&2
+    return 1
+  fi
+  printf '%s' "$sha"
 }
 
 MRG_CODE=""
@@ -310,6 +323,10 @@ update_branch() {  # $1=slug $2=pr $3=cfg $4=代理
 
 wait_gates_green() {  # $1=slug $2=sha $3=cfg $4=代理 → 0=绿 1=红/超时
   local i state resp
+  if [ -z "$2" ]; then
+    log "gates 等待缺 head sha——停止轮询（禁空 sha 轮询）"
+    return 1
+  fi
   new_sec cr.json; resp="$SEC_PATH"
   local -a px=()
   [ -n "$4" ] && px=(-x "$4")
@@ -441,7 +458,6 @@ PY
 )"
   new_sec merge-resp.json; local resp="$SEC_PATH"
   local attempt=0 merged=0 code="" sha="" head
-  head="$(fetch_pr_head "$slug" "$pr" "$cfg" "$proxy")"
   while [ "$attempt" -lt "$MERGE_MAX_ROUNDS" ]; do
     attempt=$((attempt + 1))
     merge_put "$slug" "$pr" "$cfg" "$payload" "$resp" "$proxy"
@@ -452,7 +468,10 @@ PY
     [ "$attempt" -ge "$MERGE_MAX_ROUNDS" ] && break
     log "merge 405（竞速）→ update-branch 自愈第 ${attempt} 轮"
     update_branch "$slug" "$pr" "$cfg" "$proxy"
-    head="$(fetch_pr_head "$slug" "$pr" "$cfg" "$proxy")"
+    if ! head="$(fetch_pr_head "$slug" "$pr" "$cfg" "$proxy")"; then
+      log "PR 状态刷新失败——自愈环停止（失败即停，禁空 sha 轮询）"
+      break
+    fi
     wait_gates_green "$slug" "$head" "$cfg" "$proxy" || break
   done
   [ "$merged" = "1" ] || die 5 "squash 合线失败（rc=$code；405 自愈 ≤${MERGE_MAX_ROUNDS} 轮，失败即停）"
@@ -482,7 +501,7 @@ sys.stdout.write(json.dumps({"data": {"data": {"App_ID": "5122476",
   ensure_td
   local CURL_LOG="$TD/calls.log" MERGE_CNT="$TD/merge.cnt"
   : > "$CURL_LOG"; printf '0' > "$MERGE_CNT"
-  local STUB_MERGE_MODE="heal"
+  local STUB_MERGE_MODE="heal" STUB_PR_FAIL=0
   curl() {
     printf '%s\n' "$*" >> "$CURL_LOG"
     local args="$*" outfile="" hasw=0 code="200"
@@ -508,6 +527,7 @@ sys.stdout.write(json.dumps({"data": {"data": {"App_ID": "5122476",
         fi;;
       *"/update-branch"*) ;;
       *"/pulls/"*)
+        if [ "${STUB_PR_FAIL:-0}" = "1" ]; then return 1; fi
         [ -n "$outfile" ] && printf '%s' '{"head":{"sha":"STUBHEAD"}}' > "$outfile";;
       *"/installations/"*)
         code="201"
@@ -596,6 +616,13 @@ sys.stdout.write(json.dumps({"data": {"data": {"App_ID": "5122476",
   out="$(cmd_merge o/r 1 --title t --body b 2>/dev/null)" && rc=0 || rc=$?
   expect_eq "F5e 持续 405 失败即停（rc≠0）" "1" "$([ "$rc" -ne 0 ] && printf 1 || printf 0)"
   expect_eq "F5f 停时轮次 = 上限 2（禁无限重试）" "2" "$(cat "$MERGE_CNT")"
+  # ---- F5g-i 自愈环 PR 状态刷新失败（传输错）⇒ 失败即停，禁空 sha 轮询 ----
+  : > "$CURL_LOG"; printf '0' > "$MERGE_CNT"; STUB_MERGE_MODE="heal"; STUB_PR_FAIL=1
+  out="$(cmd_merge o/r 1 --title t --body b 2>/dev/null)" && rc=0 || rc=$?
+  STUB_PR_FAIL=0
+  expect_eq "F5g 刷新失败即停（rc≠0）" "1" "$([ "$rc" -ne 0 ] && printf 1 || printf 0)"
+  expect_eq "F5h 停时 PUT 轮次 =1（未进重试）" "1" "$(cat "$MERGE_CNT")"
+  expect_eq "F5i 零 check-runs 空 sha 轮询" "0" "$(grep -c 'check-runs' "$CURL_LOG" || true)"
 
   # ---- 汇总 ----
   if [ "$ST_FAILS" = "0" ]; then
