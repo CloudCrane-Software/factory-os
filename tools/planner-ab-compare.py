@@ -22,6 +22,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 import zipfile
@@ -49,17 +50,37 @@ class GH:
     def __init__(self, user, pat):
         self._auth = "Bearer " + pat
 
+    def _open(self, req, timeout):
+        """带重试的 urlopen（网络抖动：IncompleteRead/URLError/超时，3 次退避）。"""
+        last = None
+        for attempt in range(3):
+            try:
+                with urllib.request.urlopen(req, timeout=timeout) as r:
+                    return r.read()
+            except urllib.error.HTTPError:
+                raise
+            except Exception as e:            # IncompleteRead/URLError/timeout…
+                last = e
+                if attempt < 2:
+                    time.sleep(2 * (attempt + 1))
+        raise SystemExit("网络重试 3 次仍失败：%s: %s" % (type(last).__name__, last))
+
     def get(self, path):
         req = urllib.request.Request(API + path, method="GET")
         req.add_header("Authorization", self._auth)
         req.add_header("Accept", "application/vnd.github+json")
         req.add_header("User-Agent", UA)
         try:
-            with urllib.request.urlopen(req, timeout=120) as r:
-                return json.loads(r.read().decode("utf-8"))
+            raw = self._open(req, 120)
         except urllib.error.HTTPError as e:
-            body = e.read().decode("utf-8", "replace")[:300]
-            raise SystemExit("GitHub API %s → HTTP %s %s" % (path, e.code, body))
+            body = b""
+            try:
+                body = e.read()
+            except Exception:
+                pass
+            raise SystemExit("GitHub API %s → HTTP %s %s"
+                             % (path, e.code, body.decode("utf-8", "replace")[:300]))
+        return json.loads(raw.decode("utf-8"))
 
     def get_bytes(self, path):
         """下载二进制（artifact zip）：GitHub 302 到 blob Sas URL——两步走
@@ -178,20 +199,28 @@ def run_readings(gh, repo, run):
 
 # ---------------------------------------------------------------- 配对与 diff
 def pair_runs(main_runs, shadow_runs, window_min):
-    """正轨每条配 created_at 最近的影子 run（窗口内）；返回 [(main, shadow|None, dt_s)]。"""
-    pairs = []
-    for m in main_runs:
+    """正轨每条配 created_at 最近的影子 run（窗口内）；一对一贪心（每个影子
+    run 至多配一个正轨 run，按 Δt 升序先抢先得），避免影子稀疏时一条影子
+    重复配多条正轨。返回 [(main, shadow|None, dt_s|None)]，按正轨新→旧序。"""
+    cands = []
+    for mi, m in enumerate(main_runs):
         tm = parse_ts(m["created_at"])
-        best, best_d = None, None
-        for s in shadow_runs:
+        for si, s in enumerate(shadow_runs):
             d = abs((parse_ts(s["created_at"]) - tm).total_seconds())
-            if best_d is None or d < best_d:
-                best, best_d = s, d
-        if best is not None and best_d is not None and best_d <= window_min * 60:
-            pairs.append((m, best, best_d))
-        else:
-            pairs.append((m, None, best_d))
-    return pairs
+            if d <= window_min * 60:
+                cands.append((d, mi, si))
+    cands.sort(key=lambda x: (x[0], x[1], x[2]))
+    used_m, used_s, pairs = set(), set(), {}
+    for d, mi, si in cands:
+        if mi in used_m or si in used_s:
+            continue
+        used_m.add(mi)
+        used_s.add(si)
+        pairs[mi] = (si, d)
+    return [(m,
+             shadow_runs[pairs[i][0]] if i in pairs else None,
+             pairs[i][1] if i in pairs else None)
+            for i, m in enumerate(main_runs)]
 
 
 def candidate_diff(sh_cand, main_cand):
