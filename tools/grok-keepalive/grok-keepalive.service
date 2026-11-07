@@ -1,0 +1,19 @@
+[Unit]
+Description=grok-keepalive（D-135：grok auth.json OIDC 静默续期保活；失败 fail-closed+告警）
+Documentation=file:%h/.local/opt/grok-keepalive/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# 保活工人：新鲜则 no-op；临期/过期则 refresh grant 续期，成功原子回写 auth.json，
+# 失败 fail-closed（auth.json 一字不碰 + 非零退出 + alerts.jsonl 落一条告警）。
+ExecStart=/usr/bin/python3 -I %h/.local/opt/grok-keepalive/grok-auth-probe.py --renew --auth-json %h/.grok/auth.json --state-dir %h/.local/state/grok-keepalive
+SuccessExitStatus=0
+StandardOutput=journal
+StandardError=journal
+# 凭据纪律：工人只把 AT/refresh 值放内存（请求体），零回显零进日志；读数只记
+# 字段名/时间戳/HTTP 语义/形态长度，落 state-dir（0700）。
+
+[Install]
+WantedBy=default.target
