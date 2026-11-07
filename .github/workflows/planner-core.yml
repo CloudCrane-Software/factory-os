@@ -1304,7 +1304,18 @@ jobs:
           body = {
               "model": model,
               "temperature": 0.2,
-              "max_tokens": 16384,
+              # D-160 提档（2026-11-08）：16K 档被 AB 影子轨实证 16/16 step07 失败全
+              #   length 截断（生产 24/39、影子 26/59），planner 空波自锁。新值取
+              #   tokenrhythm /v1/models 元数据上限字段 max_completion_tokens 的
+              #   384000（context_length 1000000）；2026-11-08 最小探针实钉
+              #   max_tokens 阶梯 1/32768/65536/131072/384000/400000 全部 HTTP 200
+              #   在役（>384000 网关收下不报错，即元数据界）。诚注：输出越长越受
+              #   两道时钟约束——本步 urlopen 300s 客户端超时与 tokenrhythm 上游
+              #   超时（强制 ~30K token 连发探针实测 UPSTREAM_TIMEOUT）——超长生成
+              #   走传输失败腿 fail-closed，不在 length 腿；截断腿下方硬红。
+              #   （注释措辞避「凭据类键名紧邻赋值符」形状——G-13 内核对 token 类
+              #   键名后 16 空格内出现冒号/等号即报，同 08d 顾问腿赋值形纪律。）
+              "max_tokens": 384000,
               "messages": [
                   {"role": "system", "content": prompt},
                   {"role": "user", "content": json.dumps(inputs, ensure_ascii=False)},
@@ -1361,9 +1372,6 @@ jobs:
                                     "prompt_tk": usage.get("prompt_tokens"),
                                     "completion_tk": usage.get("completion_tokens"),
                                     "finish_reason": finish_reason})
-              if finish_reason == "length":
-                  print("finish=length：输出被 max_tokens 截断（16384 档仍撞顶——候选交 08 终裁，如复现考虑提档）",
-                        file=sys.stderr)
               # 调用账本（配额计数；只记时间/用量，不记内容、不记密钥）
               now = datetime.now(timezone(timedelta(hours=8)))
               log = []
@@ -1378,6 +1386,17 @@ jobs:
                           "completion_tk": usage.get("completion_tokens")})
               with open("planner-call-log.json", "w", encoding="utf-8") as f:
                   json.dump(log[-500:], f, ensure_ascii=False)
+              if finish_reason == "length":
+                  # D-160 截断硬红（2026-11-08）：cap 已在模型元数据上限（384000）仍
+                  #   撞顶 ⇒ 重试无益（同 cap 同墙）——fail-closed 禁静默截断：截断
+                  #   文本不再充作候选 JSON 进 validation 红，调用账本已先落笔（配额
+                  #   如实计数）。错误行含「截断」可 grep；exit 9 = 截断硬红专用码。
+                  with open("planner-raw.json", "w", encoding="utf-8") as f:
+                      json.dump(meta, f, ensure_ascii=False, indent=1)
+                  print("finish=length：输出被 max_tokens 截断（384000 档仍撞顶）——"
+                        "D-160 截断硬红 fail-closed（不产 manifest、不建 Issue、"
+                        "不留半截候选）", file=sys.stderr)
+                  sys.exit(9)
               choices = payload.get("choices") or []
               if choices:
                   content = (choices[0].get("message") or {}).get("content") or ""
@@ -1738,9 +1757,6 @@ jobs:
                                         "completion_tk": _inv_usage.get("completion_tokens"),
                                         "finish_reason": _inv_finish,
                                         "note": "manifest-call"})
-                  if _inv_finish == "length":
-                      print("finish=length：二次调用输出被 max_tokens 截断（16384 档仍撞顶"
-                            "——候选交 08 终裁，如复现考虑提档）", file=sys.stderr)
                   # 调用账本（同 07 既有口径：只记时间/用量，不记内容、不记密钥）
                   _inv_now = datetime.now(timezone(timedelta(hours=8)))
                   _inv_log = []
@@ -1757,6 +1773,15 @@ jobs:
                                    "completion_tk": _inv_usage.get("completion_tokens")})
                   with open("planner-call-log.json", "w", encoding="utf-8") as f:
                       json.dump(_inv_log[-500:], f, ensure_ascii=False)
+                  if _inv_finish == "length":
+                      # D-160 截断硬红（2026-11-08）：二次调用（manifest）同墙同罚——
+                      #   禁静默截断充作候选进 validation；账本已落笔；exit 9 硬红码。
+                      with open("planner-raw.json", "w", encoding="utf-8") as f:
+                          json.dump(meta, f, ensure_ascii=False, indent=1)
+                      print("finish=length：二次调用（manifest）输出被 max_tokens 截断"
+                            "（384000 档仍撞顶）——D-160 截断硬红 fail-closed（不产 "
+                            "manifest、不建 Issue）", file=sys.stderr)
+                      sys.exit(9)
                   _inv_content = ((_inv_payload.get("choices") or [{}])[0]
                                   .get("message") or {}).get("content") or ""
                   if not _inv_content:
@@ -1850,11 +1875,20 @@ jobs:
                   with urllib.request.urlopen(req2, timeout=300) as resp2:
                       payload2 = json.loads(resp2.read().decode("utf-8"))
                   usage2 = payload2.get("usage") or {}
+                  fr2 = (payload2.get("choices") or [{}])[0].get("finish_reason")
                   meta["calls"].append({"attempt": meta["attempts"], "http": 200,
                                         "ms": int((time.monotonic() - t0) * 1000),
                                         "prompt_tk": usage2.get("prompt_tokens"),
                                         "completion_tk": usage2.get("completion_tokens"),
+                                        "finish_reason": fr2,
                                         "note": "corrective"})
+                  if fr2 == "length":
+                      # D-160（2026-11-08）：矫正腿截断可见性——截断文本本就弃用（下方
+                      #   非 JSON 即保留首发候选交 step 08 终裁，兜底语义不变），但
+                      #   length 信号必须落 stderr 可 grep，禁无痕。
+                      print("finish=length：矫正重试输出被 max_tokens 截断（384000 档）"
+                            "——弃截断件保留首发候选交 step 08 终裁（既有兜底语义）",
+                            file=sys.stderr)
                   now2 = datetime.now(timezone(timedelta(hours=8)))
                   log2 = []
                   if os.path.exists("planner-call-log.json"):
