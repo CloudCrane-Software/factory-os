@@ -1,0 +1,14 @@
+[
+ {
+  "id": 2118812026456629248,
+  "created_at": "2026-11-06T21:05:26Z",
+  "user": {"login": "feasy898"},
+  "body": "@CodeBuddy 请修复上述 issue 描述的 bug……（派发评论，cnb 板夹具样例）"
+ },
+ {
+  "id": 6696243328,
+  "created_at": "2026-11-06T21:34:44Z",
+  "user": {"login": "feasy898"},
+  "body": "## 判分回卡 · D-117（astropy__astropy-7606 ｜ tools/cnb-verdict-reply.py 渲染）\n\n- **verdict**：`not_resolved`（judge.json 原值）\n- **patch 指纹**：`sha256[:12]=5c040ce9bffd`\n- **F2P 计数**：0/1（只给计数）\n- **P2P 计数**：240/241（只给计数）\n- **失配归因（结构级）**：P2P 失配 1 项（结构级）\n- **测试清单**：只给计数——零逐字用例 ID\n- **凭据形态**：零\n"
+ }
+]

@@ -1,0 +1,15 @@
+{
+ "swebench_version": "夹具样例",
+ "judge": "swev-judge 官方判定（形制样例）",
+ "verdict": "resolved",
+ "resolved": true,
+ "diff_valid": true,
+ "log_state": "PARSED",
+ "tests_collected": 85,
+ "f2p_success": 2,
+ "f2p_failure": 0,
+ "p2p_success": 83,
+ "p2p_failure": 0,
+ "diff_sha256": "a7985367da6300000000000000000000000000000000000000000000000000c",
+ "hermetic": true
+}
