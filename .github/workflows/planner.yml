@@ -968,6 +968,79 @@ jobs:
           if legacy_warn:
               inputs["warnings"] = [legacy_warn]
 
+          # ── factory_obs：工厂实时观测（规划质量一期·运营者裁定「planner 的世界
+          #    必须与真实产线对齐」）——curl 公网 /factory（schema af.factory-obs.v1）
+          #    取摘要字段（alarms 摘要 / stalled 卡 / recent verdicts 摘要 / quality
+          #    段若有）进 inputs.factory_obs。60s 超时；失败或缺 af.factory-obs.v1
+          #    形制 ⇒ 块记 null 并在 inputs.warnings 记 degraded——禁假数据（观测
+          #    缺席=合法现势）。advisory 边界：只进规划输入，永不入机检闸面 /
+          #    required checks（D7=C-5 禁区）；step 08 判据零改动（缺席合法）。
+          factory_obs = None
+          _obs_rc = "not-run"
+          try:
+              _obs = _sp.run(
+                  ["curl", "-sS", "--max-time", "60", "-o", "factory-obs-raw.json",
+                   "https://jobs.hkmingdajiaoyu.com/factory"],
+                  capture_output=True, text=True, timeout=90)
+              _obs_rc = _obs.returncode
+          except Exception as _e:
+              _obs_rc = type(_e).__name__
+          if _obs_rc == 0 and os.path.exists("factory-obs-raw.json"):
+              try:
+                  _raw = json.load(open("factory-obs-raw.json", encoding="utf-8"))
+              except Exception:
+                  _raw = None
+              if isinstance(_raw, dict) and _raw.get("schema") == "af.factory-obs.v1":
+                  _alarms = _raw.get("alarms") or []
+                  _by_level = {}
+                  for _a in _alarms:
+                      _lv = _a.get("level") or "?"
+                      _by_level[_lv] = _by_level.get(_lv, 0) + 1
+                  _judging = _raw.get("judging") or {}
+                  factory_obs = {
+                      "schema": "af.factory-obs.v1",
+                      "generated_at": _raw.get("generated_at"),
+                      "cache_age_s": _raw.get("cache_age_s"),
+                      "alarms_summary": {
+                          "total": len(_alarms),
+                          "by_level": _by_level,
+                          "items": [{"level": _a.get("level"), "code": _a.get("code"),
+                                     "message": _a.get("message"), "since": _a.get("since")}
+                                    for _a in _alarms],
+                      },
+                      "stalled": _raw.get("stalled") or [],
+                      "stalled_count": len(_raw.get("stalled") or []),
+                      "recent_verdicts_summary": {
+                          "registry_counts": _judging.get("registry_counts") or {},
+                          "recent_verdicts": (_judging.get("recent_verdicts") or [])[:10],
+                          "source": _judging.get("source"),
+                          "age_s": _judging.get("age_s"),
+                          "stale": _judging.get("stale"),
+                      },
+                      "quality": _raw.get("quality"),
+                      "advisory_only": True,
+                      "note": "工厂实时观测（告警/停滞/判分/质量趋势）——只进规划输入，"
+                              "禁入机检闸面/required checks（D7=C-5 禁区）；规划时优先"
+                              "消化其中的可行动信号。",
+                  }
+          if factory_obs is None:
+              _warn = ("factory_obs 观测源缺席（curl rc=%s 或响应非 af.factory-obs.v1）——"
+                       "块记 null（degraded），禁假数据；按无此观测输入组卡" % _obs_rc)
+              inputs.setdefault("warnings", [])
+              if _warn not in inputs["warnings"]:
+                  inputs["warnings"].append(_warn)
+          inputs["factory_obs"] = factory_obs
+          if factory_obs is None:
+              print("factory_obs: degraded（块 null，inputs.warnings 已记：%s）" % _obs_rc)
+          else:
+              print("factory_obs: ok · alarms=%d(%s) · stalled=%d · recent_verdicts=%d · quality=%s · @%s（cache_age_s=%s）"
+                    % (factory_obs["alarms_summary"]["total"],
+                       "/".join("%s:%d" % _kv for _kv in sorted(factory_obs["alarms_summary"]["by_level"].items())),
+                       factory_obs["stalled_count"],
+                       len(factory_obs["recent_verdicts_summary"]["recent_verdicts"]),
+                       "有" if factory_obs.get("quality") else "无",
+                       factory_obs.get("generated_at"), factory_obs.get("cache_age_s")))
+
           with open("planner-inputs.json", "w", encoding="utf-8") as f:
               json.dump(inputs, f, ensure_ascii=False, indent=1)
           qr = inputs.get("planner_quality_recent") or {}
