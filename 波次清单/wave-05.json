@@ -1,0 +1,269 @@
+{
+ "schema": "af.wave-manifest.backfill.v1",
+ "wave": "wave-05",
+ "created_at": "2026-11-07T12:26:14+0800",
+ "policy": "制度 v1；30-工件/波次自转器-20261106/制度-v1.md（波次自转开发制度）",
+ "backfill": {
+  "by": "信息面回正施工员（运营者裁定：planner 的世界必须与真实产线对齐）",
+  "at": "2026-11-07T12:26:14+0800",
+  "method": "三仓板面+PR+timeline+台账回溯重建（非原始规划产物复原）",
+  "sources": [
+   "GET /repos/CloudCrane-Software/{factory-os,.github,af}/issues?state=all（46+6+6 张 issue 实拉）",
+   "GET /repos/.../pulls?state=all（59+24+53 张 PR 实拉）",
+   "issues/N/timeline 交叉引用事件（32 张 wave-05..08 卡逐卡实拉）",
+   "计划/阶段欠账台账.md 正本行级坐标（144 行）",
+   "30-工件/夜轨E-20261107/终夜审计-20261107.md §一（23 卡终态对账，交叉印证）"
+  ],
+  "note": "补档件：planner step 05 只消费 wave/cards[].{task_id,debt,channel,mem_budget_g,state}/base_sha 六字段；本件按 wave-03.json 形制另附板面/PR 证据坐标备查。base_sha 一律 null（原始规划基线未留档，禁编造；step 06 活体钉桩基线实读 origin/main 顶端，不受影响）。",
+  "known_gap": "wave-04 有板面卡（factory-os#5/#7/#8/#9，closed）但无 manifest 亦不在本批授权范围（任务只授权 wave-05/06/07/08 四件）——latest 将由 wave-03 直接跳到 wave-08，wave-04 缺档事实在此如实登记，不伪装。"
+ },
+ "base_sha": null,
+ "base_sha_note": "原始规划基线未留档——补档不编造；planner step 06 活体钉桩基线实读 factory-os origin/main 顶端，本字段不参与。",
+ "cards": [
+  {
+   "task_id": "w05-gov-label-sync",
+   "debt": "D-79",
+   "channel": "bot-lane",
+   "mem_budget_g": 2,
+   "title": "[wave-05][D-79] label 治理面批：labels.md 正本对齐在役 state:* 口径＋执行代理翻转范式＋新 label",
+   "state": "merged",
+   "board": {
+    "repo": "CloudCrane-Software/.github",
+    "issue": 13,
+    "labels": [
+     "wave",
+     "state:merged"
+    ],
+    "created_at": "2026-11-06T11:54:53Z",
+    "closed_at": "2026-11-06T12:35:14Z"
+   },
+   "merge": {
+    "prs": [
+     {
+      "number": 18,
+      "merged_at": "2026-11-06T12:35:13Z",
+      "merge_commit": "52292ca2e185",
+      "head": "bot/w05-d79-label-sync"
+     }
+    ]
+   }
+  },
+  {
+   "task_id": "w05-gov-judgepaths-sync",
+   "debt": "D-80",
+   "channel": "bot-lane",
+   "mem_budget_g": 2,
+   "title": "[wave-05][D-80] judge-paths.md 口径同步：org ci-gates.yml／factory-os 内联剖面／af 判官族",
+   "state": "merged",
+   "board": {
+    "repo": "CloudCrane-Software/.github",
+    "issue": 14,
+    "labels": [
+     "wave",
+     "state:merged"
+    ],
+    "created_at": "2026-11-06T11:54:56Z",
+    "closed_at": "2026-11-06T12:46:36Z"
+   },
+   "merge": {
+    "prs": [
+     {
+      "number": 19,
+      "merged_at": "2026-11-06T12:46:35Z",
+      "merge_commit": "6f7d364d6814",
+      "head": "task/14-judgepaths-sync"
+     }
+    ]
+   }
+  },
+  {
+   "task_id": "w05-planner-prompt",
+   "debt": "D-85",
+   "channel": "bot-lane",
+   "mem_budget_g": 2,
+   "title": "[wave-05][D-85] planner-prompt 禁项批：§3.6.4/3.6.5/3.6.6＋§六禁做 10/11/12＋bo…",
+   "state": "merged",
+   "board": {
+    "repo": "CloudCrane-Software/.github",
+    "issue": 15,
+    "labels": [
+     "wave",
+     "state:merged"
+    ],
+    "created_at": "2026-11-06T11:55:04Z",
+    "closed_at": "2026-11-06T12:49:55Z"
+   },
+   "merge": {
+    "prs": [
+     {
+      "number": 20,
+      "merged_at": "2026-11-06T12:48:24Z",
+      "merge_commit": "c449b52197c0",
+      "head": "task/w05-planner-prompt"
+     }
+    ]
+   }
+  },
+  {
+   "task_id": "w05-planner-actions-write",
+   "debt": "D-81",
+   "channel": "bot-lane",
+   "mem_budget_g": 2,
+   "title": "[wave-05][D-81] planner.yml permissions 增 actions:write（planner 自 rerun）",
+   "state": "merged",
+   "board": {
+    "repo": "CloudCrane-Software/factory-os",
+    "issue": 17,
+    "labels": [
+     "wave",
+     "state:merged"
+    ],
+    "created_at": "2026-11-06T11:54:57Z",
+    "closed_at": "2026-11-06T13:24:25Z"
+   },
+   "merge": {
+    "prs": [
+     {
+      "number": 40,
+      "merged_at": "2026-11-06T13:24:23Z",
+      "merge_commit": "778bd30c7971",
+      "head": "task/81-planner-actions-write"
+     }
+    ]
+   }
+  },
+  {
+   "task_id": "w05-sandbox-contract",
+   "debt": "D-82",
+   "channel": "bot-lane",
+   "mem_budget_g": 2,
+   "title": "[wave-05][D-82] 沙箱派发契约补强批：L-09/10/11＋环境自检/SHA 执行/四前缀/env-report＋OTLP 窄…",
+   "state": "merged",
+   "board": {
+    "repo": "CloudCrane-Software/factory-os",
+    "issue": 18,
+    "labels": [
+     "wave",
+     "state:merged"
+    ],
+    "created_at": "2026-11-06T11:54:59Z",
+    "closed_at": "2026-11-06T13:07:09Z"
+   },
+   "merge": {
+    "prs": [
+     {
+      "number": 39,
+      "merged_at": "2026-11-06T13:07:07Z",
+      "merge_commit": "5fdb717776f7",
+      "head": "task/18-sandbox-contract"
+     }
+    ]
+   }
+  },
+  {
+   "task_id": "w05-manifest-schema-v11",
+   "debt": "D-83",
+   "channel": "bot-lane",
+   "mem_budget_g": 2,
+   "title": "[wave-05][D-83] manifest schema v1.1：可选字段 repo/env_precondition/fast_tests",
+   "state": "merged",
+   "board": {
+    "repo": "CloudCrane-Software/factory-os",
+    "issue": 19,
+    "labels": [
+     "wave",
+     "state:merged"
+    ],
+    "created_at": "2026-11-06T11:55:01Z",
+    "closed_at": "2026-11-06T13:34:31Z"
+   },
+   "merge": {
+    "prs": [
+     {
+      "number": 41,
+      "merged_at": "2026-11-06T13:34:29Z",
+      "merge_commit": "413a4fb94711",
+      "head": "task/19-manifest-schema-v11"
+     },
+     {
+      "number": 21,
+      "merged_at": "2026-11-06T13:34:34Z",
+      "merge_commit": "3e191fa9daa8",
+      "head": "task/19-manifest-schema-v11"
+     }
+    ]
+   },
+   "note": "双仓同批：factory-os#41（manifest 消费面）＋.github#21（card.yml 同名可选输入）"
+  },
+  {
+   "task_id": "w05-planner-step08",
+   "debt": "D-84",
+   "channel": "bot-lane",
+   "mem_budget_g": 2,
+   "title": "[wave-05][D-84] planner step 08 补强：M-1/M-2/M-3/M-4/M-7/M-8 机检缺项清单＋card…",
+   "state": "merged",
+   "board": {
+    "repo": "CloudCrane-Software/factory-os",
+    "issue": 20,
+    "labels": [
+     "wave",
+     "state:merged"
+    ],
+    "created_at": "2026-11-06T11:55:03Z",
+    "closed_at": "2026-11-06T13:44:55Z"
+   },
+   "merge": {
+    "prs": [
+     {
+      "number": 42,
+      "merged_at": "2026-11-06T13:44:53Z",
+      "merge_commit": "69e33e2d5413",
+      "head": "task/20-planner-step08-reinforce"
+     }
+    ]
+   }
+  },
+  {
+   "task_id": "w05-bench-swebench-11133",
+   "debt": "D-86",
+   "channel": "bot-lane",
+   "mem_budget_g": 8,
+   "title": "[wave-05][D-86] bench 单体试跑卡：SWE-bench django__django-11133（bench 卡型判分例外+泄题防线+判分腿收割机代跑；factory-os#21）",
+   "state": "merged",
+   "board": {
+    "repo": "CloudCrane-Software/factory-os",
+    "issue": 21,
+    "labels": [
+     "wave",
+     "state:merged"
+    ],
+    "created_at": "2026-11-06T11:55:06Z",
+    "closed_at": null
+   },
+   "note": "bench 卡型：无己名 PR（施工产物=django 镜像仓单文件补丁，判分腿 swev-judge-v2 exit=0 verdict=resolved，F2P 1/1＋P2P 64/64；完工回填见台账 D-86 行 2026-11-06 14:11）。板面实态=issue 仍 open＋label state:merged（悬置补关裁决留运营者——终夜审计 F8 登记项），manifest 记 label 终态 merged 并如实附注。"
+  },
+  {
+   "task_id": "portal-census-sync",
+   "debt": "D-104",
+   "channel": "harness",
+   "mem_budget_g": null,
+   "title": "[wave-05] portal /census 收件口同步 factory-os 正本（运行面已部署）",
+   "state": "queued",
+   "board": {
+    "repo": "CloudCrane-Software/factory-os",
+    "issue": 16,
+    "labels": [
+     "wave",
+     "state:queued"
+    ],
+    "created_at": "2026-11-06T11:43:26Z",
+    "closed_at": null
+   },
+   "note": "债号 2026-11-06 改号：原自报 D-80 与 .github#14 撞号，按排期债号段顺延取 D-104（卡面评论留痕）。运行面已上线（gov 已部署重启），仓正本同步卡 queued 待派。"
+  }
+ ],
+ "notes": [
+  "fos#16 为 [wave-05] 但债号 D-104（2026-11-06 改号避撞，详见卡面 note）。",
+  "D-79/D-80/D-81..D-85 在台账正本无行（同步腿 PR#86 正文自认 D-69..D-85/D-87..D-106 正本无台账行、不编造补齐）——补档不造 ledger 坐标。"
+ ]
+}
