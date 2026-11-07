@@ -38,11 +38,24 @@ sha256 25f0d00e392a0e3fc4d0456f7d87b014f0560585d51d476a806c055130da0bdf）。
     「不重写」；加锁后同 delivery 并发只落一次、其余 200 duplicate）。
  ③ 原子落盘补目录 fsync（tmp→fsync→os.replace→目录 fsync）。
  ④ /healthz 增报 bind/port（只增字段；PoC 自检断言的 secrets_missing 形状不变）。
+ ⑤ 端到端合成心跳（D-114/factory-os#82，夜轨C2 红队分诊 M5 收口批 2026-11-08）：
+    进程内**旁路探针**——定时以真实 secret 签名、走本机回环 HTTP POST
+    /inbox/<source> 一条合成投递，把「HTTP 收听→source 白名单→HMAC 验签→
+    JSON/事件白名单校验→幂等锁→原子落盘」整条接收链变成自证对象（判定顺序
+    与五态语义逐字未改：探针走同一条 POST 面即复用全部既有五态）。零副作用
+    三道：delivery_id 恒定（首探 202 落盘一条审计件，此后 200 duplicate 幂等
+    复用——inbox 只增一条 ~1KB 件，且不刷新「最新投递」年龄 ⇒ 既有源断供
+    安灯语义零漂移）；event=pull_request+action=closed 不在注册表映射 actions
+    （opened/synchronize）内 ⇒ 消费腿只记 skip 不派单（配方原语义）；
+    AF_TRIGGER_PROBE_DISABLE=1 一键停探（留痕不假绿）。语义分家：探针新鲜⇒
+    收端活，投递年龄老化归上游（Gitea 无事件/webhook 发射腿断——发射腿探针
+    属 night-sentinel 哨兵域，卡面交接夜轨B）；探针停/连败⇒收端侧坏。
 本副本与在役运行位（工作区 tools/trigger-inbox.py）**必须逐字同源**
 （sha256 对账见证据）；判定行/启动/调度逻辑与 PoC 原件一致。
 """
 import base64
 import hashlib
+import http.client
 import hmac
 import ipaddress
 import json
@@ -225,6 +238,161 @@ def atomic_write_json(path, obj):
         pass
 
 
+# ---------- 端到端合成心跳（D-114/factory-os#82 · 夜轨C2 红队分诊 M5 收口批） ----------
+# 病灶（分诊 M5 实测，2026-11-07 重跑留证）：inbox 最新投递 2026-11-06 18:21:29、
+# trigger-inbox-liveness.json amber（newest_delivery_age_s=31885）——「Gitea 无事件」
+# 与「webhook 出口断/收端坏」不可分辨：投递年龄是唯一读数，零事件时三种世界
+# （源静默/出口断/收端死）同码混报。
+# 形态（验收门①两形态择「旁路探针」）：进程内定时以真实 secret 签名，经本机
+# 回环 HTTP POST /inbox/<source> 注入一条合成投递——判定顺序与五态语义逐字
+# 未改（探针走同一条 POST 面即复用既有全部判定），接收链自此自证。目标地址
+# 用**在役绑定地址本身**（BIND，回环/非回环绑定都从本机可达；sock 在构造时已
+# bind+listen）。
+# 语义分家（与既有源断供安灯零覆盖零漂移）：
+#   · 探针新鲜（last_ok 距今 ≤ fresh_window_s=max(2×interval,3600)）⇒ 收端
+#     全链路活；投递年龄老化只能归**上游侧**（Gitea 无事件 / gitea webhook
+#     发射腿断——发射腿探针在 gitea 侧，属 night-sentinel 哨兵域，卡面交接
+#     夜轨B）。
+#   · 探针停/连败 ⇒ 收端侧坏（监听坏/密钥漂移/落盘链坏），比「源静默」更
+#     严重一档，不再混报。
+PROBE_INTERVAL_S = float(os.environ.get("AF_TRIGGER_PROBE_INTERVAL_S", "1800") or "1800")
+PROBE_DISABLED = os.environ.get("AF_TRIGGER_PROBE_DISABLE", "") == "1"
+PROBE_DELIVERY_ID = "synthetic-heartbeat-probe-1"   # 恒定 id：首探 202、此后 200 duplicate
+PROBE_SOURCE = "gitea-webhook"                      # 探针源（现役注册表唯一 source）
+PROBE_STATE_F = os.environ.get(
+    "AF_TRIGGER_PROBE_STATE_F", os.path.join(HOME, "synthetic-heartbeat.json"))
+PROBE_FIRST_DELAY_S = 10.0     # 起服后首探延迟（避让启动窗）
+_PROBE_LOCK = threading.Lock()
+_PROBE_STATE = {
+    "status": "init", "interval_s": PROBE_INTERVAL_S, "delivery_id": PROBE_DELIVERY_ID,
+    "source": PROBE_SOURCE, "consecutive_fail": 0, "last_ok_epoch": None,
+    "last_fail_epoch": None, "last_probe_epoch": None, "last_status_code": None,
+    "last_error": None, "fresh_window_s": max(2 * PROBE_INTERVAL_S, 3600.0),
+}
+
+
+def probe_snapshot():
+    """合成心跳状态快照（/healthz 与判据面共用；只增字段，PoC 自检断言形状不变）。"""
+    with _PROBE_LOCK:
+        return dict(_PROBE_STATE)
+
+
+def _probe_write_state():
+    """状态件原子写（判据面：keepalive 判据④/watch 聚合消费的机器可读面；
+    写失败不阻塞探针循环，下轮重写——判据文件同纪律）。秘密零落盘：状态件
+    只含状态/时刻/id，不含 secret 与签名材料。"""
+    snap = probe_snapshot() | {
+        "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "ts_epoch": int(time.time()),
+        "tool": "trigger-inbox/synthetic-heartbeat",
+        "note": "端到端合成心跳（D-114/#82，M5 收口）：收端接收链自证。探针新鲜⇒"
+                "投递年龄老化归上游侧（Gitea 无事件/webhook 发射腿断，发射腿探针"
+                "=night-sentinel 哨兵域，交接夜轨B）；探针停/连败⇒收端侧坏。"
+                "fresh=last_ok_epoch 距今≤fresh_window_s",
+    }
+    try:
+        atomic_write_json(PROBE_STATE_F, snap)
+    except OSError:
+        pass
+
+
+def _probe_record(ok, status_code, detail):
+    """单次探针结果记账（进程内状态+判据件同写）。"""
+    with _PROBE_LOCK:
+        st = _PROBE_STATE
+        st["last_probe_epoch"] = time.time()
+        st["last_status_code"] = status_code
+        if ok:
+            st["status"] = "ok"
+            st["last_ok_epoch"] = st["last_probe_epoch"]
+            st["consecutive_fail"] = 0
+            st["last_error"] = None
+        else:
+            st["status"] = "failing"
+            st["last_fail_epoch"] = st["last_probe_epoch"]
+            st["consecutive_fail"] = int(st.get("consecutive_fail") or 0) + 1
+            st["last_error"] = detail
+    _probe_write_state()
+
+
+def synthetic_probe_once():
+    """单次合成心跳：真实签名→回环 POST /inbox/<source>→按应答记账。
+
+    返回 (ok, http_status, detail)。ok ⇔ HTTP 200（duplicate，幂等复用）或
+    202（accepted，仅首探落盘审计件）——其余（401/422/413/5xx）与传输异常
+    皆为失败（收端链路可疑）。传输异常直接抛给调用方（连不上＝收端不可达，
+    是最重要的失败形态，必须记账不得吞）。"""
+    reg = load_registry()
+    sdef = source_def(reg, PROBE_SOURCE)
+    if sdef is None:
+        _probe_record(False, None, f"not_applicable: source 不在注册表: {PROBE_SOURCE}")
+        return False, None, "not_applicable"
+    sec = secret_for(PROBE_SOURCE)
+    if sec is None:
+        # 与收件面同款 fail-closed 语义：secret 未配置＝该 source 本就一律 401，
+        # 探针如实记账停跑（不假绿），恢复=配 secret 后自动续跑。
+        _probe_record(False, None, "secret_missing（收件面 fail-closed），探针停跑")
+        return False, None, "secret_missing"
+    payload = {
+        "event": "pull_request",
+        # action=closed 不在注册表 repo_suites 映射 actions（opened/synchronize）
+        # 内 ⇒ 消费腿只记 skip 不派单——零新派单面（registry 配方原语义，未改表）。
+        "action": "closed",
+        "delivery_id": PROBE_DELIVERY_ID,
+        "pull_request": {"number": 0, "head": {"sha": PROBE_DELIVERY_ID}},
+        "repository": {"full_name": "synthetic/trigger-inbox-heartbeat"},
+        "synthetic": True,
+    }
+    body = json.dumps(payload, ensure_ascii=False).encode()
+    sig = hmac.new(sec, body, hashlib.sha256).hexdigest()
+    conn = http.client.HTTPConnection(BIND, PORT, timeout=15)
+    try:
+        conn.request("POST", f"/inbox/{PROBE_SOURCE}", body=body, headers={
+            "Content-Type": "application/json",
+            "Content-Length": str(len(body)),
+            "X-AF-Signature": "sha256=" + sig,
+            "X-AF-Delivery": PROBE_DELIVERY_ID,
+        })
+        resp = conn.getresponse()
+        status = resp.status
+        resp.read(512)
+    finally:
+        conn.close()
+    ok = status in (200, 202)
+    _probe_record(ok, status,
+                  None if ok else f"HTTP {status}（收端应答异常——链路可疑）")
+    return ok, status, ("ok" if ok else f"http-{status}")
+
+
+def _probe_loop():
+    log(f"合成心跳起（source={PROBE_SOURCE} interval={PROBE_INTERVAL_S:.0f}s "
+        f"delivery_id={PROBE_DELIVERY_ID} 状态件={PROBE_STATE_F}；"
+        f"fresh_window={max(2 * PROBE_INTERVAL_S, 3600):.0f}s）")
+    time.sleep(PROBE_FIRST_DELAY_S)
+    while True:
+        t0 = time.time()
+        try:
+            ok, code, detail = synthetic_probe_once()
+        except Exception as e:      # 传输异常（连接拒/超时）＝收端不可达，记账不吞
+            _probe_record(False, None, f"{type(e).__name__}: {e}")
+            log(f"合成心跳失败：{type(e).__name__}: {e}")
+        else:
+            log(f"合成心跳{'ok' if ok else '失败'}（HTTP {code} {detail}）")
+        time.sleep(max(5.0, PROBE_INTERVAL_S - (time.time() - t0)))
+
+
+def start_synthetic_heartbeat():
+    """起合成心跳腿（D-114）。显式禁用留痕不假绿（status=disabled）。"""
+    if PROBE_DISABLED:
+        with _PROBE_LOCK:
+            _PROBE_STATE.update({"status": "disabled", "last_probe_epoch": time.time()})
+        _probe_write_state()
+        log("合成心跳=disabled（AF_TRIGGER_PROBE_DISABLE=1；显式停探留痕，不假绿）")
+        return
+    threading.Thread(target=_probe_loop, name="synthetic-heartbeat",
+                     daemon=True).start()
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "af-trigger-inbox/0.1"
     protocol_version = "HTTP/1.1"
@@ -254,7 +422,10 @@ class Handler(BaseHTTPRequestHandler):
                          "secrets_missing": missing, "home": HOME,
                          # 生产副本新增④：只增字段（PoC 自检断言的形状不变）——
                          # 暴露面自证用：跑者能自报实际绑定面与端口。
-                         "bind": BIND, "port": PORT})
+                         "bind": BIND, "port": PORT,
+                         # 生产副本新增⑤（D-114/#82 M5）：合成心跳状态（只增字段）
+                         # ——收端接收链自证读数，语义见文件头 ⑤ 段。
+                         "synthetic_heartbeat": probe_snapshot()})
         else:
             self._reply(404, {"error": "not_found"})
 
@@ -373,6 +544,9 @@ def main():
         f"sources={[s['name'] for s in reg.get('sources', [])]}，"
         f"body 上限 {MAX_BODY // 1024}KiB，注册表只读；"
         f"secret 未配置（该 source 一律 401，fail-closed）：{no_sec or '无'}）")
+    # 生产副本新增⑤（D-114/#82 M5）：端到端合成心跳（旁路探针，daemon 线程，
+    # 崩不了主服——线程内自捕获记账；禁用/缺 secret 留痕不假绿）
+    start_synthetic_heartbeat()
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
