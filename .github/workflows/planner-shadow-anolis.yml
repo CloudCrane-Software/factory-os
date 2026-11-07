@@ -86,7 +86,9 @@ jobs:
       dry_run: true
       wave_number: ${{ github.event.inputs.wave_number || '' }}
       reason: ${{ github.event.inputs.reason || 'cron' }}
-    # 显式映射（短名 LLM/JEV ⇐ repo secret 真身；GITHUB_TOKEN 平台自动授予）
+    # 显式映射（短名 LLM/JEV/MERGE_PAT ⇐ repo secret 真身；GITHUB_TOKEN 平台自动授予）
+    # 注：影子轨 dry_run 硬顶 true ⇒ 09b 恒跳过；MERGE_PAT 映射仅为两轨同源齐形
     secrets:
       LLM: ${{ secrets.LLM_API_KEY }}
       JEV: ${{ secrets.DECISION_API_KEY }}
+      MERGE_PAT: ${{ secrets.PLANNER_MERGE_PAT }}
