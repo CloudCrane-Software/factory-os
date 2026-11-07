@@ -405,7 +405,412 @@
     "gate_exempt": true,
     "note": "周审计为 advisory：永不进门禁 verdict、零触碰 gates/required checks/planner step 08 十校验；结论只进本件与 planner-review 常驻 issue 评论。"
    }
+  },
+  {
+   "schema": "af.planner-audit-weekly.v1",
+   "week": "2026-W45",
+   "generated_at": "2026-11-07T16:37:58+08:00",
+   "trigger": {
+    "event": "workflow_dispatch",
+    "reason": "anolis-pacer-weekly-audit",
+    "run_id": "42356269935"
+   },
+   "window": {
+    "days": 7,
+    "from": "2026-10-31T16:37:30+08:00",
+    "to": "2026-11-07T16:37:30+08:00"
+   },
+   "inputs_summary": {
+    "manifests": [
+     {
+      "wave": "wave-01",
+      "cards": 8,
+      "by_state": {
+       "dispatched": 3,
+       "ledgered": 4,
+       "hold": 1
+      },
+      "in_window": true
+     },
+     {
+      "wave": "wave-02",
+      "cards": 6,
+      "by_state": {
+       "ledgered": 6
+      },
+      "in_window": true
+     },
+     {
+      "wave": "wave-03",
+      "cards": 8,
+      "by_state": {
+       "ledgered": 8
+      },
+      "in_window": true
+     },
+     {
+      "wave": "wave-05",
+      "cards": 9,
+      "by_state": {
+       "merged": 8,
+       "queued": 1
+      },
+      "in_window": true
+     },
+     {
+      "wave": "wave-06",
+      "cards": 10,
+      "by_state": {
+       "merged": 10
+      },
+      "in_window": true
+     },
+     {
+      "wave": "wave-07",
+      "cards": 11,
+      "by_state": {
+       "merged": 9,
+       "rejected": 1,
+       "queued": 1
+      },
+      "in_window": true
+     },
+     {
+      "wave": "wave-08",
+      "cards": 8,
+      "by_state": {
+       "queued": 5,
+       "merged": 3
+      },
+      "in_window": true
+     }
+    ],
+    "quality": [
+     {
+      "wave": "wave-01",
+      "records": 8,
+      "scored": 4,
+      "mean_grade": 1.0
+     },
+     {
+      "wave": "wave-02",
+      "records": 6,
+      "scored": 6,
+      "mean_grade": 1.0
+     },
+     {
+      "wave": "wave-06",
+      "records": 1,
+      "scored": 1,
+      "mean_grade": 2.0
+     }
+    ],
+    "board": {
+     "open_issues_total": null,
+     "wave_open_n": 16,
+     "wave_closed_in_window_n": 33
+    },
+    "ledger": {
+     "rows_total": 132,
+     "done_rows": 115,
+     "open_anchors_n": 17,
+     "anchor_ids": [
+      "RT-C5",
+      "RT-C7",
+      "RT-C4",
+      "RT-PP3",
+      "DEB-1",
+      "DEB-2",
+      "OPS-1",
+      "DEB-3",
+      "DEB-4",
+      "DEB-5",
+      "DEB-6",
+      "DEB-7",
+      "OBS-D1",
+      "OBS-D2",
+      "OBS-D3",
+      "OBS-D4",
+      "OBS-D5",
+      "OBS-D6",
+      "OBS-D7",
+      "DEB-8",
+      "DEB-5a",
+      "DEB-5b",
+      "DEB-9",
+      "DEB-10",
+      "RT-E32-CLEAN",
+      "RT-E32-XCARD",
+      "RT-E31",
+      "RT-E32-ADMIT",
+      "RT-E58",
+      "RT-E67",
+      "RT-E73",
+      "RT-E76",
+      "RT-E79",
+      "RT-E116",
+      "RT-E1",
+      "RT-E6",
+      "RT-E9",
+      "RT-E12",
+      "RT-E13",
+      "RT-E14",
+      "RT-E24",
+      "RT-E27",
+      "RT-E29",
+      "RT-E34",
+      "RT-E40",
+      "RT-E42",
+      "RT-E46",
+      "RT-E49",
+      "RT-E51",
+      "RT-E59",
+      "RT-E63",
+      "RT-E77",
+      "RT-E82",
+      "RT-E83",
+      "RT-E94",
+      "RT-E98",
+      "RT-E101",
+      "RT-E103",
+      "RT-E109",
+      "RT-E110",
+      "RT-E111",
+      "RT-E112",
+      "RT-E117",
+      "RT-E119",
+      "RT-E138",
+      "RT-E164",
+      "RT-E169",
+      "RT-E26",
+      "RT-E28",
+      "RT-E54",
+      "RT-E68",
+      "RT-E85",
+      "RT-E86",
+      "RT-E87",
+      "RT-E88",
+      "RT-E92",
+      "RT-E95",
+      "RT-E96",
+      "RT-E106",
+      "RT-E108",
+      "RT-E113",
+      "RT-E114",
+      "RT-E129",
+      "RT-E135",
+      "RT-E140",
+      "RT-E148",
+      "RT-E151",
+      "RT-E155",
+      "RT-E159",
+      "RT-E160",
+      "RT-E161",
+      "RT-E162",
+      "RT-E163",
+      "RT-E165",
+      "RT-E166",
+      "RT-E216",
+      "RT-E221",
+      "RT-E223",
+      "RT-E229",
+      "RT-E230",
+      "RT-E232",
+      "RT-E235",
+      "RT-E228-M",
+      "RT-E204-M1",
+      "D-54",
+      "D-55",
+      "D-56",
+      "D-57",
+      "D-58",
+      "D-59",
+      "D-60",
+      "D-61",
+      "D-62",
+      "D-63",
+      "D-64",
+      "D-65",
+      "D-66",
+      "D-67",
+      "D-68",
+      "D-86",
+      "D-107",
+      "D-108",
+      "D-109",
+      "D-110",
+      "D-111",
+      "D-112",
+      "D-113",
+      "D-114",
+      "D-115",
+      "D-116",
+      "D-101",
+      "D-117"
+     ]
+    },
+    "anchor_check": {
+     "in_window_cards_with_debt": 60,
+     "resolvable": 29,
+     "unresolvable_n": 31,
+     "open_in_ledger": 5,
+     "done_in_ledger": 24,
+     "resolvable_rate": 0.4833,
+     "dup_with_open_board_n": 28,
+     "dup_with_closed_in_window_n": 23,
+     "board_leg_ok": true,
+     "same_path_overlaps_n": 0,
+     "judge_path_hits_n": 5
+    },
+    "obs_weekly": {
+     "ts": "2026-11-07T00:14:55+08:00",
+     "planner_failures_in_obs_window": 16,
+     "planner_failed_steps": [
+      "plan/step11:07 · 调 GLM-5.3-Flash API",
+      "plan/step11:07 · 调 step-5-preview AP"
+     ]
+    },
+    "planner_runs": {
+     "total": 132,
+     "by_conclusion": {
+      "None": 1,
+      "failure": 61,
+      "cancelled": 10,
+      "success": 60
+     },
+     "by_event": {
+      "workflow_dispatch": 129,
+      "schedule": 3
+     },
+     "last_success_at": "2026-11-07T07:40:05Z"
+    }
+   },
+   "questionnaire": [
+    {
+     "id": "q01",
+     "topic": "锚真实性",
+     "score": 5,
+     "basis": "锚核对：窗口内 60 卡带债，可解析仅 29，resolvable_rate=0.4833，31 项不可解析"
+    },
+    {
+     "id": "q02",
+     "topic": "锚可施工性",
+     "score": 2,
+     "basis": "可解析锚中 open 仅 5/29（open_rate=0.1724），dup_with_open_board_n=28，多数锚已完成或被板面占用"
+    },
+    {
+     "id": "q03",
+     "topic": "验收有效性",
+     "score": null,
+     "basis": "不可证：quality 记录仅给六要件合计通过数，未拆出 C1 验收形制单项通过率"
+    },
+    {
+     "id": "q04",
+     "topic": "卡面自包含",
+     "score": 4,
+     "basis": "六要件通过 37/90（21/48+12/36+4/6），通过率约 41%，且已评分卡全为 C/D 级"
+    },
+    {
+     "id": "q05",
+     "topic": "重复率",
+     "score": 5,
+     "basis": "dup_with_open_board_n=28/60 卡同锚重复，dup_with_closed_in_window_n=23；same_path_overlaps_n=0"
+    },
+    {
+     "id": "q06",
+     "topic": "空波归因",
+     "score": null,
+     "basis": "不可证：digest 无 planner 成功且零出卡的空波记录，latest artifact 为 failure/invalid 非成功空波"
+    },
+    {
+     "id": "q07",
+     "topic": "评审拦截质量",
+     "score": null,
+     "basis": "不可证：窗口内 2 条评论 verdict 均为 unknown，无 block/pass 落板记录"
+    },
+    {
+     "id": "q08",
+     "topic": "上下文新鲜度",
+     "score": 8,
+     "basis": "factory_obs_present=true 且 age=53s 新鲜，仅 legacy-backlog.json 缺场（可选治理件）一条 warning"
+    },
+    {
+     "id": "q09",
+     "topic": "失败模式趋势",
+     "score": null,
+     "basis": "不可证：三条 quality 记录 top_failure_modes 均为空列表，无失败模式读数"
+    },
+    {
+     "id": "q10",
+     "topic": "规划环健康",
+     "score": 2,
+     "basis": "132 runs 中 failure=61、success=60（约45%），latest artifact conclusion=failure、outcome=invalid、cards_total=0"
+    }
+   ],
+   "per_q": {
+    "q01": 5,
+    "q02": 2,
+    "q03": null,
+    "q04": 4,
+    "q05": 5,
+    "q06": null,
+    "q07": null,
+    "q08": 8,
+    "q09": null,
+    "q10": 2
+   },
+   "total": 26,
+   "scored_count": 6,
+   "score_scale": "十题各 0-10，total=Σ（null 不计入；scored_count 明示有效题数）",
+   "trend_vs_last": null,
+   "findings": [
+    {
+     "severity": "high",
+     "question": "q10",
+     "text": "planner 失败率约 46%（61/132），最新 artifact invalid 且零卡，规划环大面积失败"
+    },
+    {
+     "severity": "high",
+     "question": "q02",
+     "text": "可解析锚中 open 仅 5/29，28 卡与板面 open 卡同锚重复，锚可施工性差"
+    },
+    {
+     "severity": "medium",
+     "question": "q01",
+     "text": "60 张带债卡中 31 项锚不可解析（resolvable_rate=0.4833），含 wave-05/06 大批 D 系锚"
+    },
+    {
+     "severity": "medium",
+     "question": "q04",
+     "text": "六要件通过率仅 41%（37/90），已评分卡 10 张全为 C/D 级，卡面自包含不足"
+    },
+    {
+     "severity": "info",
+     "question": "general",
+     "text": "obs_weekly 状态 red，planner_failures_in_obs_window=16，失败聚因指向 GLM-5.3-Flash/step-5-preview API 调用"
+    }
+   ],
+   "llm": {
+    "provider": "tokenrhythm",
+    "model": "glm-5.3",
+    "status": "ok",
+    "attempts": 1,
+    "latency_s": 19.8,
+    "usage": {
+     "prompt_tokens": 4081,
+     "completion_tokens": 1146,
+     "total_tokens": 5227,
+     "finish_reason": "stop"
+    },
+    "temperature": 0.2,
+    "max_tokens": 4096
+   },
+   "llm_status": "ok",
+   "advisory": {
+    "gate_exempt": true,
+    "note": "周审计为 advisory：永不进门禁 verdict、零触碰 gates/required checks/planner step 08 十校验；结论只进本件与 planner-review 常驻 issue 评论。"
+   }
   }
  ],
- "last_report_at": "2026-11-07T16:00:19+08:00"
+ "last_report_at": "2026-11-07T16:37:58+08:00"
 }
