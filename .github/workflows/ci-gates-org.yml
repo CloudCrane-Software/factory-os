@@ -48,6 +48,15 @@ jobs:
   org-ci-gates:
     name: org-ci-gates（.github#16 第二批四门点选试用）
     uses: CloudCrane-Software/.github/.github/workflows/ci-gates.yml@main
+    # ★ A1 fork 守卫（红队 H1 收紧 · 2026-11-07 · 运营者批 A1）：
+    #   本作业是 workflow_call 委托作业——被委托 org 件（.github 仓
+    #   ci-gates.yml）的批2/批3 作业以 g2_runs_on=anolis-heavy 落自托管
+    #   runner，并以 g2_checkout_url/ref 检出 PR 头仓/头分支代码执行之。
+    #   fork 头不得上自托管 runner：非 pull_request 放行；pull_request 仅
+    #   同仓头（head.repo.fork == false）放行，fork 头委托整体跳过。
+    #   （job 级 uses 作业允许 if；org 件 A-22 卫生门 R19 只禁恒假——
+    #   本式于非 PR 事件恒真、于 fork PR 恒假，均非「悄悄关整门」形态。）
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
     with:
       g2_scope: 'batch2-only'
       g2_runs_on: 'anolis-heavy'
