@@ -125,10 +125,13 @@ jobs:
           persist-credentials: true
 
       # ── 采集：manifest 近 7 天 + 板面结局 + planner-quality 读数 + 上周周报基线 ──
+      # 工件（audit-inputs/answers/summary）一律落 $RUNNER_TEMP——**禁入 git 检出树**：
+      # 本工作流 checkout 在 runner 根（与 planner 的 factory-os/ 子目录检出不同），
+      # 工件落仓内会污染 05 步「工作树干净」闸（run#1 实测教训）。
       - name: '02 · 采集审计输入（只读：仓内账面 + GitHub API；采不到即 degraded 点名）'
         run: |
           set -euo pipefail
-          python3 -I tools/planner-audit-weekly.py --collect --out audit-inputs.json
+          python3 -I tools/planner-audit-weekly.py --collect --out "$RUNNER_TEMP/audit-inputs.json"
 
       # ── 问卷：glm-5.3 十题（fail-open advisory：不可达 ⇒ answers.status=unavailable，
       #    报告照落空壳；本步捕获 rc 不中断，末步状态闸统一 fail-loud）──────────────
@@ -140,18 +143,19 @@ jobs:
           export NO_PROXY="tokenrhythm.studio,${NO_PROXY:-}" no_proxy="tokenrhythm.studio,${no_proxy:-}"
           rc=0
           python3 -I tools/planner-audit-weekly.py --answer \
-            --in audit-inputs.json --out audit-answers.json || rc=$?
+            --in "$RUNNER_TEMP/audit-inputs.json" --out "$RUNNER_TEMP/audit-answers.json" || rc=$?
           echo "answer_rc=$rc" >> "$GITHUB_OUTPUT"
           echo "问卷步 rc=$rc（3=不可达 fail-open advisory；0=ok/partial）"
 
       # ── 组装：周报（append-only，路径按周编号派生波次清单/quality/weekly-YYYYWW.json）+ 摘要 ──
+      # 周报件是唯一**有意**入仓的产物（走 05 两段式合线）；摘要落 RUNNER_TEMP。
       - name: '04 · 组装周报 weekly-<YYYY>W<WW>.json（append-only）+ 摘要'
         id: assemble
         run: |
           set -euo pipefail
           python3 -I tools/planner-audit-weekly.py --assemble \
-            --in audit-inputs.json --answers audit-answers.json \
-            --summary weekly-summary.md
+            --in "$RUNNER_TEMP/audit-inputs.json" --answers "$RUNNER_TEMP/audit-answers.json" \
+            --summary "$RUNNER_TEMP/weekly-summary.md"
 
       # ── 两段式第一段：commit 周报到 audit/weekly-<week> 分支（append-only；禁覆盖历史）──
       - name: '05 · commit 周报 → audit/weekly-<week> 分支（append-only）'
@@ -251,6 +255,7 @@ jobs:
         if: ${{ !cancelled() }}
         env:
           WEEK: ${{ steps.assemble.outputs.week }}
+          SUMMARY_PATH: ${{ runner.temp }}/weekly-summary.md
         run: |
           set -euo pipefail
           DRY_RUN="$DRY_RUN" WEEK="$WEEK" PR_NUM="${{ steps.merge_pr.outputs.pr_num }}" \
@@ -269,7 +274,7 @@ jobs:
               r = subprocess.run(["gh"] + args, capture_output=True, input=inp, text=True, timeout=60)
               return r.returncode, r.stdout, r.stderr
 
-          summary = open("weekly-summary.md", encoding="utf-8").read().strip()
+          summary = open(os.environ["SUMMARY_PATH"], encoding="utf-8").read().strip()
           if dry:
               status = "DRY_RUN=true 演练——未 commit 未合线未评论（演练语义，零板面写入）"
           elif merged == "true":
@@ -310,7 +315,7 @@ jobs:
                       "纪律：两族评论均为 advisory——永不进门禁 verdict，零触碰 gates/required "
                       "checks/planner step 08 十校验。\n\n"
                       "本 issue 由工作流自动查找/建立（标题前缀幂等检索）。")
-              rc, out, err = gh(["-X", "POST", "repos/%s/%s/issues" % (ORG, REPO),
+              rc, out, err = gh(["api", "-X", "POST", "repos/%s/%s/issues" % (ORG, REPO),
                                  "-f", "title=%s · planner 规划质量常驻 issue" % PREFIX,
                                  "-f", "body=%s" % body, "--jq", ".number"])
               if rc != 0:
@@ -323,7 +328,7 @@ jobs:
               print("DRY_RUN：评论不落板（suppressed）。目标 issue #%d（created=%s）" % (n, created))
               print(comment)
               sys.exit(0)
-          rc, out, err = gh(["-X", "POST", "repos/%s/%s/issues/%d/comments" % (ORG, REPO, n),
+          rc, out, err = gh(["api", "-X", "POST", "repos/%s/%s/issues/%d/comments" % (ORG, REPO, n),
                              "-f", "body=%s" % comment, "--jq", ".id"])
           if rc != 0:
               # 评论投递失败不改审计结论——周报件已落库（或留 PR），如实点名
@@ -332,8 +337,11 @@ jobs:
               sys.exit(0)
           print("评论已落 planner-review 常驻 issue #%d（created=%s · comment_id=%s）"
                 % (n, created, out.strip()))
+          PY
 
       # ── run 摘要 + artifact（禁含密钥与 LLM 响应正文——只落分数/依据/usage）──
+      # 工件路径一律 $RUNNER_TEMP（禁入检出树——05 步工作树干净闸；run#1 实测教训）；
+      # 周报件在检出树内（05 步有意提交的那个），glob 收之。
       - name: '08 · run 摘要 + artifact 上传'
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
@@ -341,9 +349,9 @@ jobs:
           name: planner-audit-weekly-${{ github.run_id }}
           if-no-files-found: warn
           path: |
-            audit-inputs.json
-            audit-answers.json
-            weekly-summary.md
+            ${{ runner.temp }}/audit-inputs.json
+            ${{ runner.temp }}/audit-answers.json
+            ${{ runner.temp }}/weekly-summary.md
             波次清单/quality/weekly-*.json
 
       - name: '09 · 问卷状态闸（advisory fail-loud：不可达 ⇒ run 红；缺题 ⇒ 黄标警告）'
@@ -356,9 +364,9 @@ jobs:
             echo "### 周审计收口"
             echo "- 问卷步 rc=${ANSWER_RC} · 状态=${STATUS}"
           } >> "$GITHUB_STEP_SUMMARY"
-          if [ -s weekly-summary.md ]; then
+          if [ -s "$RUNNER_TEMP/weekly-summary.md" ]; then
             printf '\n' >> "$GITHUB_STEP_SUMMARY"
-            cat weekly-summary.md >> "$GITHUB_STEP_SUMMARY"
+            cat "$RUNNER_TEMP/weekly-summary.md" >> "$GITHUB_STEP_SUMMARY"
           fi
           if [ "$STATUS" = "unavailable" ] || [ "$ANSWER_RC" = "3" ]; then
             echo "问卷不可达（status=unavailable）：本周周报为空壳（scores 全 null + 结构化 finding），"
