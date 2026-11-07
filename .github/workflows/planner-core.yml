@@ -1895,7 +1895,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 -I - <<'PY'
-          import fnmatch, glob, json, os, re, subprocess, sys
+          import glob, json, os, re, subprocess, sys
           from datetime import datetime, timezone, timedelta
 
           errors, warnings = [], []
@@ -1918,12 +1918,20 @@ jobs:
               "quality:A", "quality:B", "quality:C", "quality:D",
               "ticket:needs-human", "ticket:requested", "ticket:revoked",
           }
-          # ── M-4 判官面双源：① CODEOWNERS 派生面（运行时实读 factory-os/CODEOWNERS，
-          #    = judge-paths.md §二「仓级锁面」的机器正本）；② judge-paths.md 静态派生族
+          # ── M-4 判官面单源（裁 9 · 2026-11-07 运营者准）：judge-paths.md 静态族
           #    （定义源 .github 治理仓 docs/judge-paths.md §一/§二/§三：含 factory-os
-          #    CODEOWNERS 派生缺口行 .github/workflows/gates.yml（该件 §二表 :82 行注）
+          #    仓级 CODEOWNERS 派生缺口行 .github/workflows/gates.yml（该件 §二表 :82 行注）
           #    与 af 仓 ci/** 判官族/判据钉面）。命中 ⇒ 硬红 invalid——收紧：原仅 warning
-          #    不硬红（rt-e82/83 双案拒收主因 = 本次补强直接动机）──
+          #    不硬红（rt-e82/83 双案拒收主因 = 本次补强直接动机）。
+          #    裁 9 依据（原双源 = CODEOWNERS 实读派生 ∪ judge-paths 静态族 → 单源）：
+          #    双源时代 CODEOWNERS 源把 /tools/ 整树判官面化，首张真卡
+          #    allowed_paths=tools/disk-waterline-carrier.py＋tools/test-disk-waterline-carrier.py
+          #    被误拦（run 42366275279 step 08 outcome=invalid）；而今日 57+ 张 tools/ PR
+          #    经标准流合线实证 tools/ 非判官禁入面 ⇒ 语义错位，改按登记表点名单判定。
+          #    对真判官件此变更属变严方向（登记表点名单 < CODEOWNERS 全树；swev-judge-v2.py
+          #    等公认判官件已同批补条登记，.github docs/judge-paths.md §二）。
+          #    CODEOWNERS 原样不动（合并期 owner-review 门保留，职责分离：合不进去归
+          #    CODEOWNERS／分支保护，判官面判定归登记表单源）──
           JUDGE_KEYWORD = re.compile(
               r"(all-gates\.sh|gate-pins\.list|gate-pins-refresh|gate_inputs|subgates\.list"
               r"|mirror-scan-allowlist|clippy-baseline|scorechain-manifest|CODEOWNERS"
@@ -1933,7 +1941,14 @@ jobs:
               r"|crates/af-execline/src/judge\.rs|(?:[^\s`]*/)?crates/.*/tests/"
               r"|numbers\.json|deliverables\.yaml|doc-claims\.txt"
               r"|rust-toolchain\.toml|Cargo\.toml|Cargo\.lock)")
-          JUDGE_STATIC_FACTORYOS = (".github/workflows/gates.yml",)
+          # factory-os 静态缺口族（judge-paths.md §二登记表点名单的机器编码）：
+          # gates.yml 接线件 + 审卡闸/占用闸两门本体（裁 9 补名——双源时代二者经
+          # CODEOWNERS[/tools/] 派生进场（③ 只读证据引用合法）；单源后不点名即
+          # 丢判官面识别、误伤「证据只读引用门本体」标准形（D-97/D-119/D-123 卡
+          # 同款）。属变严方向（登记表点名单扩容，.github 侧同批补条）。
+          JUDGE_STATIC_FACTORYOS = (".github/workflows/gates.yml",
+                                    "tools/card-selfcontainment-check.py",
+                                    "tools/dispatch-occupancy-check.py")
           # ── M-2 跨仓/工作区裸前缀（本环只检出 factory-os；af/厂内工作区树件读不到
           #    ⇒ warning 不假红；不可证不等于证明在场）──
           CROSS_TREE_BARE = ("af/", "crates/", "ci/", "proofs/", "strategies/",
@@ -1950,38 +1965,8 @@ jobs:
               s = s.split("（")[0].split("(")[0].strip().strip("`\"'")
               return repo, (s or None)
 
-          def codeowners_patterns():
-              pats = []
-              co = os.path.join("factory-os", "CODEOWNERS")
-              if os.path.exists(co):
-                  with open(co, encoding="utf-8") as f:
-                      for ln in f:
-                          ln = ln.strip()
-                          if not ln or ln.startswith("#") or ln.startswith("★"):
-                              continue
-                          parts = ln.split()
-                          if len(parts) >= 2 and parts[1].startswith("@"):
-                              pats.append(parts[0])
-              else:
-                  warnings.append("M-4: factory-os/CODEOWNERS 缺场——判官面①源退化，仅余②静态族")
-              return pats
-
-          def codeowners_hit(rel, pats):
-              rn = "/" + rel.lstrip("/")
-              for p in pats:
-                  pn = p.lstrip("/")
-                  if pn.endswith("/"):
-                      if rn.startswith("/" + pn) or rn == "/" + pn.rstrip("/"):
-                          return p
-                  elif any(ch in pn for ch in "*?["):
-                      if fnmatch.fnmatch(rn, "/" + pn) or fnmatch.fnmatch(rel, pn):
-                          return p
-                  elif rn == "/" + pn or rn.startswith("/" + pn + "/"):
-                      return p
-              return None
-
-          def judge_hit(ent, pats):
-              """allowed_paths 条目 × 判官面双源；返回命中描述或 None。"""
+          def judge_hit(ent):
+              """allowed_paths 条目 × 判官面单源（judge-paths.md 静态族）；返回命中描述或 None。"""
               m = JUDGE_KEYWORD.search(str(ent))
               if m:
                   return "关键词族[%s]" % m.group(1)
@@ -1994,10 +1979,6 @@ jobs:
               for st in JUDGE_STATIC_FACTORYOS:
                   if rel == st or rel.startswith(st + "/"):
                       return "judge-paths.md factory-os 派生缺口[%s]" % st
-              if repo in ("", "factory-os"):
-                  p = codeowners_hit(rel, pats)
-                  if p:
-                      return "CODEOWNERS[%s]" % p
               return None
 
           # ── schema v1.1（2026-11-06；只增不改）：三可选键常量 ──
@@ -2101,8 +2082,7 @@ jobs:
           done_anchors = {a["id"] for a in (ledger.get("anchors") or []) if a.get("done")}
           all_anchors = {a["id"] for a in (ledger.get("anchors") or [])}
           CHANNELS = {"anolis-build", "local-api", "bot-lane"}
-          # 判官面①源一次性装载（M-4）；M-7 预算（同波 task 全集、台账锚全集、同波依赖边）
-          co_pats = codeowners_patterns()
+          # M-7 预算（同波 task 全集、台账锚全集、同波依赖边）
           task_ids_all = {c.get("task_id") for c in cards if isinstance(c, dict)}
           ledger_anchor_ids = {a.get("id") for a in (ledger.get("anchors") or [])}
           same_wave_deps = {}
@@ -2244,16 +2224,17 @@ jobs:
                                     "repo#n 板号 三形之一）：%r" % (tag, j, d[:60]))
               if "title" not in c:
                   warnings.append("%s 缺 title（建议补，进 Issue 标题）" % tag)
-              # ── M-4：allowed_paths × 判官面双源（CODEOWNERS 运行时实读派生 ∪
-              #    judge-paths.md 静态派生族）求交非空 ⇒ 硬红 invalid。收紧：原仅 warning
-              #    不硬红（rt-e82/83 双案拒收主因＝疑似警告不硬红）；判官/门/判据件一改
-              #    即拒收，禁入 allowed_paths——判据变更走「裁决＋同批重钉」正路 ──
+              # ── M-4：allowed_paths × 判官面单源（judge-paths.md 静态族 = 登记表点名单；
+              #    裁 9：原 CODEOWNERS 实读派生源误拦 tools/ 非登记表路径（disk-waterline
+              #    首卡假红）已去除）求交非空 ⇒ 硬红 invalid。收紧：原仅 warning 不硬红
+              #    （rt-e82/83 双案拒收主因＝疑似警告不硬红）；判官/门/判据件一改即拒收，
+              #    禁入 allowed_paths——判据变更走「裁决＋同批重钉」正路 ──
               if isinstance(ap, list):
                   for j, ent in enumerate(ap):
-                      hit = judge_hit(ent, co_pats)
+                      hit = judge_hit(ent)
                       if hit:
-                          errors.append("M-4: %s allowed_paths[%d] 命中判官面（%s）——禁入白名单"
-                                        "（仓级 CODEOWNERS 锁 @feasy898，改了合不进去）：%s"
+                          errors.append("M-4: %s allowed_paths[%d] 命中判官面（judge-paths 登记表：%s）"
+                                        "——禁入白名单（判官/门/判据件一改即拒收，登记表点名）：%s"
                                         % (tag, j, hit, str(ent)[:80]))
 
           # ── M-8 板面漂移探针：板面实读状态词汇越出正本 ⇒ warning（板/治理面漂移，
