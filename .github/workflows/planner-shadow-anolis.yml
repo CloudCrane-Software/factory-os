@@ -505,22 +505,175 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       # ── 双仓落盘：.github 治理面（模板+配额副本）与 factory-os（账面+板）──
-      - name: '01 · checkout 治理面（.github：提示词模板 + 配额状态副本）'
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ env.ORG }}/${{ env.GOVERNANCE_REPO }}
-          path: governance
-          sparse-checkout: |
-            planner
-          persist-credentials: false
+      # ★ 三级克隆兜底链（2026-11-07；gates.yml 检出步同款移植，只动本两步）：
+      #   病灶实录：anolis runner（anolis-fos-01）全程经 100.64.0.6:7890 代理
+      #   出网，actions/checkout 的「api.github.com 默认分支探测」+ codeload
+      #   拉动作包/仓库间歇 cancelled / SSL 败（github.com 域族在 anolis 的
+      #   已知分裂面）——2026-11-07 夜 6/6 折在 step 01；且失败残留的空仓库
+      #   会毒化后续 run（checkout 自清理撞 `reset --hard HEAD` 无头可复位）。
+      #   故以零外部 action 的手写 git 三级兜底替换 actions/checkout：
+      #     L1 github.com 直连 clone（现状原样口径）→ L2 经 runner env 代理
+      #     clone（3 试）→ L3 codeload tarball 解包（--noproxy '*' 直连第三
+      #     路由，3 试）；三级皆败 fail-closed 判红，不吞红、不放宽。
+      #   凭据纪律：两仓皆公开 ⇒ 匿名 clone，零凭据进 argv/URL；rm -rf 先行
+      #   清残仓（毒源根治）。门语义零改动（后续步只消费文件面；DRY_RUN 强制
+      #   门、触发器、其余步骤一字不动）。
+      - name: '01 · checkout 治理面（.github：提示词模板 + 配额状态副本）· 三级克隆兜底'
+        env:
+          AF_ORG: ${{ env.ORG }}
+          AF_GOV_REPO: ${{ env.GOVERNANCE_REPO }}
+        run: |
+          set -eu
+          set -o pipefail
+          ORG="${AF_ORG:-CloudCrane-Software}"
+          REPO="${AF_GOV_REPO:-.github}"
+          REF="${GITHUB_REF_NAME:-main}"
+          URL="https://github.com/${ORG}/${REPO}.git"
+          DEST="governance"
+          rm -rf "$DEST"
+          VIA=""
+          if git clone --depth 1 --branch "$REF" "$URL" "$DEST" \
+             && git -C "$DEST" sparse-checkout set --cone planner; then
+            VIA="L1-git-clone-direct"
+          else
+            echo "[fallback] L1 github.com 直连 clone 失败——转 L2 代理 clone" >&2
+            PROXY="${https_proxy:-${HTTPS_PROXY:-${http_proxy:-${HTTP_PROXY:-}}}}"
+            if [ -n "$PROXY" ]; then
+              attempt=0
+              until [ "$attempt" -ge 3 ]; do
+                rm -rf "$DEST"
+                if git -c http.proxy="$PROXY" clone --depth 1 --branch "$REF" "$URL" "$DEST" \
+                   && git -C "$DEST" sparse-checkout set --cone planner; then
+                  VIA="L2-git-clone-proxy"
+                  break
+                fi
+                attempt=$((attempt + 1))
+                echo "[fallback] L2 代理 clone 失败（第 $attempt/3 次）——5s 后重试" >&2
+                sleep 5
+              done
+            else
+              echo "[fallback] L2 无代理变量可取（runner env 缺 http(s)_proxy）——跳过转 L3" >&2
+            fi
+          fi
+          if [ -z "$VIA" ]; then
+            echo "[fallback] L2 代理 clone 不可用/均失败——转 L3 codeload tarball" >&2
+            TARURL="https://codeload.github.com/${ORG}/${REPO}/tar.gz/refs/heads/${REF}"
+            STAGE="$(mktemp -d)"
+            trap 'rm -rf "$STAGE"' EXIT
+            attempt=0
+            until [ "$attempt" -ge 3 ]; do
+              rm -rf "$DEST" "$STAGE"
+              mkdir -p "$DEST" "$STAGE"
+              # --noproxy '*'：L3 刻意直连 codeload（第三条路由），不受代理变量
+              # 牵连——代理死时 tarball 路仍活（gates.yml 卡#43 实测同款）。
+              # 顶层目录名（.github-main 形制）由 --strip-components=1 剥掉。
+              if curl -fsSL --noproxy '*' --connect-timeout 15 --max-time 300 "$TARURL" \
+                 | tar -xz -C "$STAGE" --strip-components=1 \
+                 && [ -d "$STAGE/planner" ]; then
+                # sparse-checkout: planner 等价树面：只取 planner/ 树进 DEST
+                mv "$STAGE/planner" "$DEST/planner"
+                VIA="L3-codeload-tarball"
+                break
+              fi
+              attempt=$((attempt + 1))
+              echo "[fallback] L3 codeload tarball 失败（第 $attempt/3 次）——5s 后重试" >&2
+              sleep 5
+            done
+          fi
+          if [ -z "$VIA" ]; then
+            echo "[fallback] 三级皆失败（直连 clone/代理 clone/codeload tarball）——fail-closed 判红" >&2
+            exit 1
+          fi
+          [ -d "$DEST/planner" ] || { echo "检出树缺 planner/（稀疏目标缺席）——fail-closed 判红" >&2; exit 1; }
+          if [ -d "$DEST/.git" ]; then
+            git -C "$DEST" --no-pager log --oneline -1
+          else
+            echo "（L3 tarball 检出无 .git——文件面等价，跳过 git log）"
+          fi
+          echo "检出治理面：ref=$REF url=$URL｜经=$VIA（planner 模板+配额副本就位；persist-credentials=false 同款匿名口径）"
 
-      - name: '02 · checkout 账面（factory-os：波次清单 + 账本，板同仓）'
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ github.repository }}
-          path: factory-os
-          token: ${{ secrets.GITHUB_TOKEN }}
-          persist-credentials: true
+      - name: '02 · checkout 账面（factory-os：波次清单 + 账本，板同仓）· 三级克隆兜底'
+        env:
+          AF_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          set -o pipefail
+          REPO="${GITHUB_REPOSITORY:-CloudCrane-Software/factory-os}"
+          REF="${GITHUB_REF_NAME:-main}"
+          URL="https://github.com/${REPO}.git"
+          DEST="factory-os"
+          rm -rf "$DEST"
+          VIA=""
+          if git clone --depth 1 --branch "$REF" "$URL" "$DEST"; then
+            VIA="L1-git-clone-direct"
+          else
+            echo "[fallback] L1 github.com 直连 clone 失败——转 L2 代理 clone" >&2
+            PROXY="${https_proxy:-${HTTPS_PROXY:-${http_proxy:-${HTTP_PROXY:-}}}}"
+            if [ -n "$PROXY" ]; then
+              attempt=0
+              until [ "$attempt" -ge 3 ]; do
+                rm -rf "$DEST"
+                if git -c http.proxy="$PROXY" clone --depth 1 --branch "$REF" "$URL" "$DEST"; then
+                  VIA="L2-git-clone-proxy"
+                  break
+                fi
+                attempt=$((attempt + 1))
+                echo "[fallback] L2 代理 clone 失败（第 $attempt/3 次）——5s 后重试" >&2
+                sleep 5
+              done
+            else
+              echo "[fallback] L2 无代理变量可取（runner env 缺 http(s)_proxy）——跳过转 L3" >&2
+            fi
+          fi
+          if [ -z "$VIA" ]; then
+            echo "[fallback] L2 代理 clone 不可用/均失败——转 L3 codeload tarball" >&2
+            TARURL="https://codeload.github.com/${REPO}/tar.gz/refs/heads/${REF}"
+            attempt=0
+            until [ "$attempt" -ge 3 ]; do
+              rm -rf "$DEST" && mkdir -p "$DEST"
+              # --noproxy '*'：L3 刻意直连 codeload（第三条路由）；顶层目录名
+              # （factory-os-main 形制）由 --strip-components=1 剥掉。
+              if curl -fsSL --noproxy '*' --connect-timeout 15 --max-time 300 "$TARURL" \
+                 | tar -xz -C "$DEST" --strip-components=1; then
+                VIA="L3-codeload-tarball"
+                break
+              fi
+              attempt=$((attempt + 1))
+              echo "[fallback] L3 codeload tarball 失败（第 $attempt/3 次）——5s 后重试" >&2
+              sleep 5
+            done
+          fi
+          if [ -z "$VIA" ]; then
+            echo "[fallback] 三级皆失败（直连 clone/代理 clone/codeload tarball）——fail-closed 判红" >&2
+            exit 1
+          fi
+          # persist-credentials: true 同款：内置 Token 只写本仓 .git/config 的
+          # extraheader（actions/checkout 同款写法），供 09/09b 的 git push /
+          # ls-remote 走 origin 认证。Token 经 printf 管道入 config——不进
+          # argv、不回显、不落全局配置；禁打印纪律不变。
+          TOKEN="${AF_TOKEN:-${GH_TOKEN:-}}"
+          [ -n "$TOKEN" ] || { echo "GITHUB_TOKEN 缺席——push 凭据无从配置，fail-closed 判红" >&2; exit 1; }
+          if [ -d "$DEST/.git" ]; then
+            git -C "$DEST" remote set-url origin "$URL"
+          else
+            # L3 tarball 无 .git——为 09/09b 的 commit/push 重建 git 面
+            # （init + 全树一次基线 commit + origin；树与 REF 尖端等价）。
+            # 注：该基线分支史与 main 不连续（第三路由末位兜底；L1/L2 在位时
+            # 本分支不触发），09 步 append-only 推 planner/<wave> 语义不变。
+            git -C "$DEST" init -q -b main
+            git -C "$DEST" add -A
+            git -C "$DEST" -c user.name="planner-bot" \
+              -c user.email="planner-bot@users.noreply.github.com" \
+              commit -q -m "L3 codeload tarball 重建基线 ${REF} · run ${GITHUB_RUN_ID}"
+            git -C "$DEST" remote add origin "$URL"
+            echo "[fallback] L3 tarball 检出无 .git——已重建 git 面（init+基线 commit+origin）" >&2
+          fi
+          git -C "$DEST" config --unset-all http.https://github.com/.extraheader 2>/dev/null || true
+          printf '[http "https://github.com/"]\n\textraheader = Authorization: basic %s\n' \
+            "$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)" \
+            >> "$DEST/.git/config"
+          git -C "$DEST" --no-pager log --oneline -1
+          echo "检出账面：ref=$REF url=$URL｜经=$VIA（persist-credentials=true 同款：Token 已入本仓 .git/config）"
 
       # ── 调用账本（配额计数）：cache best-effort，供 03b 跨跑守卫 ──
       - name: '03a · 恢复调用账本（best-effort；cache 可能 miss/evict）'
