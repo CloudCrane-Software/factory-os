@@ -672,18 +672,24 @@ def assemble_report(inp, answers, week, trigger):
     }
 
 
-def wrap_append(out_path, report, week):
+def wrap_append(out_path, report, week, read_path=None):
     """append-only 落盘：新件建 wrapper；已有本 schema wrapper ⇒ 追加（旧件一字不动）；
     已存在非本 schema 内容 ⇒ fail-closed 拒写（禁覆盖未知内容）。
+
+    read_path：既有内容的读取源（默认=out_path 自身）。周审计工作流取
+    「仓内波次清单/quality/weekly-*.json 为读源、$RUNNER_TEMP 为写源」——周报件是
+    05 步唯一有意入仓产物，须先过「工作树干净」闸再落树（planner step 09 同款次序）。
     返回 (ok, detail)。"""
     fname = week_filename(week)
     if os.path.dirname(out_path) and not os.path.isdir(os.path.dirname(out_path)):
         os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    if os.path.exists(out_path):
+    src = read_path if (read_path and os.path.exists(read_path)) else \
+        (out_path if os.path.exists(out_path) else None)
+    if src:
         try:
-            existing = json.load(open(out_path, encoding="utf-8"))
+            existing = json.load(open(src, encoding="utf-8"))
         except Exception as e:
-            return False, "目标文件存在但不可解析（%s）——拒写（禁覆盖）" % type(e).__name__
+            return False, "既有周报件不可解析（%s）——拒写（禁覆盖）" % type(e).__name__
         if isinstance(existing, dict) and existing.get("schema") == SCHEMA:
             reports = existing.get("reports")
             if not isinstance(reports, list):
@@ -694,7 +700,7 @@ def wrap_append(out_path, report, week):
             existing["last_report_at"] = report.get("generated_at")
             blob = existing
         else:
-            return False, ("目标文件 %s 非 %s（schema=%r）——拒写（append-only 禁覆盖未知内容）"
+            return False, ("既有周报件 %s 非 %s（schema=%r）——拒写（append-only 禁覆盖未知内容）"
                            % (fname, SCHEMA, (existing or {}).get("schema") if isinstance(existing, dict) else None))
     else:
         blob = {"schema": SCHEMA, "week": week, "reports": [report],
@@ -1263,13 +1269,16 @@ def assemble(inputs_path, answers_path, out_path, summary_path, week=None, trigg
     inp = json.load(open(inputs_path, encoding="utf-8"))
     answers = json.load(open(answers_path, encoding="utf-8")) if answers_path else {}
     week = week or week_id_of(datetime.now(TZ8))
+    # 仓内权威路径（append-only 读源）：既有周报件在此（合线后）；写出路径由调用方定
+    # （工作流落 $RUNNER_TEMP，05 步过干净闸后再落树——planner step 09 同款次序）。
+    repo_weekly = os.path.join(WAVE_DIR, QUALITY_SUBDIR, week_filename(week))
     if not out_path:
-        out_path = os.path.join(WAVE_DIR, QUALITY_SUBDIR, week_filename(week))
+        out_path = repo_weekly
     trigger = trigger or {"event": os.environ.get("GITHUB_EVENT_NAME") or "local",
                           "reason": os.environ.get("RUN_REASON") or "local",
                           "run_id": os.environ.get("GITHUB_RUN_ID") or "local"}
     report = assemble_report(inp, answers, week, trigger)
-    ok, detail = wrap_append(out_path, report, week)
+    ok, detail = wrap_append(out_path, report, week, read_path=repo_weekly)
     if not ok:
         print("assemble 拒写：%s" % detail, file=sys.stderr)
         return None, detail
@@ -1434,6 +1443,22 @@ def self_test():
             json.dump({"schema": "someone.else.v1"}, f)
         ok, d = wrap_append(foreign, r1, "2026-W44")
         ck("异 schema 拒写", not ok and "拒写" in d, d)
+
+        # ⑧b read_path 分离（run#2 热修形制）：仓内件只读、$RUNNER_TEMP 件为写源
+        repo_wp = os.path.join(tmp, "repo", "weekly-2026W45.json")
+        os.makedirs(os.path.dirname(repo_wp), exist_ok=True)
+        ok, d = wrap_append(repo_wp, r1, "2026-W45")
+        ck("仓内首份 ok", ok, d)
+        tmp_wp = os.path.join(tmp, "tmp", "weekly-report.json")
+        ok, d = wrap_append(tmp_wp, r2, "2026-W45", read_path=repo_wp)
+        ck("读仓内/写临时 ok", ok, d)
+        blob = json.load(open(tmp_wp, encoding="utf-8"))
+        ck("临时件含仓内旧件+新件", [r["generated_at"] for r in blob["reports"]] == ["t1", "t2"], blob)
+        ck("仓内件未被写坏（仍 1 件）",
+           len(json.load(open(repo_wp, encoding="utf-8"))["reports"]) == 1)
+        tmp_fresh = os.path.join(tmp, "tmp", "weekly-report-fresh.json")
+        ok, d = wrap_append(tmp_fresh, r2, "2026-W45", read_path=os.path.join(tmp, "nope.json"))
+        ck("读源缺席⇒新件", ok and len(json.load(open(tmp_fresh, encoding="utf-8"))["reports"]) == 1, d)
 
         # ⑨ assemble_report：total 只计非 null；scored_count
         ans = {"status": "partial", "per_q": cur,
