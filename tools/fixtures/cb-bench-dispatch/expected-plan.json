@@ -1,0 +1,42 @@
+{
+  "schema": "af.cb-bench-dispatch.expected-plan.v1",
+  "fixture": "forward-seg.md",
+  "note": "cb-bench-dispatch.py --selftest 的期望载荷断言件（D-130 · factory-os#145）：对 forward-seg.md 渲染结果的形状断言，零网络零凭据；改本件=改夹具判据，随主件同批评审。",
+  "expect": {
+    "debt": "D-130",
+    "task_id": "cnb-bench-dispatch-smoke",
+    "card_format": "machine-block",
+    "cnb_repo": "Cloudbird-Software/cb-npc-poc",
+    "cnb_kv_path": "company/Git-Platform/CNB/CNB-1-all-privilege",
+    "cnb_issue_title_prefix": "[D-130]",
+    "cnb_comment_first_word": "@CodeBuddy",
+    "work_mode": true,
+    "required_keys": [
+      "schema",
+      "github_issue",
+      "task_id",
+      "debt",
+      "depends_on_raw",
+      "card_format",
+      "cnb_repo",
+      "cnb_org",
+      "cnb_kv_path",
+      "cnb_issue_title",
+      "cnb_issue_body",
+      "cnb_comment",
+      "work_mode",
+      "trigger_contract",
+      "fingerprints",
+      "preflight",
+      "plan_generated_at"
+    ],
+    "fingerprint_len": 12,
+    "trigger_contract": {
+      "new_issue_comments_lt_100": true,
+      "codebuddy_first_word_plain_paragraph": true,
+      "one_npc_session_per_card": true,
+      "never_edit_sent_comment": true
+    },
+    "zero_post": true
+  }
+}
