@@ -29,6 +29,14 @@ v2 修法（三缺陷各自最小修法，判定语义变更逐条列于本 docs
      "agent.diff 须含 'diff --git'（至少排除取证错误文本）"）。空 diff（0 字节）
      仍照常判日志（C6 口径不变），但标 diff_valid=false+reason=empty。
      invalid_diff 判定不构建 spec、零网络。
+  ④ A6 参数化 ID 归一化（运营者裁决 A6 · 2026-11-07；非缺陷修复，是判据面
+     经授权的精确化）：P2P 对账时 test_x[] ↔ test_x[<任意参数串>] 视为同 ID
+     ——仅形态等价（参数段整体置换：空参数段 ↔ 任意非空参数串；禁部分通配、
+     禁跨用例名、双非空参数段仍逐字），其余逐字比对不变；双射校验（unmatched
+     双侧计数）不变；任何实质 FAIL 仍红。修误判非放宽：D-117 容器实跑 242/242
+     零实败，唯一失配是数据集字面 ID `test_compose_roundtrip[]` 与镜像内
+     pytest 渲染 `test_compose_roundtrip[unit0]` 的形态差（空字符串参数化用例
+     的索引名生成差异）。仅 PASS_TO_PASS 生效，FAIL_TO_PASS 逐字不变。
 
 用法（CLI 与 v1 相同，v1 调用方无需改参）:
     swev-judge-v2.py <task.json> <log文件> <agent_diff文件>
@@ -42,7 +50,7 @@ stdout: JSON（v1 全部字段的超集；v1 字段在前，语义见下）
 退出码: 0=给出判定（含 invalid_diff/hermeticity_blocked 等"无判定"型判定，
  resolved 为 null）；1=judge_error（task.json 坏/内部异常，stdout 仍给 JSON）。
 
-v1→v2 判定语义变更清单（向后可比契约；回放差异只应出现在这三类形态）:
+v1→v2 判定语义变更清单（向后可比契约；回放差异只应出现在这四类形态）:
   A. log_parsed（R4）：v1 = 标记齐在即为 true；v2 = 仅 log_state=="parsed" 为 true。
      故 zero_state（标记齐在+零可解析状态）与带标记的 eval_error 由 true 变 false；
      resolved 不变（仍 false）。新增 log_state/tests_status_parsed 可复算。
@@ -52,8 +60,17 @@ v1→v2 判定语义变更清单（向后可比契约；回放差异只应出现
   C. 新增字段（judge/verdict/log_state/tests_status_parsed/log_markers/bad_codes/
      diff_valid/diff_reject_reason/diff_sha256/diff_bytes/eval_sha256/eval_bytes/
      hermetic/live_http/blocked_urls）——纯增量，不改 v1 字段名与含义。
+  D. P2P 对账参数化 ID 归一化（A6，运营者裁决 2026-11-07）：PASS_TO_PASS 逐字
+     未匹配项，若存在唯一形态等价日志项（同 base、双方均带参数段、至少一侧为
+     空参数段 []），按该日志项状态入账（PASSED/XFAIL→success；FAILED/ERROR→
+     failure；其余状态按 swebench 原谓词不入双侧）；resolved 判据不变（仍
+     get_resolution_status，仅 FULL 为 true）。回放差异只应出现在「P2P 存在
+     []↔[参数名] 形态差」的实例上，且方向只可能是 false→true 的误判修正；
+     F2P 与其余逐字路径零变化。新增字段 p2p_id_normalized/p2p_unmatched_gold/
+     p2p_unmatched_log（纯增量，见 §A6）。
   与 v1 保持相同的部分：判分核（swebench 4.1 get_eval_report）、env yml 404 合成
-  回退（_install_env_yml_fallback 逐字沿用）、f2p/p2p/tests_collected 统计口径。
+  回退（_install_env_yml_fallback 逐字沿用）、f2p/tests_collected 统计口径；
+  p2p 统计口径在 A6 归一化边界内（见 D 与 §A6），边界外逐字不变。
 """
 import hashlib
 import json
@@ -68,12 +85,20 @@ sys.path.insert(0, "/home/pan-ding/swev-venv/lib/python3.14/site-packages")
 from swebench.harness.constants import (  # noqa: E402
     APPLY_PATCH_FAIL,
     END_TEST_OUTPUT,
+    FAIL_ONLY_REPOS,
     RESET_FAILED,
     START_TEST_OUTPUT,
     TESTS_ERROR,
     TESTS_TIMEOUT,
+    EvalType,
+    ResolvedStatus,
 )
-from swebench.harness.grading import get_eval_report, get_logs_eval  # noqa: E402
+from swebench.harness.grading import (  # noqa: E402
+    get_eval_report,
+    get_eval_tests_report,
+    get_logs_eval,
+    get_resolution_status,
+)
 from swebench.harness.test_spec.test_spec import make_test_spec  # noqa: E402
 import importlib.metadata  # noqa: E402
 
@@ -347,6 +372,125 @@ def diff_legal(text) -> tuple:
 
 
 # --------------------------------------------------------------------------
+# §A6：P2P 参数化 ID 归一化（运营者裁决 A6 · 2026-11-07 · D-117 实证）
+# --------------------------------------------------------------------------
+# 修误判非放宽（裁决理由）：D-117 容器实跑 242/242 全 PASSED、零实败，判分却记
+#   P2P 240/241——唯一失配是数据集字面 ID `…::test_compose_roundtrip[]` 与官方
+#   镜像内 pytest 对空字符串参数化自动生成的索引名 `…::test_compose_roundtrip[unit0]`
+#   之间的 ID 形态差（同一用例、同 PASSED）。属判分对账基准 vs 镜像内 pytest
+#   渲染行为之差，非沙箱代码回归。
+# 硬边界（逐条钉死，正反夹具见 30-工件/A批执行-20261107/A6-P2P归一化-20261107/）：
+#   ① 仅 PASS_TO_PASS 对账生效；FAIL_TO_PASS 与其余一切逐字比对不变。
+#   ② 仅形态等价：test_x[] ↔ test_x[<任意参数串>]——参数段整体置换（空参数段
+#      ↔ 任意非空参数串）；禁部分通配（test_x[unit 不得配 test_x[unit0]；
+#      无参数化段的 ID 不参与归一化）。
+#   ③ 禁跨用例名：base（参数段之前部分）不同一律不配（test_a[…] ≠ test_b[…]）。
+#   ④ 双非空参数段仍逐字（test_x[a] ≠ test_x[b]）。
+#   ⑤ 双射保持：gold 项至多认领一个日志项、日志项至多被一个 gold 项认领；
+#      归一化候选须唯一（0 或多个候选 ⇒ 不归一化、留红——不可证不猜绿）。
+#   ⑥ 任何实质 FAIL 仍红：归一化匹配的日志状态为 FAILED/ERROR 即记 failure。
+#   ⑦ resolved 判据不变：仍由 swebench get_resolution_status 定（仅 FULL=true）。
+_PARAM_ID_RE = re.compile(r"^(?P<base>[^\[\]]*)\[(?P<param>[^\[\]]*)\]$")
+
+
+def split_param_id(test_id: str) -> tuple:
+    """pytest 参数化 ID 拆分 → (base, param)；无参数化段 → (test_id, None)。
+
+    只认尾部整段 [...]（禁部分通配的形态基础：未闭合括号/嵌套括号不拆，
+    按无参数化段处理，只能逐字比对）。
+    """
+    m = _PARAM_ID_RE.match(test_id)
+    if not m:
+        return test_id, None
+    return m.group("base"), m.group("param")
+
+
+def id_form_equivalent(gold_id: str, log_id: str) -> bool:
+    """A6 形态等价判定（边界 ②③④）：同 base、双方均带参数段，且
+    （参数段逐字相同 或 至少一侧为空参数段 [] 空形态）。"""
+    g_base, g_param = split_param_id(gold_id)
+    l_base, l_param = split_param_id(log_id)
+    if g_param is None or l_param is None:
+        return False
+    if g_base != l_base:
+        return False
+    if g_param == l_param:
+        return True
+    return g_param == "" or l_param == ""
+
+
+def p2p_normalization_plan(gold_f2p, gold_p2p, status_map) -> dict:
+    """A6 归一化计划（纯函数、零副作用、零网络）：逐字先行，空参数形态差
+    唯一候选才补救。
+
+    返回 {aliases: {gold_id: log_id}, normalized: [{gold, log, status}],
+          unmatched_gold: [...], unmatched_log: [...]}。
+    双射（⑤）：claimed 集合同时挡 F2P 逐字认领、P2P 逐字认领与 P2P 归一化
+    认领；每个归一化候选必须未被认领且唯一。
+    """
+    claimed = {g for g in gold_f2p if g in status_map}
+    for g in gold_p2p:
+        if g in status_map:
+            claimed.add(g)
+    aliases, normalized, unmatched_gold = {}, [], []
+    for g in gold_p2p:
+        if g in status_map:
+            continue  # 逐字已匹配（含空参数段逐字命中）——归一化不介入
+        _g_base, g_param = split_param_id(g)
+        cands = []
+        if g_param is not None:
+            for log_id in status_map:
+                if log_id in claimed:
+                    continue
+                if id_form_equivalent(g, log_id):
+                    cands.append(log_id)
+        if len(cands) == 1:
+            log_id = cands[0]
+            claimed.add(log_id)
+            aliases[g] = log_id
+            normalized.append({"gold": g, "log": log_id,
+                               "status": status_map[log_id]})
+        else:
+            unmatched_gold.append(g)  # 0/多候选 ⇒ 不归一化留红（⑤）
+    unmatched_log = [log_id for log_id in status_map if log_id not in claimed]
+    return {"aliases": aliases, "normalized": normalized,
+            "unmatched_gold": unmatched_gold, "unmatched_log": unmatched_log}
+
+
+def apply_p2p_normalization(spec, status_map, tests_status) -> tuple:
+    """把 A6 归一化计划落到 tests_status 的 PASS_TO_PASS 段（原地修改）。
+
+    返回 (plan, resolved)。plan=None 表示本次不适用（非 parsed 态或无
+    tests_status）。resolved 用 swebench get_resolution_status 按
+    「原 F2P 段 + 归一化后 P2P 段」重算——判据本身零改动（⑦）。
+    """
+    if tests_status is None or tests_status.get("PASS_TO_PASS") is None:
+        return None, None
+    gold_f2p = list(spec.FAIL_TO_PASS or [])
+    gold_p2p = list(spec.PASS_TO_PASS or [])
+    plan = p2p_normalization_plan(gold_f2p, gold_p2p, status_map)
+    if not plan["aliases"]:
+        return plan, None  # 无归一化触发：读数留痕，判定零变化
+    # 形态等价别名进 status_map 副本，交 swebench 原对账函数分类（⑥⑦ 不变）
+    alias_sm = dict(status_map)
+    for gold_id, log_id in plan["aliases"].items():
+        alias_sm[gold_id] = status_map[log_id]
+    eval_type = (EvalType.FAIL_ONLY if spec.repo in FAIL_ONLY_REPOS
+                 else EvalType.PASS_AND_FAIL)
+    adj_p2p = get_eval_tests_report(
+        alias_sm,
+        {"instance_id": spec.instance_id, "FAIL_TO_PASS": [],
+         "PASS_TO_PASS": gold_p2p},
+        eval_type=eval_type)["PASS_TO_PASS"]
+    tests_status["PASS_TO_PASS"] = adj_p2p
+    resolved = get_resolution_status(
+        {"FAIL_TO_PASS": tests_status.get("FAIL_TO_PASS")
+         or {"success": [], "failure": []},
+         "PASS_TO_PASS": adj_p2p}) == ResolvedStatus.FULL.value
+    return plan, resolved
+
+
+# --------------------------------------------------------------------------
 # 主流程
 # --------------------------------------------------------------------------
 
@@ -485,6 +629,15 @@ def _judge(task, log_path, diff_path) -> int:
         inner = report.get(task["instance_id"], report)
         resolved = bool(inner.get("resolved"))
 
+        # ---- §A6：P2P 参数化 ID 归一化（运营者裁决 A6；仅 PASS_TO_PASS）----
+        a6_plan = None
+        if state == "parsed":
+            a6_plan, a6_resolved = apply_p2p_normalization(
+                spec, status_map, inner.get("tests_status"))
+            if a6_resolved is not None and a6_resolved != resolved:
+                resolved = a6_resolved
+                inner["resolved"] = resolved
+
     out["resolved"] = resolved
     out["verdict"] = ("resolved" if resolved
                       else {"parsed": "not_resolved", "zero_state": "zero_state",
@@ -503,6 +656,11 @@ def _judge(task, log_path, diff_path) -> int:
     collected = (len(f2p.get("success", [])) + len(f2p.get("failure", []))
                  + len(p2p.get("success", [])) + len(p2p.get("failure", [])))
     out["tests_collected"] = collected
+    # ---- §A6 归一化留痕（纯增量；双射双侧计数 + 归一化匹配对）----
+    if a6_plan is not None:
+        out["p2p_id_normalized"] = a6_plan["normalized"]
+        out["p2p_unmatched_gold"] = len(a6_plan["unmatched_gold"])
+        out["p2p_unmatched_log"] = len(a6_plan["unmatched_log"])
     if SWEBENCH_VERSION:
         out["swebench_version"] = SWEBENCH_VERSION
     out["hermetic"] = guard.hermetic()
