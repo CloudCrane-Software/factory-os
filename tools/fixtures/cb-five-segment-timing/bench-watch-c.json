@@ -1,0 +1,23 @@
+{
+ "schema": "af.cb-dispatch.bench-watch.v1",
+ "org": "Cloudbird-Software",
+ "repo": "cb-npc-poc",
+ "issue": 58,
+ "issue_url": "https://cnb.cool/Cloudbird-Software/cb-npc-poc/-/issues/58",
+ "self_user": "feasy898",
+ "block_kind_pref": "auto",
+ "interval_sec": 150,
+ "silence_sec": 300,
+ "deadline_sec": 5400,
+ "volume_chain": [
+  {"comment_id": "2118799000000000001", "created": "2026-11-06T21:15:37Z", "author": "CodeBuddy", "block_kind": "diff", "sha256": "5c040ce9bffd000000000000000000000000000000000000000000000000000a", "bytes": 12000},
+  {"comment_id": "2118799000000000002", "created": "2026-11-06T21:18:09Z", "author": "CodeBuddy", "block_kind": "diff", "sha256": "e0c58d54645f000000000000000000000000000000000000000000000000000b", "bytes": 13600}
+ ],
+ "chosen": {"comment_id": "2118799000000000002", "created": "2026-11-06T21:18:09Z", "author": "CodeBuddy", "block_kind": "diff", "sha256": "e0c58d54645f000000000000000000000000000000000000000000000000000b", "bytes": 13600},
+ "delivery_file": "/tmp/cb-dispatch/bench-夹具样例/delivery-e0c58d54645f.patch",
+ "baseline_apply_check": {"baseline": "/tmp/pristine-夹具样例", "rc": 0, "stdout_tail": "（夹具样例）", "stderr_tail": ""},
+ "deadline_hit": false,
+ "dispatched_at_utc": null,
+ "collected_at_utc": "2026-11-06T21:25:39Z",
+ "elapsed_sec": 1253.0
+}
