@@ -1,0 +1,55 @@
+{
+ "schema": "af.wave-manifest.v1",
+ "wave": "wave-09",
+ "created": "2026-11-07T19:58:00+0800",
+ "policy": "30-工件/波次自转器-20261106/制度-v1.md",
+ "budgets": {
+  "anolis_mem_cap_g": 45,
+  "local_mem_cap_g": 3,
+  "anolis_concurrency": 4
+ },
+ "base_sha": "e50cf7a361afa770a9824f34ef82d0d8e0d4ea54",
+ "preflight": [
+  "占用核：D-116（sunset-audit-tool，wave-08 queued）与 D-109/D-111/D-114/D-115（wave-08 非终态卡）在占，本波一律回避；D-119/D-120/D-121 对应 Issue #126/#127/#128 板面 open 且 state:queued，视同已占，本波不立项（防双解）。",
+  "活口核：in_flight_task_ids=[portal]，即 D-104 portal-census-sync（wave-05 queued），不重复立项。",
+  "真锚缺口：Issue #145-#155 的 D-130~D-140 在 open_anchors 无台账行，本波不立项；下一波先产 register-debt-* 登记卡（一卡一债、串行改账本）。",
+  "观测面（factory_obs，advisory 只进规划输入、不入闸面）：red 1 条 sentinel:benji-obs:anolis-pacer-dead（pacer.log 30.2min 未更新）；amber 8 条含 anolis-root-disk 86%、planner-run-failing streak=5、gh_rate_low remaining=4、planner 近5跑4败——本波无对应开锚可挂，留观测项跟踪，禁当作不存在。",
+  "台账双正本（D-123 / Issue #135 ticket:needs-human）未裁：本波收卷卡只动仓本侧（账本/阶段欠账台账.md），不触双正本结构。",
+  "组卡自检：每卡 acceptance 均带「→ rc=N」尾标；卡面带 grep -n 的 file:line 证据锚；allowed_paths 非空且不与在飞卡相交；depends_on 为空无悬引用；ledger 坐标来自输入。"
+ ],
+ "cards": [
+  {
+   "task_id": "w09-d118-closeout",
+   "title": "D-118 mini-pkv 总债收卷对账：子卡 merged 核 + README 在役 + 台账收卷行（仓本侧）",
+   "debt": "D-118",
+   "async": false,
+   "channel": "local-api",
+   "allowed_paths": [
+    "账本/阶段欠账台账.md"
+   ],
+   "acceptance": [
+    "gh issue view 115 --json labels -q '.labels[].name' | grep -qx 'state:merged' → rc=0",
+    "gh issue view 116 --json labels -q '.labels[].name' | grep -qx 'state:merged' → rc=0",
+    "gh issue view 118 --json labels -q '.labels[].name' | grep -qx 'state:merged' → rc=0",
+    "gh issue view 119 --json labels -q '.labels[].name' | grep -qx 'state:merged' → rc=0",
+    "gh issue list --state all --search 'D-118 in:title' --json number | jq -e 'length >= 5' → rc=0",
+    "grep -n 'D-118' 账本/阶段欠账台账.md → rc=0",
+    "sha256sum 账本/阶段欠账台账.md → rc=0"
+   ],
+   "merge_policy": "单件直推（台账收卷行；改前 .bak + sha256 对照；不触判据/门禁面）",
+   "ledger": "账本/阶段欠账台账.md D-118 行",
+   "mem_budget_g": 1,
+   "depends_on": [],
+   "state": "queued",
+   "repo": null,
+   "env_precondition": "gh CLI 已认证（GITHUB_TOKEN，只读 Issue 标签面）；无需 cargo/GPU",
+   "fast_tests": []
+  }
+ ],
+ "next_wave_seed": [
+  "wave-10：为 Issue #145-#155 的 D-130~D-140 真锚逐号产 register-debt-* 登记卡（串行改账本、一卡一债），登记完成后再下一波施工。",
+  "D-119/D-120/D-121（Issue #126/#127/#128）若仍 open queued，先由 runner 消费或人工关单，未关不动（防双解）。",
+  "factory_obs red/amber 跟踪：pacer 停滞、磁盘 86%、planner streak=5、gh_rate_low——观测面信号，下一波评估是否借道 OBS-D5/OBS-D7 立项。",
+  "D-118 收卷后复核 gates 收卷绿与台账 done 标记（本波卡验收含 Issue 标签 + 台账行双源）。"
+ ]
+}
