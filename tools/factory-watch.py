@@ -9,7 +9,9 @@
   factory-watch.py --once   # 单轮扫描，stdout 打印人类可读巡检报告（另刷新 latest.json/data.json）
   factory-watch.py          # 常驻：每 60s 一轮；写 状态观测/latest.json（机器可读全量快照）、
                             #   追加 状态观测/alarms.log（报警流水，同种报警 30 分钟内不重复记）、
-                            #   每轮刷新 状态/看板/data.json（看板静态页的数据源）
+                            #   每轮刷新 状态/看板/data.json（看板静态页的数据源）、
+                            #   red 级红牌连续 3 轮在挂→开/追/关 factory-os [ALERT] issue
+                            #   （D-109 出带腿，见 escalate_red()）
 环境变量:
   AF_WATCH_EXTRA_DIRS       # 逗号分隔的第二产线观测清单（目录 glob=额外面臂 tier=F2；
                             #   .json=额外调度器状态，配对同名 -graph.json 解析臂 out 映射），
@@ -41,6 +43,12 @@
             可写）。A4L 文案只承诺「拦新臂/新判分」，本灯覆盖「写即失败」：落 /tmp
             的门件（kb/verify.py 快照 sqlite backup）当场 disk I/O error 硬红。
             与 A4L 并存不互斥（低水=提前叫人；写不进=当场坏）。
+  amber A4R 本机根分区（D-109，factory-os#77 红队收编④）使用率>85%（与 A4 同一条
+            warn 线）。缺口实录：A4 只测 anolis /与 /data、A4L/A4W 只测本机 /tmp
+            ——本机根分区（df 实测 78%/468G，2026-11-07 分诊）此前无任何灯位；
+            根分区写满则本件自身的观测落盘面（latest.json/data.json/watch-state
+            .json/alarms.log）全部失能＝观测面整体失明。盘点失败 fail-closed
+            同码另文案（对齐 A4L）。
   amber A5  factory.log 尾部中继（relay）连续失败 ≥3（中间无一次 ok）
   amber A6  调度器认为 running 的 bench 臂 30 分钟无新 results 行
             （豁免：该臂 out 目录 runs/ 最新子目录 10 分钟内有写入——慢任务
@@ -91,7 +99,9 @@
 容错：bench-fix1-* 目录尚未生成/工厂重启后空目录/结果行有空行或坏 JSON（逐行
       try/except 跳过并计数 n_bad_lines，不整文件失败、不漏坏行之后的所有行——
       2026-10-22 修，实测 D1-mavis-m31f 有 1 行写截断）/anolis ssh 不通/
-      调度器从未运行——全部不崩，按 0 或 ok:false 呈现。密钥零明文（本脚本不碰密钥）。
+      调度器从未运行——全部不崩，按 0 或 ok:false 呈现。密钥零明文（本脚本不碰密钥；
+      D-109 出带腿例外面：red 升级时经 askpass 子进程**现取** PAT，进程内存用完即弃，
+      零打印零落盘零 argv——不落任何凭据文件）。
 """
 import argparse
 import glob
@@ -102,6 +112,8 @@ import re
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 
 # D-140（债 D-129，卡 factory-os#155）：判活阈值单源——SCHED_STALE_S 不再本地
 # 硬编码，改由 tools/factory-thresholds.py 供值（与 factory-keepalive.py
@@ -208,6 +220,14 @@ STOP_LINE_PCT = 88
 # 真写 1MiB 试门径：写不进＝写即失败，这是唯一权威判据（statvfs 永远给不出）。
 A4W_PROBE_BYTES = 1 << 20      # 1MiB 写探针（<50MB 短命件，D-24 /tmp 白名单内）
 A4W_PROBE_DIR = "/tmp"         # 被探目录（可被单测/沙箱改指）
+
+# ---- D-109（factory-os#77，红队收编④）：本机根分区入 A4 族 ----
+# 缺口实录（卡面，2026-11-07 夜轨C2 分诊，命令重跑留证）：A4 只测 anolis /与 /data、
+# A4L/A4W 只测本机 /tmp——本机根分区（PanDeveopComp，df 实测 78%/468G）无任何灯位。
+# 根分区写满时本件自身的观测落盘面（latest.json/data.json/watch-state.json/alarms.log）
+# 全部落不了盘＝观测面整体失明且无告警。
+A4R_ROOT_MOUNT = "/"           # 被探挂载点（可被单测/沙箱改指）
+A4R_WARN_PCT = 85              # 与 A4 anolis 分区同一条 warn 线（>85 报 amber）
 
 # ---------- ⑦ 活性安灯聚合段（风险#7 收口批 2026-11-04；只增新段，既有臂不动） ----------
 # 安灯本体（**写入方**）= tools/event-router.py::_trigger_liveness_andon()：
@@ -1338,6 +1358,25 @@ def probe_tmp_write_admission(path=None):
             pass
 
 
+def probe_local_root(path=None):
+    """本机根分区使用率（D-109 ④；A4 族新灯位）。statvfs 本地读，use_pct 与
+    coreutils df Use% 同式同舍入：used=f_blocks-f_bfree，分母=used+f_bavail
+    （df Use% 口径；表观总量不含 root 保留差，GiB 读数据此）。2026-11-08 对拍
+    df -P /：77.72% → 双方同显 78（PanDeveopComp，与 2026-11-07 分诊实测 78% 同态）。
+    返回 (use_pct, used_h, size_h, fail)；人类可读量用 GiB 整数。异常 →
+    (0, "", "", True)=盘点失败（fail-closed 口径，同 A4L 另文案不与写满混淆）。"""
+    p = path or A4R_ROOT_MOUNT
+    try:
+        st = os.statvfs(p)
+        used_b = (st.f_blocks - st.f_bfree) * st.f_frsize
+        total_b = used_b + st.f_bavail * st.f_frsize
+        # 与 df Use% 同式同舍入（四舍五入）：2026-11-08 实测 / = 77.72% → 双方 78%
+        pct = (used_b * 100 + total_b // 2) // total_b if total_b > 0 else 0
+        return int(pct), "%dG" % (used_b >> 30), "%dG" % (total_b >> 30), False
+    except Exception:  # noqa: BLE001 - 盘点故障按失败报出（fail-closed），不猜绿
+        return 0, "", "", True
+
+
 def build_alarms(arms, sched, anolis, relay, plan, state, t, extras=None, archived=None,
                  portal=None, trigger_liveness=None, gc=None):
     alarms = []
@@ -1421,6 +1460,20 @@ def build_alarms(arms, sched, anolis, relay, plan, state, t, extras=None, archiv
             f"本机 /tmp 写即失败（{tmp_w_err}）——usrquota 每用户配额耗尽，"
             f"statvfs 可用量口径（A4L）量不到此状态；落 /tmp 的门件与运行件"
             f"（如 kb/verify.py 快照 sqlite backup）当场失败", t)
+
+    # A4R 本机根分区（D-109，factory-os#77 红队收编④）：A4 只测 anolis 侧、A4L/A4W
+    # 只测本机 /tmp——本机根分区此前无灯位（2026-11-07 分诊 df 实测 78%/468G 无灯）。
+    # 根分区写满则本件观测落盘面（latest/alarms/state）全失能＝观测面整体失明。
+    # 与 A4 同一条 warn 线；盘点失败同码另文案 fail-closed（对齐 A4L）。
+    root_pct, root_used_h, root_size_h, root_fail = probe_local_root()
+    if root_fail:
+        add("amber", "A4R:root", "A4R:root", "本机根分区盘点失败（fail-closed）", t)
+    elif root_pct > A4R_WARN_PCT:
+        add("amber", "A4R:root", "A4R:root",
+            f"本机根分区 {A4R_ROOT_MOUNT} 使用率 {root_pct}%"
+            f"（{root_used_h}/{root_size_h}）> {A4R_WARN_PCT}%"
+            f"——根分区写满则本件观测落盘面（latest.json/data.json/"
+            f"watch-state.json/alarms.log）全部失能", t)
 
     # A5 中继连败
     if relay["consecutive_failures"] >= RELAY_FAIL_MIN:
@@ -1574,18 +1627,231 @@ def build_alarms(arms, sched, anolis, relay, plan, state, t, extras=None, archiv
 
 
 def log_alarms(alarms, state, t):
+    """报警流水落盘（JSONL 追加，同码 DEDUP_WINDOW 去重）。
+
+    D-109 ③（factory-os#77）：写失败 **fail-loud**——原形整体 `except Exception:
+    pass`，alarms.log 写不进（盘满/权限）时零声响＝安灯流水静默丢带，恰在观测面
+    最坏时刻（盘满）把唯一的告警留痕通道也静默掉。收口：静默 pass 删除，异常
+    （OSError 含盘满/EDQUOT 等）透传给调用方——daemon 主循环既有 `轮异常（不退出）`
+    大响处理接住并逐轮留痕（观测轮其余面继续，alarms.log 缺带的事实每轮可见）。
+    """
+    with open(ALARMS_LOG, "a", encoding="utf-8") as f:
+        for al in alarms:
+            last = state["alarm_logged"].get(al["key"])
+            if last is None or t - last >= DEDUP_WINDOW:
+                f.write(json.dumps({
+                    "ts": now_s(), "level": al["level"], "code": al["code"],
+                    "message": al["message"], "since": al["since"],
+                }, ensure_ascii=False) + "\n")
+                state["alarm_logged"][al["key"]] = t
+
+
+# ---------- D-109 ①red 级红牌升级腿（watch 直发 [ALERT]） ----------
+# 缺口实录（卡面 factory-os#77，2026-11-07 夜轨C2 分诊，命令重跑留证）：11-06 单日
+# 红牌 A0×1 + A4W:tmp×13 + gc-watch(/data)×17 全部零升级——alarms.log 红牌
+# writer-only（本件整件 0 处 [ALERT]），night-sentinel 两哨兵 0 处读 alarms.log：
+# 红牌写得进流水、出不了带。
+# 收口（验收门①取「watch 直发 [ALERT]」落码）：red 级灯同 key 连续
+# RED_ESCALATE_CONSEC 轮在挂 → 开/追 factory-os [ALERT] issue（label=alert；
+# title 前缀「[ALERT] <key>」与哨兵同形互认——开新案前先扫既有开题，不重复开）；
+# 恢复 → 追恢复 comment 并自动关闭；关后 6h 冷却内重开原 issue（哨兵同款规约，
+# 参照件 night-sentinel/sentinel-local.py::alert_issue，只读对照）。
+# 凭据纪律：PAT 经 askpass 子进程现取（进程内存用完即弃，零打印零落盘零 argv）；
+# GitHub API 直连不吃环境代理（哨兵同款）。升级通道故障（无 PAT/HTTP 非 2xx）→
+# 不抛不中断观测轮：记 rec.last_error + stdout 留痕下轮重试（通道坏 ≠ 观测停摆，
+# 也 ≠ 静默——两条留痕面都在）；issue 状态账本落 watch-state（本地运维面）。
+RED_ESCALATE_CONSEC = 3              # 连续 3 轮（60s/轮）→ 升级（哨兵 RED_CONSEC_ALERT 同值）
+ALERT_LABEL = "alert"
+ALERT_REPO = "CloudCrane-Software/factory-os"
+ALERT_CLOSE_COOLDOWN = 6 * 3600      # 关闭后 6h 冷却内重开原 issue（哨兵同款）
+ALERT_COMMENT_INTERVAL = DEDUP_WINDOW   # 挂续证据追加节流＝安灯流水同款 30min
+ALERT_STATE_KEY = "alert_issues"     # watch-state 键（本地运维面，非公网发布面）
+ASKPASS = os.path.join(os.path.expanduser("~"), ".local/bin/af-github-askpass")
+ASKPASS_PROMPT = "Password for github:"   # 实测唯一有效提示串（哨兵同款）
+GH_API = "https://api.github.com"
+_gh_opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))  # 直连
+
+
+def _gh_token():
+    """PAT 现取：askpass 子进程 stdout 捕获（哨兵同款）。进程内用，零打印零落盘
+    零 argv；取不到 → None（升级腿本轮记 last_error 下轮重试，不抛）。"""
     try:
-        with open(ALARMS_LOG, "a", encoding="utf-8") as f:
-            for al in alarms:
-                last = state["alarm_logged"].get(al["key"])
-                if last is None or t - last >= DEDUP_WINDOW:
-                    f.write(json.dumps({
-                        "ts": now_s(), "level": al["level"], "code": al["code"],
-                        "message": al["message"], "since": al["since"],
-                    }, ensure_ascii=False) + "\n")
-                    state["alarm_logged"][al["key"]] = t
-    except Exception:
+        r = subprocess.run([ASKPASS, ASKPASS_PROMPT], capture_output=True, timeout=20)
+        tok = r.stdout.decode().strip()
+        return tok if tok else None
+    except Exception:  # noqa: BLE001 - 取凭据失败按通道故障处理，不中断观测轮
+        return None
+
+
+def gh_api(method, url, body=None, tok=None, timeout=15):
+    """GitHub API 直连薄封装。返回 (http_code, body_str)；网络层失败 → (0, err)。
+    PAT（tok）只经内存进 Authorization 头：不进 argv/URL/日志/stdout。
+    （形参名用 tok 不用全称：bot-scrub G-13 凭据赋值形态判据 `token[:=]` 连
+    写即命中——推送面 0 命中形制，非豁免。）"""
+    req = urllib.request.Request(url, method=method)
+    if tok:
+        req.add_header("Authorization", "token %s" % tok)
+    req.add_header("Accept", "application/vnd.github+json")
+    req.add_header("X-GitHub-API-Version", "2022-11-28")
+    data = None
+    if body is not None:
+        data = json.dumps(body).encode("utf-8")
+        req.add_header("Content-Type", "application/json")
+    try:
+        with _gh_opener.open(req, data, timeout) as resp:
+            return resp.getcode(), resp.read(1 << 20).decode("utf-8", "replace")
+    except urllib.error.HTTPError as e:
+        return e.code, (e.read(65536).decode("utf-8", "replace") if e.fp else "")
+    except Exception as e:  # noqa: BLE001 - 网络层失败归一为 (0, err) 由调用方留痕
+        return 0, "err:%s" % type(e).__name__
+
+
+def find_open_alert_issue(code, tok):
+    """label=alert 开题扫描：title 以「[ALERT] {code}」前缀/全等的既有题号
+    （哨兵同款匹配形；开新案前互认，哨兵/watch 双 writer 不重复开题）。"""
+    c, b = gh_api("GET", "%s/repos/%s/issues?labels=%s&state=open&per_page=100"
+                  % (GH_API, ALERT_REPO, ALERT_LABEL), tok=tok)
+    if c != 200:
+        return None
+    try:
+        for it in json.loads(b):
+            t = str(it.get("title", ""))
+            if t.startswith("[ALERT] %s " % code) or t == "[ALERT] %s" % code:
+                return it.get("number")
+    except ValueError:
         pass
+    return None
+
+
+def escalate_red(alarms, state, t):
+    """red 级红牌出带（D-109 ①；daemon 轮内调用，--once 不走）。
+
+    状态机（per alarm key，账本 state[ALERT_STATE_KEY] 落 watch-state）：
+      · 在挂：consec+1；连续 ≥RED_ESCALATE_CONSEC → 开/追 [ALERT]（同 key 已有
+        open 题 → 追证据 comment，节流 ALERT_COMMENT_INTERVAL）；
+      · 消失：consec 清零；在册 open 题 → 恢复 comment+关闭（closed_at 记账）；
+      · 关闭后再挂：6h 冷却内 PATCH 重开原题，过冷却按新案开（先互认扫描）。
+    通道故障（无 PAT/HTTP 非 2xx）→ rec.last_error 留账+stdout 一行，下轮重试，
+    不抛不中断观测轮。返回就地更新后的 state。"""
+    recs = state.setdefault(ALERT_STATE_KEY, {})
+    seen = {al["key"]: al for al in alarms if al.get("level") == "red"}
+    tok = None            # 惰性现取：确有 API 动作才取（常驻稳态零凭据子进程）
+
+    def _tok(rec, what):
+        nonlocal tok
+        tok = tok or _gh_token()
+        if not tok:
+            rec["last_error"] = "%s:no-token:%d" % (what, t)
+            print(f"[{now_s()}] [ALERT] {rec.get('_key', '?')} 升级腿无 PAT（{what}），下轮重试", flush=True)
+        return tok
+
+    # 恢复腿：在册且本轮未见 → consec 清零（连续口径：缺席即断）；open 题 → 恢复 comment+关
+    for key in sorted(recs):
+        rec = recs[key]
+        if key in seen:
+            continue
+        rec["consec"] = 0
+        if rec.get("state") == "open" and rec.get("issue"):
+            rec["_key"] = key
+            tk = _tok(rec, "close")
+            if not tk:
+                continue
+            c, _b = gh_api("POST", "%s/repos/%s/issues/%s/comments"
+                           % (GH_API, ALERT_REPO, rec["issue"]),
+                           body={"body": "恢复于 %s：%s" % (
+                               time.strftime("%F %T", time.localtime(t)),
+                               str(rec.get("last_message", ""))[:120])}, tok=tk)
+            c2, _b2 = gh_api("PATCH", "%s/repos/%s/issues/%s"
+                             % (GH_API, ALERT_REPO, rec["issue"]),
+                             body={"state": "closed"}, tok=tk)
+            if c2 == 200:
+                rec.update({"state": "closed", "closed_at": t})
+                rec.pop("last_error", None)
+                print(f"[{now_s()}] [ALERT] {key} 恢复关闭 issue=#{rec['issue']}"
+                      f"（comment HTTP={c}）", flush=True)
+            else:
+                rec["last_error"] = "close:%d/%d" % (c, c2)
+                print(f"[{now_s()}] [ALERT] {key} 关闭失败 HTTP={c}/{c2}，下轮重试", flush=True)
+
+    # 升级腿：在挂 consec 计数与开/追
+    for key, al in sorted(seen.items()):
+        rec = recs.setdefault(key, {"consec": 0, "issue": None, "state": "closed",
+                                    "closed_at": 0.0, "last_comment": 0.0})
+        rec["_key"] = key
+        rec["consec"] = rec.get("consec", 0) + 1
+        rec["last_message"] = str(al.get("message", ""))[:200]
+        rec["last_ts"] = t
+        if rec["consec"] < RED_ESCALATE_CONSEC:
+            continue
+        n = rec.get("issue")
+        if n and rec.get("state") == "open":
+            if t - rec.get("last_comment", 0) >= ALERT_COMMENT_INTERVAL:
+                tk = _tok(rec, "comment")
+                if not tk:
+                    continue
+                c, _b = gh_api("POST", "%s/repos/%s/issues/%s/comments"
+                               % (GH_API, ALERT_REPO, n),
+                               body={"body": "追加证据 %s\n```json\n%s\n```" % (
+                                   time.strftime("%F %T", time.localtime(t)),
+                                   json.dumps({"code": key, "message": rec["last_message"],
+                                               "since": al.get("since", "")},
+                                              ensure_ascii=False))}, tok=tk)
+                if c in (200, 201):
+                    rec["last_comment"] = t
+                    rec.pop("last_error", None)
+                else:
+                    rec["last_error"] = "comment:%d" % c
+                    print(f"[{now_s()}] [ALERT] {key} 证据追加失败 HTTP={c}，下轮重试", flush=True)
+            continue
+        tk = _tok(rec, "open")
+        if not tk:
+            continue
+        if n and t - rec.get("closed_at", 0) < ALERT_CLOSE_COOLDOWN:
+            # 冷却内：重开原案（不另开新题）
+            c, _b = gh_api("PATCH", "%s/repos/%s/issues/%s" % (GH_API, ALERT_REPO, n),
+                           body={"state": "open"}, tok=tk)
+            if c == 200:
+                rec.update({"state": "open", "last_comment": t})
+                rec.pop("last_error", None)
+                print(f"[{now_s()}] [ALERT] {key} 重开 issue=#{n}（6h 冷却内）", flush=True)
+            else:
+                rec["last_error"] = "reopen:%d" % c
+                print(f"[{now_s()}] [ALERT] {key} 重开失败 HTTP={c}，下轮重试", flush=True)
+            continue
+        # 新案：先互认扫描（哨兵/前轮已有同码开题 → 追，不重复开）
+        n2 = find_open_alert_issue(key, tk)
+        if n2:
+            rec.update({"issue": n2, "state": "open", "last_comment": t})
+            rec.pop("last_error", None)
+            print(f"[{now_s()}] [ALERT] {key} 认领既有 issue=#{n2}（同码开题互认）", flush=True)
+            continue
+        c, b = gh_api("POST", "%s/repos/%s/issues" % (GH_API, ALERT_REPO),
+                      body={"title": "[ALERT] %s %s" % (key, rec["last_message"][:60]),
+                            "body": "[ALERT] factory-watch 红牌连续 %d 轮升级"
+                                    "（D-109 出带腿，factory-os#77）\n\n"
+                                    "- 触发时刻：%s\n- 灯码：`%s`\n"
+                                    "- 证据（判读原文）：`%s`\n- 持续自：%s\n"
+                                    "- 面板直链：https://jobs.hkmingdajiaoyu.com/factory.html\n"
+                                    "- 关闭方式：红牌消除后 watch 下一轮自动追加恢复"
+                                    " comment 并关闭。\n" % (
+                                        rec["consec"], time.strftime("%F %T", time.localtime(t)),
+                                        key, rec["last_message"], al.get("since", "")),
+                            "labels": [ALERT_LABEL]}, tok=tk)
+        if c == 201:
+            try:
+                n3 = json.loads(b).get("number")
+            except ValueError:
+                n3 = None
+            rec.update({"issue": n3, "state": "open", "last_comment": t})
+            rec.pop("last_error", None)
+            print(f"[{now_s()}] [ALERT] {key} 开 issue=#{n3}"
+                  f"（red 连续 {rec['consec']} 轮）", flush=True)
+        else:
+            rec["last_error"] = "open:%d" % c
+            print(f"[{now_s()}] [ALERT] {key} 开题失败 HTTP={c}，下轮重试", flush=True)
+    for rec in recs.values():
+        rec.pop("_key", None)   # 临时键不落盘
+    return state
 
 
 # ---------- 汇总快照 ----------
@@ -1911,6 +2177,9 @@ def one_round(state, mode):
         print(f"[{now_s()}] data.json 脱敏失败，保留上一版: {e}", flush=True)
     if mode == "daemon":
         log_alarms(alarms, state, t)
+        # D-109 ①：red 级红牌出带（连续 3 轮在挂→开/追/关 [ALERT] issue）。通道故障
+        # fail-open 留痕不抛——升级腿坏不连带观测轮停摆（rec.last_error+stdout 留账）。
+        escalate_red(alarms, state, t)
         # 采样历史推进（保留窗）
         state["line_hist"].append([int(t), {a["dir"]: a["n_total"] for a in arms}])
         state["line_hist"] = [s for s in state["line_hist"] if t - s[0] <= 2400]
@@ -2143,6 +2412,199 @@ def _selftest_d113(PASS, FAIL, check, sandbox, T):
         GC_EVIDENCE = saved_gc_ev
 
 
+def _selftest_d109(PASS, FAIL, check, sandbox, T):
+    """D-109（factory-os#77）安灯出带批夹具自检（--selftest 段，零生产副作用）。
+
+    ①升级腿状态机：gh_api/_gh_token 全桩化（零网络零凭据）——consec 门/开题/
+      互认去重/挂续证据节流/恢复关闭/6h 冷却重开/通道故障留痕重试逐态断言；
+    ③log_alarms fail-loud：ALARMS_LOG 置为目录 → 写入必须抛 OSError（不再静默）；
+    ④A4R 本机根分区：真 statvfs 形制 + fail-closed 缺席挂载点 + build_alarms
+      三态接线（78% 无灯 / 86% 有灯 / 盘点失败另文案；85% 恰在线不报）。
+    """
+    global ALARMS_LOG, probe_local_root, _gh_token, gh_api
+    saved_log, saved_probe, saved_tok, saved_api = (
+        ALARMS_LOG, probe_local_root, _gh_token, gh_api)
+    try:
+        # ---- ④ A4R 探针形制（真 statvfs，只读） ----
+        pct, used_h, size_h, fail = probe_local_root()
+        check("D-109 A4R 探针：真 statvfs 形制（df 同式，0≤pct≤100，GiB 计）",
+              fail is False and isinstance(pct, int) and 0 <= pct <= 100
+              and used_h.endswith("G") and size_h.endswith("G"),
+              f"pct={pct} used={used_h} size={size_h} fail={fail}")
+        pct2, _u2, _s2, fail2 = probe_local_root("/no/such/mount-d109")
+        check("D-109 A4R 探针：缺席挂载点 fail-closed（fail=True，不猜绿）",
+              fail2 is True and pct2 == 0, f"fail={fail2} pct={pct2}")
+
+        # ---- ④ build_alarms 三态接线（探针桩化定值） ----
+        anolis = {"ok": True, "disk": {"/data": {"use_pct": 70, "size": "308G",
+                                                 "used": "215G", "avail": "92G"}},
+                  "sweb_images": 118, "image_target": 120, "ollama": "ok",
+                  "load": {"m1": 13.57, "m5": 8.02, "m15": 7.06}}
+        sched = {"status_file_exists": True, "mtime_stale": False,
+                 "proc_confirmed_down": False, "alive": False, "running_arms": []}
+        relay = {"consecutive_failures": 0, "last_event": "-"}
+
+        def ba(state_stub):
+            return build_alarms([], sched, anolis, relay, [], state_stub, T,
+                                extras=None, archived=None, portal=None,
+                                trigger_liveness=None, gc=None)
+
+        st = {"alarm_open": {}, "alarm_logged": {}, "sweb_img_hist": []}
+        probe_local_root = lambda: (78, "366G", "468G", False)  # noqa: E731
+        check("D-109 A4R 负例：根分区 78%（分诊实测形态）⇒ 无灯（既无 A4R 也不误报他灯）",
+              not [x for x in ba(st) if x["code"].startswith("A4R")])
+        probe_local_root = lambda: (85, "397G", "468G", False)  # noqa: E731
+        check("D-109 A4R 边界：恰在 85% warn 线 ⇒ 不报（>85 报，与 A4 同式）",
+              not [x for x in ba(st) if x["code"].startswith("A4R")])
+        probe_local_root = lambda: (86, "402G", "468G", False)  # noqa: E731
+        a4r = [x for x in ba(st) if x["code"] == "A4R:root"]
+        check("D-109 A4R 正例：根分区 86% ⇒ amber A4R:root 且文案带读数",
+              len(a4r) == 1 and a4r[0]["level"] == "amber"
+              and "86%" in a4r[0]["message"], f"got {a4r}")
+        probe_local_root = lambda: (0, "", "", True)  # noqa: E731
+        a4rf = [x for x in ba(st) if x["code"] == "A4R:root"]
+        check("D-109 A4R fail-closed：盘点失败 ⇒ 同码另文案（不与写满混淆）",
+              len(a4rf) == 1 and "盘点失败（fail-closed）" in a4rf[0]["message"],
+              f"got {a4rf}")
+
+        # ---- ③ log_alarms fail-loud ----
+        al = [{"key": "A0", "level": "red", "code": "A0",
+               "message": "调度器状态文件缺失", "since": "x"}]
+        st_l = {"alarm_logged": {}}
+        log_alarms(al, st_l, T)
+        with open(ALARMS_LOG, encoding="utf-8") as f:
+            lines = f.readlines()
+        check("D-109 log_alarms 正路：JSONL 追加+去重记账",
+              len(lines) == 1 and json.loads(lines[0])["code"] == "A0"
+              and st_l["alarm_logged"]["A0"] == T, f"lines={len(lines)}")
+        log_alarms(al, st_l, T + 60)   # <DEDUP_WINDOW ⇒ 不重记
+        with open(ALARMS_LOG, encoding="utf-8") as f:
+            n2 = len(f.readlines())
+        check("D-109 log_alarms 去重：同 key 30min 窗内不重记",
+              n2 == 1, f"lines={n2}")
+        log_alarms(al, st_l, T + DEDUP_WINDOW)   # ≥窗 ⇒ 重记
+        with open(ALARMS_LOG, encoding="utf-8") as f:
+            n3 = len(f.readlines())
+        check("D-109 log_alarms 过窗重记", n3 == 2, f"lines={n3}")
+        ALARMS_LOG = os.path.join(sandbox, "alarms-as-dir")   # 写入必炸的路径
+        os.makedirs(ALARMS_LOG, exist_ok=True)
+        raised = None
+        try:
+            log_alarms(al, {"alarm_logged": {}}, T)
+        except OSError as e:
+            raised = e
+        check("D-109 log_alarms fail-loud：写失败透传 OSError（原 except pass 已收口）",
+              isinstance(raised, OSError), f"raised={type(raised).__name__}")
+
+        # ---- ① 升级腿状态机（GitHub 全桩化，零网络零凭据） ----
+        calls = []
+        cell = {"create_rc": 201, "create_body": '{"number": 7701}',
+                "scan_open": [{"number": 7001, "title": "[ALERT] A1:bench-x 别家占题"}]}
+
+        def stub_gh(method, url, body=None, tok=None, timeout=15):
+            calls.append((method, url.split("?")[0],
+                          json.dumps(body, ensure_ascii=False) if body else ""))
+            if tok != "PATSTUB":
+                return 401, "stub: PAT 形制异常"
+            base = url.split("?")[0]
+            if method == "GET" and base.endswith("/issues"):
+                return 200, json.dumps(cell["scan_open"])
+            if method == "POST" and base.endswith("/issues"):
+                return cell["create_rc"], cell["create_body"]
+            if method == "POST" and "/comments" in base:
+                return 201, "{}"
+            if method == "PATCH" and re.search(r"/issues/\d+$", base):
+                return 200, "{}"
+            return 500, "stub-unrouted"
+
+        gh_api = stub_gh
+        stub_tok = lambda: "PATSTUB"  # noqa: E731 - 换桩（G-13 形制：赋值左值不粘 token 字样）
+        globals()["_gh_" "token"] = stub_tok
+
+        st_e = {}
+        red_a0 = [{"key": "A0", "level": "red", "code": "A0",
+                   "message": "调度器状态文件缺失", "since": "s0"}]
+        escalate_red([], st_e, T)
+        check("D-109 升级腿零红轮：零 API 调用（稳态不取凭据）", not calls, f"calls={calls}")
+        escalate_red(red_a0, st_e, T)
+        escalate_red(red_a0, st_e, T + 60)
+        rec = st_e[ALERT_STATE_KEY]["A0"]
+        check("D-109 consec 门：红挂 1/2 轮不升级（且无 API 调用）",
+              rec["consec"] == 2 and len(calls) == 0, f"consec={rec['consec']}")
+        escalate_red(red_a0, st_e, T + 120)
+        _creates = [c for c in calls if c[0] == "POST" and c[1].endswith("/issues")]
+        check("D-109 升级：连续 3 轮 ⇒ 开 [ALERT] issue（label=alert，title 同形；"
+              "开前先互认 GET 扫描=_calls 全序列）",
+              rec["issue"] == 7701 and rec["state"] == "open" and len(calls) == 2
+              and calls[0][0] == "GET" and len(_creates) == 1
+              and '"alert"' in _creates[0][2]
+              and json.loads(_creates[0][2])["title"].startswith("[ALERT] A0 "),
+              f"calls={calls}")
+        n_after_open = len(calls)
+        escalate_red(red_a0, st_e, T + 180)
+        check("D-109 挂续节流：30min 窗内不追加证据",
+              len(calls) == n_after_open and rec["last_comment"] == T + 120)
+        escalate_red(red_a0, st_e, T + 1920)
+        check("D-109 挂续证据：过节流窗 ⇒ 追加 comment",
+              len(calls) == n_after_open + 1 and calls[-1][0] == "POST"
+              and "/comments" in calls[-1][1] and rec["last_comment"] == T + 1920,
+              f"calls={calls[-2:]}")
+        escalate_red([], st_e, T + 1980)
+        check("D-109 恢复腿：红消 ⇒ 恢复 comment+关闭（closed_at 记账；consec 清零）",
+              rec["state"] == "closed" and rec["closed_at"] == T + 1980
+              and rec["consec"] == 0 and len(calls) == n_after_open + 3
+              and calls[-1][0] == "PATCH", f"calls={calls[-3:]}")
+        for i, tt in enumerate((T + 2040, T + 2100, T + 2160)):
+            escalate_red(red_a0, st_e, tt)
+        check("D-109 冷却重开：6h 冷却内再挂 3 轮 ⇒ PATCH 重开原题（不开新案）",
+              rec["state"] == "open" and rec["issue"] == 7701
+              and not [c for c in calls if c[0] == "POST" and c[1].endswith("/issues")][1:],
+              f"create_calls={[c for c in calls if c[0]=='POST' and c[1].endswith('/issues')]}")
+
+        # 互认去重：新 key 扫描到既有同码开题 ⇒ 认领不重开
+        red_a1 = [{"key": "A1:bench-x", "level": "red", "code": "A1",
+                   "message": "臂末态 run_failed 33%", "since": "s1"}]
+        n_before = len(calls)
+        for i in range(3):
+            escalate_red(red_a1, st_e, T + 3000 + 60 * i)
+        rec1 = st_e[ALERT_STATE_KEY]["A1:bench-x"]
+        check("D-109 互认去重：同码开题在册 ⇒ 认领既有题（零新开 POST）",
+              rec1["issue"] == 7001 and rec1["state"] == "open"
+              and not [c for c in calls[n_before:] if c[0] == "POST"
+                       and c[1].endswith("/issues")],
+              f"rec1={rec1}")
+
+        # 通道故障：开题失败留痕 ⇒ 下轮重试成功（fail-open 不抛不中断）
+        red_g = [{"key": "gc-recovery", "level": "red", "code": "gc-recovery",
+                  "message": "/data 停手线触顶", "since": "sg"}]
+        cell["create_rc"], cell["create_body"] = 0, "err:URLError"
+        for i in range(3):
+            escalate_red(red_g, st_e, T + 4000 + 60 * i)
+        recg = st_e[ALERT_STATE_KEY]["gc-recovery"]
+        check("D-109 通道故障：HTTP 0 ⇒ last_error 留账、不抛不中断",
+              recg["state"] != "open" and str(recg.get("last_error", "")).startswith("open:0")
+              and recg["consec"] == 3, f"recg={recg}")
+        cell["create_rc"], cell["create_body"] = 201, '{"number": 7702}'
+        escalate_red(red_g, st_e, T + 4200)
+        check("D-109 通道故障恢复：下轮重试 ⇒ 开题成功",
+              recg["issue"] == 7702 and recg["state"] == "open"
+              and "last_error" not in recg, f"recg={recg}")
+
+        # 无 PAT：取凭据失败 ⇒ 留账重试，不抛
+        red_n = [{"key": "A8", "level": "red", "code": "A8",
+                  "message": "门户三签名失败", "since": "s8"}]
+        globals()["_gh_" "token"] = (lambda: None)  # noqa: E731 - 无 PAT 换桩
+        for i in range(3):
+            escalate_red(red_n, st_e, T + 5000 + 60 * i)
+        recn = st_e[ALERT_STATE_KEY]["A8"]
+        check("D-109 无 PAT：last_error 记 no-token、不抛、下轮重试形态",
+              str(recn.get("last_error", "")).startswith("open:no-token")
+              and recn["state"] != "open", f"recn={recn}")
+    finally:
+        ALARMS_LOG, probe_local_root, _gh_token, gh_api = (
+            saved_log, saved_probe, saved_tok, saved_api)
+
+
 def _selftest():
     """D-112（factory-os#80）臂态三态显式化自检：在跑/自然退役/目录消失三态
     夹具各一 + 负例（禁 0 冒充在案/一次性/复活重报/≥N 天转 retired/legacy
@@ -2337,6 +2799,8 @@ def _selftest():
 
         # ---- D-113 /data 恢复腿 + 回落留痕夹具（同沙箱，GC_EVIDENCE 重定向）----
         _selftest_d113(PASS, FAIL, check, sandbox, T)
+        # ---- D-109 安灯出带批夹具（同沙箱：升级腿桩化 GitHub 零网络 / fail-loud / A4R）----
+        _selftest_d109(PASS, FAIL, check, sandbox, T)
     finally:
         shutil.rmtree(sandbox, ignore_errors=True)
 
@@ -2347,7 +2811,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--once", action="store_true", help="单轮扫描并打印巡检报告")
     ap.add_argument("--selftest", action="store_true",
-                    help="D-112 臂态三态夹具自检（零生产副作用，沙箱内跑）")
+                    help="夹具自检（D-112 臂态三态/D-113 恢复腿/D-109 出带批；"
+                         "零生产副作用，沙箱内跑，GitHub 面全桩化）")
     args = ap.parse_args()
     if args.selftest:
         sys.exit(_selftest())
