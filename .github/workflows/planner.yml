@@ -3677,7 +3677,7 @@ jobs:
             fi
             if [ -f planner-raw.json ] && jq -e '.investigations' planner-raw.json >/dev/null 2>&1; then
               echo "- 调查环（两段式）：请求=$(jq -r '.investigations.requested' planner-raw.json) · 执行=$(jq -r '.investigations.executed' planner-raw.json) · unavailable=$(jq -r '.investigations.unavailable' planner-raw.json) · 拒绝=$(jq -r '.investigations.rejected' planner-raw.json) · 截断=$(jq -r '.investigations.truncated' planner-raw.json)（总 $(jq -r '.investigations.total_ms' planner-raw.json)ms）"
-              jq -r \'.investigations.items[] | "  - [\(.index)] \(.kind // "?") \(.status) \(.ms // 0)ms \(.summary // "")\' planner-raw.json
+              jq -r '.investigations.items[] | "  - [\(.index)] \(.kind // "?") \(.status) \(.ms // 0)ms \(.summary // "")' planner-raw.json
             fi
             if [ -f issues-created.log ] && [ -s issues-created.log ]; then
               echo "- 新建 Issue："
