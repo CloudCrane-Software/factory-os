@@ -20,6 +20,22 @@
            + quality:A|B|C|D 叠加 label（--post 才写板）→ quality 件追加（验收③）；
   selftest — 内嵌夹具自测（零网络零板写；判别力自证）。
 
+判卷键钉版本指纹（ANC-5 冷读者换键口径 · 运营者 2026-11-07 第 6 裁落地·advisory 变严）：
+  answers 类件（判卷键/冷读者答卷所对的宪法或规格答案键）**必须钉其所对被测件的版本
+  指纹**——件头（前 KEY_HEADER_LINES 行）带 `key_for: <被测件 sha256[:12]>` 行，
+  多被测件=多行（集合对拍，与顺序无关；容忍列表/粗体/反引号包裹与行尾注释）。
+  replay 对拍前逐卡校验（check_answer_key）：件头声明键集与当次被测件**实读**指纹
+  集合不一致 ⇒ **该轮不计分**（scored=false、grade=null）并显式记 key_mismatch
+  （status 字面落码，进 failure_modes）——**禁静默换键**：拿旧键给新卷判分=系统性
+  误判。实证形态：constitution mini v1→v2 修订后 answers.md 仍自钉 v1 指纹
+  （00=61ce5318e531/01=0f60c00a0ef0/02=7cbaffe61125）而三件已为 v2
+  （00=a767f968858d/01=1990bbadaf77/02=2e8433c7fce0），其 Q10 答案键（「§6 计数=7 项」）
+  在 v2 下失效（v2=14 项）——换键责任在判卷侧，本校验把「键与卷是否同版本」从
+  口口相传变为机器可判。件头缺 key_for 行=key_missing、被测件不可读=key_unreadable、
+  answer_key 形制不认=key_malformed——一律 fail-closed 不计分（不猜绿）。
+  manifest 卡面形制：cards[].answer_key = {"file": "<answers 件路径>",
+  "targets": ["<被测件路径>", …]}（相对 manifest 所在目录解析，绝对路径原样用）。
+
 advisory 边界（禁项置顶，D7=C-5 禁区铁律）：
   - quality 评级/失败模式**只作 planner 回流输入**：永不改 invalid/valid 机检判定
     （step 08/08b 与其 verdict 落盘件零接触——本文件源代码零引用该件名，
@@ -58,10 +74,13 @@ quality 件格式：波次清单/wave-NN.quality.json = JSONL（每行一条独�
   各带 schema=af.wave-quality.v1；追加语义 = 新行尾插，既有行零改写零删除）。
 """
 import argparse
+import hashlib
 import json
 import os
 import re
+import shutil
 import sys
+import tempfile
 from datetime import datetime, timedelta, timezone
 
 TS_FMT = "%Y-%m-%dT%H:%M:%S%z"
@@ -75,6 +94,20 @@ WRITE_PATH_RX = re.compile(r"wave-\d+\.quality\.json$")
 # invalid 判定面（step 08 verdict 落盘件）——零接触断言用（只在本 selftest 引用文件名
 # 作字符串断言，任何模式路径都不得读写该件；advisory 禁项的机器可查形态）。
 FORBIDDEN_SURFACE_NAME = "manifest" + "-validation.json"
+
+# ── ANC-5 判卷键钉版本指纹（第 6 裁）：answers 件头 key_for 行解析面 ──
+# 形制：件头（前 KEY_HEADER_LINES 行）内 `key_for: <sha256[:12]>`；容忍列表/粗体/
+# 反引号包裹与行尾注释；多行=多被测件（集合对拍）。值须恰为 12 位十六进制前缀
+# （后随非十六进制边界——贴 64 位全值属形制违例 ⇒ 不匹配 ⇒ key_missing fail-closed）。
+# 零行=缺场（key_missing，fail-closed）。
+KEY_FOR_RX = re.compile(r"^(?:\*\*)?key_for(?:\*\*)?\s*[:：]\s*[`'\"*]*([0-9a-f]{12})(?![0-9a-f])")
+KEY_HEADER_LINES = 40
+# answer_key 校验结局字面（status 落码进 quality 件，禁静默换键的机器可查形态）
+KEY_STATUS_MATCH = "match"
+KEY_STATUS_MISMATCH = "key_mismatch"
+KEY_STATUS_MISSING = "key_missing"
+KEY_STATUS_UNREADABLE = "key_unreadable"
+KEY_STATUS_MALFORMED = "key_malformed"
 
 TERMINAL_STATES = {"ledgered", "merged"}
 
@@ -302,6 +335,120 @@ def grade(six_pass, gates_final_green, objections, unchecked, push_rounds, dry_r
     return "B", "全绿低成本（干跑/追加 push 面 na 或追加 push≤2——na 不折 A）"
 
 
+# ─────────────────────────── ANC-5 判卷键校验（第 6 裁） ───────────────────────────
+
+def file_sha256_prefix(path, n=12):
+    """文件 sha256 前 n 位（被测件实读指纹）。不可读/非文件/目录 ⇒ None（禁猜）。"""
+    try:
+        h = hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(1 << 16), b""):
+                h.update(chunk)
+        return h.hexdigest()[:n]
+    except OSError:
+        return None
+
+
+def parse_key_for(text):
+    """answers 件头 key_for 行解析 → 声明指纹清单（有序去重）。
+
+    形制（ANC-5·第 6 裁）：件头（前 KEY_HEADER_LINES 行）内 `key_for: <sha256[:12]>`
+    行；容忍行首 `-`/`>`/`#`/`*`/反引号包裹与行尾注释。多行=多被测件（集合对拍，
+    与顺序无关）。零行 ⇒ []（缺场，调用方按 fail-closed 处理）。
+    """
+    keys = []
+    for raw in (text or "").splitlines()[:KEY_HEADER_LINES]:
+        s = raw.strip().lstrip("-*>#` \t").strip()
+        m = KEY_FOR_RX.match(s)
+        if m and m.group(1) not in keys:
+            keys.append(m.group(1))
+    return keys
+
+
+def _resolve(base_dir, path):
+    """相对 manifest 目录解析；绝对路径原样。"""
+    p = str(path or "").strip()
+    if not p:
+        return None
+    return p if os.path.isabs(p) else os.path.join(base_dir or ".", p)
+
+
+def check_answer_key(answers_file, targets, base_dir=None):
+    """answers 件头 key_for 集 × 被测件实读指纹集对拍（replay 对拍前校验·第 6 裁）。
+
+    answers_file：answers 类件路径（判卷键/冷读者答卷所对答案键）。
+    targets：被测件路径或路径清单（宪法/规格版本件；相对 base_dir 或绝对路径）。
+    返回 dict（status 字面落码，禁静默换键）：
+      match          声明集 == 实读集（键匹配 ⇒ 可计分）
+      key_mismatch   两集不相等（键失配 ⇒ 该轮不计分）
+      key_missing    件头零 key_for 行（缺场 ⇒ fail-closed 不计分）
+      key_unreadable answers 件或被测件不可读（不可证 ⇒ fail-closed 不计分）
+      key_malformed  answer_key 形制不认（无 file/无 targets ⇒ fail-closed 不计分）
+    """
+    res = {"schema": "af.planner-quality.keycheck.v1",
+           "answers_file": answers_file, "declared": [], "actual": [],
+           "unreadable": [], "status": None}
+    ans_path = _resolve(base_dir, answers_file) if answers_file else None
+    if not ans_path:
+        res["status"] = KEY_STATUS_MALFORMED
+        res["reason"] = "key_malformed：answer_key 缺 file 字段（answers 件路径不可解析 ⇒ fail-closed）"
+        return res
+    res["answers_file"] = ans_path
+    if isinstance(targets, str):
+        targets = [targets] if targets.strip() else []
+    targets = [t for t in (targets or []) if str(t or "").strip()]
+    if not targets:
+        res["status"] = KEY_STATUS_MALFORMED
+        res["reason"] = "key_malformed：answer_key 缺 targets（被测件清单为空 ⇒ 无对拍面 ⇒ fail-closed）"
+        return res
+    try:
+        with open(ans_path, encoding="utf-8") as f:
+            ans_text = f.read()
+    except OSError as e:
+        res["status"] = KEY_STATUS_UNREADABLE
+        res["reason"] = "key_unreadable：answers 件不可读 %s（%s）——不可证 ⇒ fail-closed" % (ans_path, e)
+        return res
+    declared = parse_key_for(ans_text)
+    res["declared"] = declared
+    if not declared:
+        res["status"] = KEY_STATUS_MISSING
+        res["reason"] = ("key_missing：answers 件头零 key_for 行（ANC-5 形制：件头须带 "
+                         "`key_for: <被测件 sha256[:12]>`）——缺场 ⇒ fail-closed")
+        return res
+    actual = []
+    for t in targets:
+        p = _resolve(base_dir, t)
+        fp = file_sha256_prefix(p) if p else None
+        if fp is None:
+            res["unreadable"].append(t)
+        elif fp not in actual:
+            actual.append(fp)
+    res["actual"] = actual
+    if res["unreadable"]:
+        res["status"] = KEY_STATUS_UNREADABLE
+        res["reason"] = "key_unreadable：被测件不可读（无实读指纹 ⇒ 不可证）：%s" % "；".join(res["unreadable"])
+        return res
+    if sorted(declared) == sorted(actual):
+        res["status"] = KEY_STATUS_MATCH
+        res["reason"] = "键匹配：声明集=实读集（%s）" % "/".join(sorted(declared))
+        return res
+    res["status"] = KEY_STATUS_MISMATCH
+    res["reason"] = ("key_mismatch：key_for 声明=%s ≠ 当次被测件实读=%s——该轮不计分"
+                     "（ANC-5 禁静默换键：换键=判卷侧显式动作，禁拿旧键判新卷）"
+                     % ("/".join(declared), "/".join(actual) or "(空)"))
+    return res
+
+
+def key_check_failure_mode(key_check):
+    """key_check ⇒ failure_modes 条目（失配/缺场/不可证/形制坏，显式记，禁静默）。"""
+    if not key_check:
+        return None
+    st = key_check.get("status")
+    if st == KEY_STATUS_MATCH:
+        return None
+    return "判卷键%s（%s）" % (st, key_check.get("reason") or "")
+
+
 MODE_LABEL_RX = {
     "/blocked": re.compile(r"^\s*/blocked\b"),
     "/need-context": re.compile(r"^\s*/need-context\b"),
@@ -318,9 +465,12 @@ FAILURE_MODE_BY_CHECK = {
 
 
 def build_record(wave, mode, card_ref, scored, six_detail, gates, push, objections,
-                 unchecked, dry_rate, evidence, scored_reason=None):
+                 unchecked, dry_rate, evidence, scored_reason=None, key_check=None):
     """组装一条 quality 记录（键集固定完整——scored:false 行同键集，grade=null）。
-    评分面读数取值纪律：na 段不计入公式（None 传入），非 na 段取 value。"""
+    评分面读数取值纪律：na 段不计入公式（None 传入），非 na 段取 value。
+    ANC-5（第 6 裁）：key_check 非 match（key_mismatch/key_missing/key_unreadable/
+    key_malformed）⇒ 强制 scored=false（该轮不计分，禁静默换键），failure_modes
+    显式记判卷键结局字面，key_for_check 段随记录落盘（声明/实读/原因全留）。"""
     six_pass = sum(1 for d in six_detail if d.get("pass")) if six_detail else 0
     failure_modes = []
     for d in six_detail or []:
@@ -351,6 +501,14 @@ def build_record(wave, mode, card_ref, scored, six_detail, gates, push, objectio
             failure_modes.append("异议:%s×%d" % (k, v))
     if unc_rec.get("value"):
         failure_modes.append("交卷清单未勾×%d" % unc_rec["value"])
+    # ANC-5（第 6 裁）：判卷键非 match ⇒ 该轮不计分（禁静默换键）——failure_modes
+    # 显式记 key_mismatch/key_missing/key_unreadable/key_malformed 字面，grade=null。
+    key_bad = bool(key_check) and key_check.get("status") != KEY_STATUS_MATCH
+    if key_bad:
+        scored = False
+        failure_modes.append(key_check_failure_mode(key_check))
+        if not scored_reason:
+            scored_reason = key_check.get("reason")
 
     if not scored:
         g, basis = None, None
@@ -381,6 +539,7 @@ def build_record(wave, mode, card_ref, scored, six_detail, gates, push, objectio
             "submission_unchecked": unc_rec,
         },
         "failure_modes": failure_modes,
+        "key_for_check": key_check,
         "grade_formula": FORMULA,
         "grade_basis": (None if not scored else "%s（%s）" % (g, basis)),
         "scored_reason": None if scored else scored_reason,
@@ -411,10 +570,28 @@ def append_quality(wave_dir, wave, records):
 
 # ─────────────────────────── replay 模式 ───────────────────────────
 
+def replay_key_check(card, base_dir):
+    """manifest 卡 answer_key 段 → check_answer_key 读数（无段 ⇒ None，不阻断旧行为）。
+
+    卡面形制（ANC-5·第 6 裁）：answer_key = {"file": "<answers 件>",
+    "targets": ["<被测件>", …]}；targets 容单串。非对象 ⇒ key_malformed（fail-closed）。
+    """
+    ak = card.get("answer_key")
+    if ak is None:
+        return None
+    if not isinstance(ak, dict):
+        return {"schema": "af.planner-quality.keycheck.v1", "answers_file": None,
+                "declared": [], "actual": [], "unreadable": [],
+                "status": KEY_STATUS_MALFORMED,
+                "reason": "key_malformed：answer_key 形制不认（须为 {file, targets} 对象）⇒ fail-closed"}
+    return check_answer_key(ak.get("file"), ak.get("targets") or ak.get("target"), base_dir)
+
+
 def mode_replay(manifest_path, wave_dir):
     man = json.load(open(manifest_path, encoding="utf-8"))
     wave = man.get("wave") or "wave-00"
     wave_task_ids = {c.get("task_id") for c in (man.get("cards") or []) if isinstance(c, dict)}
+    base_dir = os.path.dirname(os.path.abspath(manifest_path))
     records = []
     for c in man.get("cards") or []:
         if not isinstance(c, dict):
@@ -422,7 +599,14 @@ def mode_replay(manifest_path, wave_dir):
         state = c.get("state")
         closed = state in TERMINAL_STATES
         six_detail = check_six_manifest(c, man, wave_task_ids)
+        # ANC-5（第 6 裁）：replay 对拍前校验判卷键（answers 件头 key_for × 当次被测件
+        # 实读指纹）——非 match 的卡由 build_record 强制不计分并显式记 key_mismatch。
+        key_check = replay_key_check(c, base_dir)
         if not closed:
+            reason = "未收卷（state=%s）——评分事件在收卷裁决落定时（Q1 §3.4.1）" % state
+            if key_check and key_check.get("status") != KEY_STATUS_MATCH:
+                reason += "；判卷键%s（%s）" % (key_check.get("status"),
+                                            key_check.get("reason") or "")
             records.append(build_record(
                 wave, "replay",
                 {"task_id": c.get("task_id"), "debt": c.get("debt"), "channel": c.get("channel"),
@@ -431,7 +615,7 @@ def mode_replay(manifest_path, wave_dir):
                 objections={"value": 0, "na": False, "basis": "无板面 issue 通道，异议面结构性零"},
                 unchecked=None, dry_rate={"value": None, "na": True, "reason": "未收卷卡无干跑证据面"},
                 evidence={"manifest": os.path.basename(manifest_path)},
-                scored_reason="未收卷（state=%s）——评分事件在收卷裁决落定时（Q1 §3.4.1）" % state))
+                scored_reason=reason, key_check=key_check))
             continue
         merge_text = json.dumps({"m": c.get("merge_result"), "l": c.get("ledger_result"),
                                  "a": c.get("accept_note")}, ensure_ascii=False)
@@ -457,11 +641,14 @@ def mode_replay(manifest_path, wave_dir):
             objections={"value": 0, "na": False, "basis": "无板面 issue 通道（workspace 卡），异议面结构性零"},
             unchecked=unchecked, dry_rate=dry,
             evidence={"manifest": os.path.basename(manifest_path),
-                      "fields": [k for k in ("merge_result", "ledger_result", "accept_note") if c.get(k)]}))
+                      "fields": [k for k in ("merge_result", "ledger_result", "accept_note") if c.get(k)]},
+            key_check=key_check))
     path, existed, size_before = append_quality(wave_dir, wave, records)
     scored_n = sum(1 for r in records if r["scored"])
-    print("REPLAY %s：%d 卡（评分 %d / 未收卷留证 %d）→ %s 追加 %d 行（append-only，%s）"
-          % (wave, len(records), scored_n, len(records) - scored_n, path, len(records),
+    key_bad_n = sum(1 for r in records
+                    if (r.get("key_for_check") or {}).get("status") not in (None, KEY_STATUS_MATCH))
+    print("REPLAY %s：%d 卡（评分 %d / 未收卷留证 %d / 判卷键不计分 %d）→ %s 追加 %d 行（append-only，%s）"
+          % (wave, len(records), scored_n, len(records) - scored_n, key_bad_n, path, len(records),
              "新建" if not existed else "既有 %d 字节上追加" % size_before))
     return path, records
 
@@ -666,8 +853,8 @@ def mode_selftest():
     d10 = check_six_board(body_c1)
     c1 = [x for x in d10 if x["check"] == "C1_acceptance_expected_outcome"][0]
     assert c1["pass"] is False, "回读形无 rc 应 fail"
-    # ── 夹具 11-16：红队 A2 加固回归（junk 卡必须 ≤C；合法真卡仍 A/B）──────────
-    # 11 · attack1 A2 原样 junk 卡（实跑曾 C1..C6 全过拿 A）：
+    # ── 夹具 13-18：红队 A2 加固回归（junk 卡必须 ≤C；合法真卡仍 A/B）──────────
+    # 13 · attack1 A2 原样 junk 卡（实跑曾 C1..C6 全过拿 A）：
     #   acceptance=['echo ok → rc=0'] —— echo 恒 rc=0 零判别力 ⇒ C1 须 fail
     junk_card = {'title': '补充说明', 'acceptance': ['echo ok → rc=0'], 'base_sha': 'main',
                  'note': '参考 docs/x.md:1', 'merge_policy': 'squash', 'depends_on': [],
@@ -679,7 +866,7 @@ def mode_selftest():
     assert pj == 5, "A2 junk 卡六要件应 5/6（只 C1 挂），实得 %d：%s" % (pj, dj)
     gj, bj = grade(pj, True, 0, 0, 0, 1.0)          # 即便 gates 全绿零成本
     assert gj == "C", "A2 junk 卡应 ≤C，实得 %s（%s）" % (gj, bj)
-    # 11b · 同 junk 卡走 replay 记录路径（gates na）⇒ 同样 ≤C 且带 na 失败模式
+    # 13b · 同 junk 卡走 replay 记录路径（gates na）⇒ 同样 ≤C 且带 na 失败模式
     rec_j = build_record("wave-01", "replay",
                          {"task_id": "t-junk", "debt": None, "channel": "?", "issue": None,
                           "pr": None, "state_at_score": "merged"},
@@ -690,18 +877,18 @@ def mode_selftest():
                          evidence={})
     assert rec_j["grade"] == "C", "A2 junk 卡（gates na）应 C，实得 %s" % rec_j["grade"]
     assert "gates 收卷门不可证（na）" in rec_j["failure_modes"], rec_j["failure_modes"]
-    # 12 · 命令引用不存在文件作**命令本身** ⇒ C1 fail（仓内无该文件）
+    # 14 · 命令引用不存在文件作**命令本身** ⇒ C1 fail（仓内无该文件）
     ghost = dict(good, acceptance=["tools/ghost-不存在.py → rc=0"])
     cg = [x for x in check_six_manifest(ghost, man1, {"t-good"})
           if x["check"] == "C1_acceptance_expected_outcome"][0]
     assert cg["pass"] is False, "引用不存在文件作命令应 fail"
-    # 13 · 缺显式「→ rc=N」形（裸 rc=0 串/「退出码」文字）⇒ C1 fail
+    # 15 · 缺显式「→ rc=N」形（裸 rc=0 串/「退出码」文字）⇒ C1 fail
     for loose in ("python3 -I tools/x.py rc=0", "跑全部测试，预期退出码 0",
                   "python3 -I tools/x.py # exit 0"):
         cl = [x for x in check_six_manifest(dict(good, acceptance=[loose]), man1, {"t-good"})
               if x["check"] == "C1_acceptance_expected_outcome"][0]
         assert cl["pass"] is False, "缺「→ rc=N」显式形应 fail：%r" % loose
-    # 14 · 合法真卡仍 A/B：白名单命令 + 显式 rc 形 ⇒ C1 pass；仓内真实文件引用同过
+    # 16 · 合法真卡仍 A/B：白名单命令 + 显式 rc 形 ⇒ C1 pass；仓内真实文件引用同过
     ok_forms = ["python3 -I tools/x.py → rc=0", "bash -c 'true' → rc=1",
                 "jq -e .a f.json → rc=0", "cd 波次清单 && git status → rc=0"]
     for form in ok_forms:
@@ -719,15 +906,15 @@ def mode_selftest():
     assert crb["pass"] is False, "仓内不存在该裸名（须仓根相对路径）应 fail"
     gA, _ = grade(6, True, 0, 0, 0, 1.0)
     assert gA == "A", "合法真卡（六项全可证+零成本）仍应 A，实得 %s" % gA
-    # 15 · gates=na 从 B「全绿」降 C：禁出「全绿」判词（A2 第二通道）
+    # 17 · gates=na 从 B「全绿」降 C：禁出「全绿」判词（A2 第二通道）
     gna, bna = grade(6, None, None, None, None, None)
     assert gna == "C", "gates=na 应降 C，实得 %s（%s）" % (gna, bna)
     assert "全绿低成本" not in bna and "全绿零成本" not in bna, \
         "gates=na 判词禁出全绿档措辞：%s" % bna
-    # 15b · gates 真绿 + push/dry na ⇒ 仍 B（na 只放行更低档，不误伤真绿卡）
+    # 17b · gates 真绿 + push/dry na ⇒ 仍 B（na 只放行更低档，不误伤真绿卡）
     gB, _ = grade(6, True, 0, 0, None, None)
     assert gB == "B", "gates 真绿 + na 项应 B，实得 %s" % gB
-    # 16 · board 卡面同族加固：编号条目须白名单命令 + 显式 rc 形
+    # 18 · board 卡面同族加固：编号条目须白名单命令 + 显式 rc 形
     body_ok = ("## 验收命令集\n"
                "1. python3 -I tools/x.py → rc=0\n"
                "2. jq -e .ok 波次清单/wave-01.json → rc=0\n"
@@ -741,7 +928,85 @@ def mode_selftest():
     c16b = [x for x in check_six_board(body_junk)
             if x["check"] == "C1_acceptance_expected_outcome"][0]
     assert c16b["pass"] is False, "board junk 条目（echo）应 fail"
-    print("SELFTEST OK：16 组夹具全过（六要件机检/评分档界/na 政策/A2 加固回归/advisory 写入集断言）")
+    # ── 夹具 11/12（ANC-5 判卷键钉版本指纹·运营者 2026-11-07 第 6 裁·裁定点名两例）──
+    # 形制：answers 件头 `key_for: <被测件 sha256[:12]>`；replay 对拍前校验声明集 ×
+    # 当次被测件实读集。动机实证：constitution mini v1→v2 后 answers.md 仍自钉 v1
+    # 指纹（00=61ce5318e531…）而三件已为 v2（00=a767f968858d…），其 Q10 答案键
+    #（「§6 计数=7 项」）在 v2（14 项）下失效——静默换键=系统性误判，故机器校验。
+    kd = tempfile.mkdtemp(prefix="planner-quality-keycheck-")
+    try:
+        tgt = os.path.join(kd, "SPEC.md")
+        with open(tgt, "w", encoding="utf-8") as f:
+            f.write("# 冻结规格 v1.0（夹具被测件）\n")
+        fp = file_sha256_prefix(tgt)
+        assert fp and len(fp) == 12 and re.fullmatch(r"[0-9a-f]{12}", fp)
+        ans_ok = os.path.join(kd, "answers-ok.md")
+        with open(ans_ok, "w", encoding="utf-8") as f:
+            f.write("- key_for: %s（= 当次被测件实读指纹）\n\n**Q1** 夹具答案……\n" % fp)
+        ans_stale = os.path.join(kd, "answers-stale.md")
+        with open(ans_stale, "w", encoding="utf-8") as f:
+            f.write("- key_for: %s（旧版指纹：模拟拿 v1 键给 v2 卷判分）\n" % ("f" * 12))
+        ans_nokey = os.path.join(kd, "answers-nokey.md")
+        with open(ans_nokey, "w", encoding="utf-8") as f:
+            f.write("- 依据版本：旧口径行（零 key_for 字段）\n")
+        # 纯函数层：match / key_mismatch / key_missing / key_unreadable 四态
+        kc_ok = check_answer_key(ans_ok, [tgt])
+        assert kc_ok["status"] == KEY_STATUS_MATCH, kc_ok
+        assert kc_ok["declared"] == [fp] and kc_ok["actual"] == [fp], kc_ok
+        kc_bad = check_answer_key(ans_stale, [tgt])
+        assert kc_bad["status"] == KEY_STATUS_MISMATCH, kc_bad
+        assert kc_bad["declared"] == ["f" * 12] and kc_bad["actual"] == [fp], kc_bad
+        assert check_answer_key(ans_nokey, [tgt])["status"] == KEY_STATUS_MISSING
+        kc_unread = check_answer_key(ans_ok, [os.path.join(kd, "absent.md")])
+        assert kc_unread["status"] == KEY_STATUS_UNREADABLE and kc_unread["unreadable"], kc_unread
+        # 集合对拍：多被测件多行（乱序书写）⇒ match；声明集缺一 ⇒ key_mismatch
+        tgt2 = os.path.join(kd, "SPEC2.md")
+        with open(tgt2, "w", encoding="utf-8") as f:
+            f.write("# 第二被测件（夹具）\n")
+        fp2 = file_sha256_prefix(tgt2)
+        ans_two = os.path.join(kd, "answers-two.md")
+        with open(ans_two, "w", encoding="utf-8") as f:
+            f.write("key_for: %s\nkey_for: %s\n" % (fp2, fp))     # 乱序=集合语义
+        assert check_answer_key(ans_two, [tgt, tgt2])["status"] == KEY_STATUS_MATCH
+        ans_half = os.path.join(kd, "answers-half.md")
+        with open(ans_half, "w", encoding="utf-8") as f:
+            f.write("key_for: %s\n" % fp)
+        assert check_answer_key(ans_half, [tgt, tgt2])["status"] == KEY_STATUS_MISMATCH
+        # 形制违例：贴 64 位全值（非 [:12] 前缀形）⇒ 不匹配 ⇒ key_missing（fail-closed）
+        ans_full = os.path.join(kd, "answers-fullsha.md")
+        with open(ans_full, "w", encoding="utf-8") as f:
+            f.write("key_for: %s\n" % (fp * 5 + fp[:4]))
+        assert check_answer_key(ans_full, [tgt])["status"] == KEY_STATUS_MISSING
+        # replay 级两例（裁定点名）：manifest 卡带 answer_key——键匹配计分/键失配拒计
+        man_k = {"schema": "af.wave-manifest.v1", "wave": "wave-11", "base_sha": "a" * 40,
+                 "cards": [
+                     dict(good, task_id="t-key-match",
+                          answer_key={"file": "answers-ok.md", "targets": ["SPEC.md"]}),
+                     dict(good, task_id="t-key-stale",
+                          answer_key={"file": "answers-stale.md", "targets": ["SPEC.md"]})]}
+        mpath = os.path.join(kd, "wave-11.json")
+        with open(mpath, "w", encoding="utf-8") as f:
+            json.dump(man_k, f, ensure_ascii=False)
+        _, recs_k = mode_replay(mpath, os.path.join(kd, "波次清单"))
+        r_match = [r for r in recs_k if r["card"]["task_id"] == "t-key-match"][0]
+        r_stale = [r for r in recs_k if r["card"]["task_id"] == "t-key-stale"][0]
+        assert r_match["scored"] is True, r_match                  # 键匹配 ⇒ 照常计分
+        assert r_match["grade"] == "B" and r_match["grade_basis"], r_match
+        assert r_match["key_for_check"]["status"] == KEY_STATUS_MATCH
+        assert not any("判卷键" in m for m in r_match["failure_modes"])
+        assert r_stale["scored"] is False, r_stale                 # 键失配 ⇒ 该轮不计分
+        assert r_stale["grade"] is None and r_stale["grade_basis"] is None, r_stale
+        assert r_stale["key_for_check"]["status"] == KEY_STATUS_MISMATCH  # 显式记 key_mismatch
+        assert r_stale["key_for_check"]["declared"] == ["f" * 12]
+        assert r_stale["key_for_check"]["actual"] == [fp]
+        assert any("key_mismatch" in m for m in r_stale["failure_modes"]), r_stale["failure_modes"]
+        assert "key_mismatch" in (r_stale["scored_reason"] or ""), r_stale["scored_reason"]
+    finally:
+        shutil.rmtree(kd, ignore_errors=True)
+    print("SELFTEST OK：18 组夹具全过（六要件机检/评分档界/na 政策/advisory 写入集断言/"
+          "A2 加固回归：junk 卡 ≤C·合法真卡仍 A/B·gates=na 禁出全绿／"
+          "ANC-5 判卷键：match 计分·key_mismatch 拒计·key_missing/key_unreadable fail-closed·"
+          "集合对拍·形制违例拒认）")
     return 0
 
 
