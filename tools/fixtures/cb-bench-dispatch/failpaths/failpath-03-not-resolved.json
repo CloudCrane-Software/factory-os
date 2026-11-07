@@ -1,0 +1,53 @@
+{
+  "schema": "af.cb-bench-dispatch.failpath-fixture.v1",
+  "note": "D-134 失败腿夹具 ③ verdict=not_resolved（factory-os#149）：D-117 先例读数对拍（30-工件/夜轨A2-20261107/判分读数.md §七：判官件/判据面零改动纪律 ⇒ verdict 维持 not_resolved，零人工抢救）。失配只记结构级归因（空字符串参数化用例 ID 渲染形态差），逐字 ID 不复制（bench 卡型纪律）。读数为合成干跑输入；改本件=改夹具判据，随主件同批评审。",
+  "form": "not_resolved",
+  "form_label": "③ verdict=not_resolved（判分如实判负）",
+  "debt": "D-117",
+  "github_issue": 90,
+  "evidence": {
+    "sandbox_reply": {
+      "self_report": "submitted",
+      "diff_blocks": 1,
+      "unified_diff_complete": true,
+      "report_five_sections": true,
+      "report_sections_present": 5,
+      "apply_check_rc": 0,
+      "reply_fingerprints": [
+        "5c040ce9bffd"
+      ]
+    },
+    "judge": {
+      "verdict": "not_resolved",
+      "f2p_success": 1,
+      "f2p_failure": 0,
+      "p2p_success": 240,
+      "p2p_failure": 1,
+      "diff_valid": true,
+      "log_state": "parsed",
+      "tests_collected": 242,
+      "mismatch_note": "唯一失配=空字符串参数化用例 ID 渲染形态差（结构级），容器实测 242/242 零实败；判官件/判据面零改动纪律 ⇒ verdict 维持 not_resolved，零人工抢救"
+    },
+    "silent_window": {
+      "exceeded": false,
+      "silence_seconds": 0,
+      "threshold_seconds": 300,
+      "hard_cap_seconds": 5400
+    }
+  },
+  "expect": {
+    "link_segments": [
+      "collect_check",
+      "judge",
+      "card_back"
+    ],
+    "collect_result": "collected",
+    "judge_ran": true,
+    "verdict": "not_resolved",
+    "verdict_verbatim": true,
+    "card_back_suggested_label": "state:rejected",
+    "card_back_must_contain": "verdict=not_resolved",
+    "trace_written": true,
+    "rescue_attempted": false
+  }
+}

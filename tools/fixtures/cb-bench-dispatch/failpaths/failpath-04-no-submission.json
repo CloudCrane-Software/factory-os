@@ -1,0 +1,44 @@
+{
+  "schema": "af.cb-bench-dispatch.failpath-fixture.v1",
+  "note": "D-134 失败腿夹具 ④ 未交卷（factory-os#149）：沙箱回复不含 diff 块且超静默窗 ⇒ 如实记「未交卷」并回卡留痕（S9 原文口径）。静默窗参数与 bot 侧 tools/cb-dispatch.py bench-watch 同源：首候选后静默 ≥300s、90min 硬顶、取末卷、全卷指纹链先落盘——本夹具零 diff 块+静默 3720s（超阈未触顶）。读数为合成干跑输入；改本件=改夹具判据，随主件同批评审。",
+  "form": "no_submission",
+  "form_label": "④ 超静默窗零 diff 块（未交卷）",
+  "debt": "D-117",
+  "github_issue": 90,
+  "evidence": {
+    "sandbox_reply": {
+      "self_report": "silent",
+      "self_report_detail": "沙箱回复两条均不含 diff 块（进度口头汇报），首候选后静默 3720s 超 300s 阈",
+      "diff_blocks": 0,
+      "reply_count": 2,
+      "last_reply_at": "2026-11-06T21:12:07Z",
+      "reply_fingerprints": [
+        "0f1e2d3c4b5a",
+        "6a7b8c9d0e1f"
+      ]
+    },
+    "judge": {},
+    "silent_window": {
+      "exceeded": true,
+      "silence_seconds": 3720,
+      "threshold_seconds": 300,
+      "hard_cap_seconds": 5400,
+      "first_candidate_at": "2026-11-06T21:07:07Z"
+    }
+  },
+  "expect": {
+    "link_segments": [
+      "collect_check",
+      "judge",
+      "card_back"
+    ],
+    "collect_result": "not_submitted",
+    "judge_ran": false,
+    "verdict": "not_submitted（未交卷）",
+    "card_back_suggested_label": "state:rejected",
+    "card_back_must_contain": "未交卷",
+    "trace_written": true,
+    "reply_chain_preserved": true,
+    "rescue_attempted": false
+  }
+}
