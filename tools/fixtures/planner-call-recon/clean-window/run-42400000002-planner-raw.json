@@ -1,0 +1,8 @@
+{
+ "model": "fixture-deepseek-v4.1-flash-1017",
+ "attempts": 2,
+ "calls": [
+  {"attempt": 1, "http": 200, "ms": 114931, "prompt_tk": 15621, "completion_tk": 16384, "finish_reason": "length"},
+  {"attempt": 2, "http": 200, "ms": 44417, "prompt_tk": 15621, "completion_tk": 6906, "finish_reason": "stop"}
+ ]
+}

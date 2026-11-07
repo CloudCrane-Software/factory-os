@@ -1,0 +1,8 @@
+{
+ "model": "fixture-deepseek-v4.1-flash-1017",
+ "attempts": 2,
+ "calls": [
+  {"attempt": 1, "http": 504, "ms": 300000},
+  {"attempt": 2, "http": 504, "ms": 300000}
+ ]
+}
