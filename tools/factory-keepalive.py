@@ -247,7 +247,7 @@ import re
 import signal
 import socket
 import subprocess
-import sys
+import sys, importlib.util
 import time
 import urllib.error
 import urllib.parse
@@ -263,7 +263,7 @@ try:
     import factory_otel as _otel
 except Exception:  # noqa: BLE001 —— 埋点缺失不影响看护主职
     _otel = None
-PIDFILE = "/tmp/factory-keepalive.pid"
+PIDFILE = "/tmp/factory-keepalive.pid"; _ft_spec = importlib.util.spec_from_file_location("factory_thresholds", os.path.join(os.path.dirname(os.path.abspath(__file__)), "factory-thresholds.py")); _ft = importlib.util.module_from_spec(_ft_spec); _ft_spec.loader.exec_module(_ft)  # D-140（债 D-129）判活阈值单源：scheduler 判活线改由 tools/factory-thresholds.py 供值——本件行内形态为零净增行（bot-scrub 判据豁免行钉 1614/2082/2117 不漂移），逐行说明见 PR
 KLOG = "/tmp/factory-keepalive.log"
 def _mes_conn(url=None):
     """MES ClickHouse 连接 → (base_url, auth_header)。
@@ -362,7 +362,7 @@ LOCAL_GUARDS = [
     {"name": "scheduler", "script": "factory-scheduler.py",
      "state": f"{WS}/状态观测/factory-scheduler-state.json",
      "log": f"{WS}/状态观测/factory-scheduler.log",
-     "stale_s": 2400, "grace_s": 1800,
+     "stale_s": _ft.LOCAL_GUARDS_STALE_S, "grace_s": _ft.LOCAL_GUARDS_GRACE_S,  # D-140 单源（原 2400/1800 字面；与 watch SCHED_STALE_S 同源同值）
      "cmd": ["python3", "tools/factory-scheduler.py"],
      "log_target": f"{WS}/状态观测/factory-scheduler.log"},
     {"name": "status-push", "script": "factory-status-push.py",
