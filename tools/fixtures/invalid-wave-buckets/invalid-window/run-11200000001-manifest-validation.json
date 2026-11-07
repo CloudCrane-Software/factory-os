@@ -1,0 +1,39 @@
+{
+ "checked_at": "2026-11-07T09:10:05+08:00",
+ "outcome": "invalid",
+ "ok": false,
+ "wave": "wave-09",
+ "cards_total": 3,
+ "new_cards": 0,
+ "mem": {
+  "anolis_sum_g": 0,
+  "local_sum_g": 0,
+  "anolis_cards": 0,
+  "bot_cards": 0
+ },
+ "missing_items": {
+  "M-1": 0,
+  "M-2": 0,
+  "M-3": 0,
+  "M-4": 1,
+  "M-5": 0,
+  "M-6": 1,
+  "M-7": 0,
+  "M-8": 0
+ },
+ "errors": [
+  "M-6: card-1 debt 无台账行（占用闸 fail-closed；先产 register-debt-* 登记卡或换锚）：D-201",
+  "M-4: card-1 allowed_paths[0] 命中判官面（judge-paths 登记表：.github/CODEOWNERS）——禁入白名单（判官/门/判据件一改即拒收，登记表点名）：.github/CODEOWNERS"
+ ],
+ "warnings": [],
+ "v1_1": {
+  "schema_spec": "af.wave-manifest.v1.1（af.wave-manifest.v1 只增不改）",
+  "optional_fields": [
+   "repo",
+   "env_precondition",
+   "fast_tests"
+  ],
+  "card_field_names_union": [],
+  "key_completed": []
+ }
+}

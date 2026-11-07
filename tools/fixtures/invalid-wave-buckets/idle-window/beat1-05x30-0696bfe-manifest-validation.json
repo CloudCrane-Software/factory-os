@@ -1,0 +1,36 @@
+{
+ "checked_at": "2026-11-07T13:32:29+08:00",
+ "outcome": "idle",
+ "ok": true,
+ "wave": "wave-09",
+ "cards_total": 0,
+ "new_cards": 0,
+ "mem": {
+  "anolis_sum_g": 0,
+  "local_sum_g": 0,
+  "anolis_cards": 0,
+  "bot_cards": 0
+ },
+ "missing_items": {
+  "M-1": 0,
+  "M-2": 0,
+  "M-3": 0,
+  "M-4": 0,
+  "M-5": 0,
+  "M-6": 0,
+  "M-7": 0,
+  "M-8": 0
+ },
+ "errors": [],
+ "warnings": [],
+ "v1_1": {
+  "schema_spec": "af.wave-manifest.v1.1（af.wave-manifest.v1 只增不改）",
+  "optional_fields": [
+   "repo",
+   "env_precondition",
+   "fast_tests"
+  ],
+  "card_field_names_union": [],
+  "key_completed": []
+ }
+}
