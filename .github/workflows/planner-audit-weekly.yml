@@ -147,14 +147,18 @@ jobs:
           echo "answer_rc=$rc" >> "$GITHUB_OUTPUT"
           echo "问卷步 rc=$rc（3=不可达 fail-open advisory；0=ok/partial）"
 
-      # ── 组装：周报（append-only，路径按周编号派生波次清单/quality/weekly-YYYYWW.json）+ 摘要 ──
-      # 周报件是唯一**有意**入仓的产物（走 05 两段式合线）；摘要落 RUNNER_TEMP。
+      # ── 组装：周报（append-only）+ 摘要 ──────────────────────────────────────
+      # 周报件写 $RUNNER_TEMP/weekly-report.json；仓内 波次清单/quality/weekly-*.json
+      # 只作 append-only **读源**（合线后的既有件）——落树动作归 05 步（先过「工作树
+      # 干净」闸再 cp 入树，planner step 09 同款次序；run#2 实测教训：assemble 直接
+      # 落树会让 05 步干净闸误拒那个正要提交的件）。
       - name: '04 · 组装周报 weekly-<YYYY>W<WW>.json（append-only）+ 摘要'
         id: assemble
         run: |
           set -euo pipefail
           python3 -I tools/planner-audit-weekly.py --assemble \
             --in "$RUNNER_TEMP/audit-inputs.json" --answers "$RUNNER_TEMP/audit-answers.json" \
+            --out "$RUNNER_TEMP/weekly-report.json" \
             --summary "$RUNNER_TEMP/weekly-summary.md"
 
       # ── 两段式第一段：commit 周报到 audit/weekly-<week> 分支（append-only；禁覆盖历史）──
@@ -172,6 +176,10 @@ jobs:
           fi
           # WEEK=YYYY-WW ⇒ 文件名 weekly-YYYYWW.json（删全部连字符）
           target="${WAVE_DIR}/quality/weekly-${WEEK//-/}.json"
+          # 干净闸**之后**才落树（planner step 09 同款次序）：assemble 的产物在
+          # $RUNNER_TEMP，此处 cp 入树——正要提交的件不许污染干净闸自身（run#2 教训）。
+          mkdir -p "${WAVE_DIR}/quality"
+          cp "$RUNNER_TEMP/weekly-report.json" "$target"
           if [ ! -f "$target" ]; then
             echo "周报件不在场：$target（assemble 步应已落盘）——fail-closed" >&2
             exit 8
@@ -352,6 +360,7 @@ jobs:
             ${{ runner.temp }}/audit-inputs.json
             ${{ runner.temp }}/audit-answers.json
             ${{ runner.temp }}/weekly-summary.md
+            ${{ runner.temp }}/weekly-report.json
             波次清单/quality/weekly-*.json
 
       - name: '09 · 问卷状态闸（advisory fail-loud：不可达 ⇒ run 红；缺题 ⇒ 黄标警告）'
