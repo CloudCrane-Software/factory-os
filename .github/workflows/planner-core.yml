@@ -900,7 +900,7 @@ jobs:
                 % (len(issues), len(in_flight), len(occupied)))
           PY
 
-      # ── 读账面：波次清单（状态机实况）+ 欠账台账行级摘要（锚点宇宙）──
+      # ── 读账面：波次清单（状态机实况）+ 欠账台账行级摘要（锚点宇宙·全量）──
       - name: '05 · 读 factory-os 账面（波次清单 + 欠账台账摘要）'
         if: steps.quota.outputs.plan_allowed == 'true'
         run: |
@@ -971,9 +971,17 @@ jobs:
               warnings.append("欠账台账不在场：%s" % os.environ["LEDGER_FILE"])
 
           open_anchors = [a["id"] for a in anchors if not a["done"]]
-          anchors_tail = anchors[-80:]
-          if len(anchors) > len(anchors_tail):
-              warnings.append("anchors 截断：仅带末 80 行（open_anchors 全量保留）")
+          # ── M-6 锚宇宙全量化（宪章裁定 2026-11-07 · 裁决日志第 4 条）：
+          #    原 anchors 只带末 80 行截面（anchors_tail）——prompt 承诺「选锚只从
+          #    open_anchors 选（全量）」而机检面 M-6 的 all_anchors/done_anchors 吃的
+          #    是 anchors：截面截断使截面外 open 锚对 M-6 不可见（现势实证 8/28——
+          #    RT-C7/RT-C4/OPS-1/OBS-D5/OBS-D7/DEB-8/RT-E31/RT-E32-ADMIT 均在末
+          #    80 行外）⇒ 合法选锚必被 M-6「debt 无台账行」误拒（run#112 首触）。
+          #    改为全量行集（整本台账 ~150 行，全量读无性能虞）；不变量
+          #    ∀a∈open_anchors ⇒ a∈all_anchors（违例=0，夹具钉死）。
+          #    边界：step 08 十校验判据一字未动——M-6 判据面本身零改，只是其
+          #    数据源 anchors 从末 80 行截面改全量（输入面修正，非判据修正）。
+          anchors_universe = anchors
 
           base_sha = None
           for m in reversed(manifests):
@@ -1058,7 +1066,7 @@ jobs:
               "ledger_file": os.environ["LEDGER_FILE"],
               "ledger_rows_total": rows_total,
               "ledger_done_rows": done_rows,
-              "anchors": anchors_tail,
+              "anchors": anchors_universe,
               "open_anchors": open_anchors,
               "non_terminal_cards": non_terminal,
               "quality_recent": quality_recent,
@@ -2671,8 +2679,9 @@ jobs:
       #      debt 锚同锚 open 卡 ⇒ 红；近 7 天 merged 同锚 ⇒ 红（台账 ✅ 回填滞后
       #      兜底）；allowed_paths 与 open 卡交集非空且非同卡族续作（续作须 manifest
       #      卡 depends_on 显式声明）⇒ 红；task_id 形近（编辑距离≤2）⇒ amber 不拦。
-      #   ② 锚可施工性：debt 锚台账行在（M-6 既有）基础上，行文本含
-      #      裁决/登记/待运营者 ⇒ 红（此类锚不可施工，须先落裁决）。
+      #   ② 锚可施工性：debt 锚台账行在（M-6 既有）基础上，行内带显式裁决标记
+      #      （ruling=/【待裁】）⇒ 红（此类锚不可施工，须先落裁决；结构化判定，
+      #      见下方 SUB-5 段注——2026-11-07 宪章裁定收窄，原子串误伤面 86%→0）。
       #   ③ 全部结果进 manifest-validation.json 新增 substance 段（只增键）；红消息
       #      带具体卡与证据坐标（issue 号/台账行号/交集路径）。
       # 夹具：三正（干净新锚/合法续作/独立路径）三负（同锚重开/路径冲突无声明/裁决类
@@ -2704,7 +2713,9 @@ jobs:
           #        depends_on 显式声明，三形之一：repo#n 板号／台账锚号／同波 task_id）；
           #      · SUB-4 task_id 形近（编辑距离≤2）⇒ amber 警告进 substance 段不拦。
           #   ② 锚可施工性——debt 锚台账行在（M-6 既有）基础上：
-          #      · SUB-5 行文本含 裁决/登记/待运营者 ⇒ 红（此类锚不可施工，须先落裁决）；
+          #      · SUB-5 行带显式裁决标记（任一格含 ruling= 或【待裁】）⇒ 红（此类锚
+          #        不可施工，须先落裁决；2026-11-07 宪章裁定 SUB-5 收窄=结构化判定，
+          #        原子串「裁决/登记/待运营者」子串匹配的 86% 误伤面退役）；
           #      · SUB-6 台账行不在场/台账缺场 ⇒ 红（可施工性不可证，fail-closed）。
           #   ③ 结果全部进 manifest-validation.json 新增 substance 段（只增键：既有
           #      键零触碰）；红消息带具体卡（card[i]/task_id）与证据坐标（issue 号、
@@ -2719,8 +2730,10 @@ jobs:
           #   与不可读卡清单进 substance 段供审计；af-card/1.0 机读行块暂不读（该形制入
           #   规划环属 D-6/D-4 裁决面，不越权）。
           # 夹具（本地实跑，读数落 30-工件/规划质量二期-20261107/）：三正=干净新锚
-          #   ／合法续作／独立路径；三负=同锚重开／路径冲突无声明／裁决类锚；附证=
-          #   merged-7d 同锚＋CNB 形锚重开＋CNB 形路径冲突＋标题锚形重开。负例全红正例全绿。
+          #   ／合法续作／独立路径；三负=同锚重开／路径冲突无声明／裁决类锚（带显式
+          #   标记）；附证=merged-7d 同锚＋CNB 形锚重开＋CNB 形路径冲突＋标题锚形重开
+          #   ＋SUB-5 收窄两态（含「登记」prose 无标记行=绿／带【待裁】标记行=红）。
+          #   负例全红正例全绿。
           import json, os, re, subprocess, sys
           from datetime import datetime, timezone, timedelta
 
@@ -2992,8 +3005,32 @@ jobs:
                                       "请人工复核是否同题" % (tag, tid, kind, bc["number"],
                                                              bc["task_id"], d))
 
-          # ── SUB-5/6：锚可施工性（台账行文本关键词；行坐标随证据落）──
-          NON_BUILDABLE_KW = ("裁决", "登记", "待运营者")
+          # ── SUB-5/6：锚可施工性（结构化显式标记；行坐标随证据落）──
+          # 宪章 SUB-5 收窄（2026-11-07 · 裁决日志第 5 条）：原判据「行文本子串含
+          # 裁决/登记/待运营者 ⇒ 红」误伤面 86%（现势实证 25/28 open 行中招——正常行
+          # 的占用闸留痕 prose 含「登记」字样：〔登记〕〔…〕/补登/登记员/强制登记，
+          # 均非裁决类）。改为结构化判定：台账行切格（逃逸 \| 感知，与 ledger-sync.sh
+          # cells() 同口径）后，任一格含显式裁决标记 `ruling=` 或 `【待裁】` 才判
+          # 裁决类；状态列（第 6 格）为规范承载格，行内任意格命中等同（显式契约
+          # 不会被 prose 子串误伤）。存量行无标记=可施工；台账末使用说明行已载：
+          # 未来裁决类行须带显式标记（无标记=可施工，占用闸/SUB-6 仍 fail-closed）。
+          RULING_MARKS = ("ruling=", "【待裁】")
+
+          def ledger_cells(line):
+              """台账行 → 格集（逃逸 \\| 感知；与 tools/ledger-sync.sh cells() 同口径）。
+              非表格行（无未逃逸竖线）整体返回单格——显式标记仍可命中。"""
+              out, buf, esc, started = [], "", False, False
+              for ch in line:
+                  if esc:
+                      buf += "\\" + ch; esc = False; continue
+                  if ch == "\\":
+                      esc = True; continue
+                  if ch == "|":
+                      out.append(buf); buf = ""; started = True; continue
+                  buf += ch
+              out.append(buf)
+              return out if started else [line]
+
           ledger_rows, ledger_present = {}, os.path.exists(LEDGER)
           if ledger_present:
               with open(LEDGER, encoding="utf-8") as f:
@@ -3020,14 +3057,20 @@ jobs:
                                 "登记卡或换锚）" % (tag, tid, debt, LEDGER))
                   continue
               ln_no, text = row
-              hit = [k for k in NON_BUILDABLE_KW if k in text]
+              cs = ledger_cells(text)
+              hit = [mk for mk in RULING_MARKS if any(mk in cell for cell in cs)]
               if hit:
+                  mark_cells = [j for j, cell in enumerate(cs)
+                                if any(mk in cell for mk in RULING_MARKS)]
                   non_buildable.append({"card": tag, "task_id": tid, "debt": debt,
                                         "ledger_file": LEDGER, "ledger_line": ln_no,
-                                        "keywords": hit, "row_excerpt": text[:120]})
-                  errors.append("SUB-5: %s（task_id=%s）debt 锚 %s 台账行含不可施工关键词 %s"
-                                "（坐标 %s:%d）——此类锚不可施工，须先落裁决；行摘：%s"
-                                % (tag, tid, debt, hit, LEDGER, ln_no, text[:80]))
+                                        "ruling_marks": hit,
+                                        "mark_cell_indexes": mark_cells,
+                                        "row_excerpt": text[:120]})
+                  errors.append("SUB-5: %s（task_id=%s）debt 锚 %s 台账行带显式裁决标记 %s"
+                                "（坐标 %s:%d · 命中格下标 %s）——此类锚不可施工，须先落"
+                                "裁决；行摘：%s"
+                                % (tag, tid, debt, hit, LEDGER, ln_no, mark_cells, text[:80]))
 
           # ── substance 段落盘（只增键：report 既有键零触碰）──
           substance = {
@@ -3048,7 +3091,10 @@ jobs:
                   "task_id_near_matches": near_matches,
               },
               "buildability": {
-                  "keywords": list(NON_BUILDABLE_KW),
+                  "ruling_marks": list(RULING_MARKS),
+                  "mark_convention": "裁决类=台账行任一格含 ruling= 或【待裁】显式标记"
+                                    "（状态列第 6 格为规范承载格）；存量行无标记=可施工"
+                                    "（宪章 SUB-5 收窄 2026-11-07：原子串误伤 86%→0）",
                   "ledger_file": LEDGER,
                   "ledger_present": ledger_present,
                   "non_buildable_anchors": non_buildable,
