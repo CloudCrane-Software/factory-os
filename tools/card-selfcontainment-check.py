@@ -27,9 +27,9 @@
     （repo#n 板号 = M-7 形制｜task_id 形制｜台账锚号形制）；「本卡不做什么」
     节非空（缺 ⇒ 灰卡，不出闸）。
   ⑤ allowed_paths 仓内存在 + 判官面求交为空：非空；逐条按三形态对账
-    （件本体/glob/父目录，= step 08 M-2）；× 判官面双源（CODEOWNERS 实读派生 ∪
-    judge-paths.md 静态族，= step 08 M-4）求交非空 ⇒ 硬红（判据邻接物走
-    owner 裁决，不出工人闸）。
+    （件本体/glob/父目录，= step 08 M-2）；× 判官面单源（judge-paths.md 静态族
+    登记表，= step 08 M-4；裁 9：原 CODEOWNERS 实读派生源误拦 tools/ 非登记表
+    路径已去除）求交非空 ⇒ 硬红（判据邻接物走 owner 裁决，不出工人闸）。
   ⑥ 环境前置段与命令族一致：acceptance/depends_on 命令族所需的非基线工具
     （rust/docker/gpu/node/jq/make）⊆ 环境前置段点名集（python3/纯文档卡 = 空；
     step 08 侧该一致性留干跑/沙箱自检——#19 禁项明示，故本项为审卡闸独有）。
@@ -40,7 +40,7 @@ rc 三态：0=pass（出闸）；1=invalid（审不过，不出闸）；2=fail-l
 
 形态照 tools/dispatch-occupancy-check.py：面-证据坐标-判定同构、rc 三态、
 --selftest 内嵌夹具自测（零网络、零真树读取，全部注入桩）。零凭据正文；
-仓树/ls-remote/API 探针/CODEOWNERS 均为只读面，零写入（--out 由调用方指定）。
+仓树/ls-remote/API 探针均为只读面，零写入（--out 由调用方指定）。
 """
 import argparse
 import fnmatch
@@ -55,20 +55,26 @@ import tempfile
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DEFAULT_PLANNER = os.path.join(ROOT, ".github", "workflows", "planner.yml")
-DEFAULT_CODEOWNERS = os.path.join(ROOT, "CODEOWNERS")
+# D-122 单源化后核心链在 planner-core.yml（planner.yml = 薄调用方，88 行无 step 08
+# 规则段）；裁 9 同步把 reconcile 缺省位指正（原缺省 planner.yml ⇒ 13/13 全 DRIFT）。
+DEFAULT_PLANNER = os.path.join(ROOT, ".github", "workflows", "planner-core.yml")
 CMD_TIMEOUT_S = 60
 
 # ---------------------------------------------------------------- 共享规则常量
-# 下列正则/词表与 planner.yml step 08 规则段逐字同族（双端一致；--reconcile 钉值
+# 下列正则/词表与 planner-core.yml step 08 规则段逐字同族（双端一致；--reconcile 钉值
 # 对账回读）。改动任一处必须同批重钉（gate-pins-refresh 同款纪律）。
 
 RC_RE = re.compile(r"→\s*rc\s*=\s*\d+")          # = M-1（step 08 主段）
 SHA_RE = re.compile(r"[0-9a-f]{7,40}")           # = M-3 base_sha 形制面
 LS_REMOTE_REFSPECS = ("refs/heads/*", "refs/tags/*", "refs/pull/*/head")  # = M-3
 
-# = M-4 判官面双源（逐字同 planner.yml step 08；① CODEOWNERS 派生面运行时实读，
-#   ② judge-paths.md 静态派生族）。命中 ⇒ ⑤ 硬红——判官/门/判据件禁入 allowed_paths。
+# = M-4 判官面单源（逐字同 planner-core.yml step 08；裁 9 · 2026-11-07 运营者准）：
+#   判官面 = judge-paths.md 静态族（登记表点名单：关键词族 + af 静态族 + factory-os
+#   静态缺口行），CODEOWNERS 实读派生源已去除——双源时代 CODEOWNERS 源把 /tools/
+#   整树判官面化，误拦首张真卡 allowed_paths=tools/disk-waterline-carrier.py 等
+#   非登记表路径（run 42366275279 step 08 outcome=invalid）；今日 57+ 张 tools/ PR
+#   经标准流合线实证 tools/ 非判官禁入面。对真判官件此变更属变严方向（登记表点名
+#   单 < CODEOWNERS 全树；swev-judge-v2.py 等已同批补条登记）。命中 ⇒ ⑤ 硬红。
 JUDGE_KEYWORD = re.compile(
     r"(all-gates\.sh|gate-pins\.list|gate-pins-refresh|gate_inputs|subgates\.list"
     r"|mirror-scan-allowlist|clippy-baseline|scorechain-manifest|CODEOWNERS"
@@ -78,7 +84,14 @@ AF_JUDGE_FAMILY = re.compile(
     r"|crates/af-execline/src/judge\.rs|(?:[^\s`]*/)?crates/.*/tests/"
     r"|numbers\.json|deliverables\.yaml|doc-claims\.txt"
     r"|rust-toolchain\.toml|Cargo\.toml|Cargo\.lock)")
-JUDGE_STATIC_FACTORYOS = (".github/workflows/gates.yml",)
+# factory-os 静态缺口族（judge-paths.md §二登记表点名单的机器编码；裁 9 补名）：
+# gates.yml 接线件 + 审卡闸/占用闸两门本体——双源时代二者经 CODEOWNERS[/tools/]
+# 派生进场（③ 只读证据引用合法）；单源后不点名即丢判官面识别、误伤「证据只读
+# 引用门本体」标准形（D-97/D-119/D-123 卡同款）。属变严方向（点名单扩容，
+# .github 侧 judge-paths.md 同批补条）。
+JUDGE_STATIC_FACTORYOS = (".github/workflows/gates.yml",
+                          "tools/card-selfcontainment-check.py",
+                          "tools/dispatch-occupancy-check.py")
 
 # = M-2 跨仓/厂内工作区裸前缀（本闸按卡面 repo 与仓树 repo 判定可核面；对不上
 #   的裸前缀 ⇒ warning 不假红，不可证不等于证明在场）
@@ -89,7 +102,7 @@ WORKSPACE_BARE = ("计划/", "30-工件/", "staging/", "外派", "状态/")  # �
 AF_BARE = ("af/", "crates/", "ci/", "proofs/", "strategies/",
            "packages/", "poc/", "kb-seed")                            # af 仓原生裸面前缀
 
-# = M-7 depends_on 板号形制（逐字同 planner.yml step 08）
+# = M-7 depends_on 板号形制（逐字同 planner-core.yml step 08）
 DEP_REPO_FORM = re.compile(r"([A-Za-z0-9._-]+)?#\d+")
 # = step 08 task_id 形制（同波引用判据的形制面）
 TASK_ID_FORM = re.compile(r"[a-z0-9][a-z0-9._-]{2,63}")
@@ -137,7 +150,7 @@ def rel(path):
 def entry_repo_path(ent):
     """「repo: 路径（注记）」→ (repo, path)；裸路径 → ("", path)。
 
-    与 planner.yml step 08 entry_repo_path 同形（M-2/M-4 的共用解析件）。
+    与 planner-core.yml step 08 entry_repo_path 同形（M-2/M-4 的共用解析件）。
     """
     s = str(ent).strip().strip("`")
     m = re.match(r"^([A-Za-z0-9._-]+)\s*:\s*(.+)$", s)
@@ -148,41 +161,12 @@ def entry_repo_path(ent):
     return repo, (s or None)
 
 
-def codeowners_patterns_from_text(text):
-    """CODEOWNERS 文本 → 锁面模式清单（= step 08 codeowners_patterns 读法：
-    跳过空行/#/★ 注释行，只收 parts[1] 以 @ 开头的锁定行）。"""
-    pats = []
-    for ln in (text or "").splitlines():
-        ln = ln.strip()
-        if not ln or ln.startswith("#") or ln.startswith("★"):
-            continue
-        parts = ln.split()
-        if len(parts) >= 2 and parts[1].startswith("@"):
-            pats.append(parts[0])
-    return pats
+def judge_hit(ent, co_repo="factory-os"):
+    """allowed_paths 条目 × 判官面单源（judge-paths.md 静态族）；返回命中描述或 None。
 
-
-def codeowners_hit(relpath, pats):
-    """relpath × CODEOWNERS 模式（= step 08 codeowners_hit 同形同语义）。"""
-    rn = "/" + relpath.lstrip("/")
-    for p in pats:
-        pn = p.lstrip("/")
-        if pn.endswith("/"):
-            if rn.startswith("/" + pn) or rn == "/" + pn.rstrip("/"):
-                return p
-        elif any(ch in pn for ch in "*?["):
-            if fnmatch.fnmatch(rn, "/" + pn) or fnmatch.fnmatch(relpath, pn):
-                return p
-        elif rn == "/" + pn or rn.startswith("/" + pn + "/"):
-            return p
-    return None
-
-
-def judge_hit(ent, co_pats, co_repo="factory-os"):
-    """allowed_paths 条目 × 判官面双源；返回命中描述或 None。
-
-    = step 08 judge_hit：关键词族 + af 静态族 + factory-os 派生缺口 + CODEOWNERS
-    派生面（CODEOWNERS 只对 repo 为 ""/co_repo 的条目生效——跨仓条目不套别仓锁面）。
+    = step 08 judge_hit（裁 9 单源后）：关键词族 + af 静态族 + factory-os 静态缺口。
+    CODEOWNERS 实读派生源已去除（误拦 tools/ 非登记表路径；登记表点名单见 .github
+    治理仓 docs/judge-paths.md，swev-judge-v2.py 等同批补条）。
     """
     m = JUDGE_KEYWORD.search(str(ent))
     if m:
@@ -196,10 +180,6 @@ def judge_hit(ent, co_pats, co_repo="factory-os"):
     for st in JUDGE_STATIC_FACTORYOS:
         if relp == st or relp.startswith(st + "/"):
             return "judge-paths.md factory-os 派生缺口[%s]" % st
-    if repo in ("", co_repo):
-        p = codeowners_hit(relp, co_pats or [])
-        if p:
-            return "CODEOWNERS[%s]" % p
     return None
 
 
@@ -632,7 +612,7 @@ def check_base(card, base_probe):                                # ②
     return face
 
 
-def check_evidence(card, co_pats, co_repo, tree_repo):           # ③
+def check_evidence(card, co_repo, tree_repo):                      # ③
     face = {"check": "③ 证据带 path:line",
             "surface": "证据条目 %d 条" % len(card.get("evidence") or []),
             "verdict": "PASS", "detail": "", "evidence": [], "notes": []}
@@ -663,7 +643,7 @@ def check_evidence(card, co_pats, co_repo, tree_repo):           # ③
             continue
         if p in allowed_norm or tree_hit(p, set(allowed_norm), set())[0]:
             continue
-        if judge_hit(p, co_pats, co_repo):
+        if judge_hit(p, co_repo):
             face["notes"].append("%s ∈ 判官面（只读参考，合法）" % ref)
             continue
         outside.append(ref)
@@ -709,9 +689,9 @@ def check_deps(card):                                            # ④
     return face
 
 
-def check_paths(card, tree, co_pats, co_repo):                   # ⑤
+def check_paths(card, tree, co_repo):                              # ⑤
     face = {"check": "⑤ allowed_paths 仓内存在 + 判官面求交为空",
-            "surface": "allowed_paths %d 条 × 判官面双源" % len(card.get("allowed_paths") or []),
+            "surface": "allowed_paths %d 条 × 判官面单源" % len(card.get("allowed_paths") or []),
             "verdict": "PASS", "detail": "", "evidence": [], "notes": []}
     ap = card.get("allowed_paths") or []
     if not ap:
@@ -734,7 +714,7 @@ def check_paths(card, tree, co_pats, co_repo):                   # ⑤
             if not ok:
                 miss.append("allowed_paths[%d]：%s 在仓树缺场（件/glob/父目录三者皆无——禁幻指，"
                             "= step 08 M-2）" % (j, p))
-        hit = judge_hit(ent, co_pats, co_repo)
+        hit = judge_hit(ent, co_repo)
         if hit:
             judge.append("allowed_paths[%d]：%s 命中判官面（%s）——禁入白名单（= step 08 M-4 硬红；"
                          "判据变更走 owner 裁决）" % (j, p, hit))
@@ -752,7 +732,7 @@ def check_paths(card, tree, co_pats, co_repo):                   # ⑤
         face["verdict"] = "UNKNOWN"
         face["detail"] = "树面缺席 ⇒ 存在性不可证（fail-loud，不猜绿；应提供 --repo-root/--tree-file）"
     elif face["verdict"] == "PASS":
-        face["detail"] = "%d 条全部树上对账通过（三形态）；判官面双源求交为空" % len(ap)
+        face["detail"] = "%d 条全部树上对账通过（三形态）；判官面单源求交为空" % len(ap)
     return face
 
 
@@ -812,7 +792,7 @@ def check_env(card):                                             # ⑥
 
 # ---------------------------------------------------------------- 主判定
 
-def run_check(card, tree=None, base_probe=None, co_pats=None, co_repo="factory-os",
+def run_check(card, tree=None, base_probe=None, co_repo="factory-os",
               out=None):
     out = out if out is not None else []
     out.append("CARD-SELFCONTAINMENT-CHECK · 卡=%s（债号=%s）"
@@ -823,9 +803,9 @@ def run_check(card, tree=None, base_probe=None, co_pats=None, co_repo="factory-o
     faces = [
         check_acceptance(card, tree),
         check_base(card, base_probe),
-        check_evidence(card, co_pats or [], co_repo, tree_repo),
+        check_evidence(card, co_repo, tree_repo),
         check_deps(card),
-        check_paths(card, tree, co_pats or [], co_repo),
+        check_paths(card, tree, co_repo),
         check_env(card),
     ]
     for f in faces:
@@ -874,13 +854,9 @@ def _stub_tree(repo="factory-os", extra=()):
     return RepoTree(repo, files, RepoTree.derive_dirs(files), "selftest-stub")
 
 
-# 桩 CODEOWNERS：逐字镜像 factory-os/CODEOWNERS 的三条锁面模式（2026-11-07 实读），
-# 令 selftest 全封闭（零真树读取）又保持判官面真实形态。
-STUB_CODEOWNERS = ("# stub\n/tools/                       @feasy898\n"
-                   "/账本/                        @feasy898\n"
-                   "/波次清单/*.md                 @feasy898\n")
-STUB_CO_PATS = codeowners_patterns_from_text(STUB_CODEOWNERS)
-
+# （裁 9 后 selftest 无 CODEOWNERS 桩：判官面单源 = judge-paths.md 静态族，
+#   双源时代的 STUB_CODEOWNERS（镜像 factory-os/CODEOWNERS 三条锁面模式）随
+#   CODEOWNERS 实读派生源一并退役；零真树读取纪律不变。）
 BASE_CARD = {
     "task_id": "w07-fixture-selfcontain",
     "debt": "D-97",
@@ -900,7 +876,7 @@ BASE_CARD = {
         "tools/dispatch-occupancy-check.py:52（形态参考；判官面只读）",
     ],
     "not_doing": ["禁扩权：判据只许六项（Q1 §3.1），修卡回 planner 不代劳",
-                  "不改 planner.yml 判据段（sha256 互钉对账代替直改）"],
+                  "不改 planner-core.yml 判据段（sha256 互钉对账代替直改）"],
     "env_precondition": "python3（runner 基线）",
 }
 
@@ -914,7 +890,8 @@ def _copy(card, **kw):
 def run_selftest(out):
     """12 夹具（6 正 6 反，每项机检正反例各一）+ 补充 drills。
 
-    全部注入桩（仓树面/CODEOWNERS/base 探针均为内存桩）⇒ 零网络、零真树读取。
+    全部注入桩（仓树面/base 探针均为内存桩；裁 9 后判官面单源无 CODEOWNERS 桩）
+    ⇒ 零网络、零真树读取。
     """
     fails = []
     n = 0
@@ -930,7 +907,7 @@ def run_selftest(out):
 
     def run(card, tp=None):
         res, rc = run_check(card, tree=tree, base_probe=tp or alive,
-                            co_pats=STUB_CO_PATS, co_repo="factory-os", out=out)
+                            co_repo="factory-os", out=out)
         return res, rc
 
     # ── 六正例（每项机检正例各一；其余五项在同卡上保持通过 ⇒ 整体 rc=0）──
@@ -1008,7 +985,7 @@ def run_selftest(out):
     # T19 fail-loud：树面缺席 ⇒ 存在性不可证 ⇒ rc=2（不出闸，不猜绿）
     n += 1
     res, rc = run_check(BASE_CARD, tree=None, base_probe=alive,
-                        co_pats=STUB_CO_PATS, co_repo="factory-os", out=out)
+                        co_repo="factory-os", out=out)
     if res["verdict"] != "FAIL-LOUD" or rc != 2:
         fails.append("T19 树面缺席应 FAIL-LOUD rc=2（得 %s rc=%d）" % (res["verdict"], rc))
     else:
@@ -1018,7 +995,7 @@ def run_selftest(out):
     n += 1
     unknown_p = lambda base: ("UNKNOWN", "stub：ls-remote 实读失败")   # noqa: E731
     res, rc = run_check(BASE_CARD, tree=tree, base_probe=unknown_p,
-                        co_pats=STUB_CO_PATS, co_repo="factory-os", out=out)
+                        co_repo="factory-os", out=out)
     if res["verdict"] != "FAIL-LOUD" or rc != 2:
         fails.append("T20 base 不可证应 FAIL-LOUD rc=2（得 %s rc=%d）" % (res["verdict"], rc))
     else:
@@ -1057,7 +1034,7 @@ def run_selftest(out):
               and card.get("env_precondition") == ""
               and len(card.get("evidence") or []) >= 1)
         res, rc = run_check(card, tree=tree, base_probe=alive,
-                            co_pats=STUB_CO_PATS, co_repo="factory-os", out=out)
+                            co_repo="factory-os", out=out)
         if not ok:
             fails.append("T21 markdown 卡面解析回归失败：%s" % json.dumps(
                 {k: card.get(k) for k in ("task_id", "debt", "base", "acceptance",
@@ -1072,14 +1049,44 @@ def run_selftest(out):
     finally:
         os.unlink(md_path)
 
+    # T22 裁 9 正夹具：首张真卡复现样例（allowed_paths=tools/disk-waterline-*.py
+    # 非登记表路径）⇒ ⑤ PASS rc=0——双源时代被 CODEOWNERS[/tools/] 误拦
+    # （run 42366275279 step 08 invalid），单源=judge-paths 登记表后不再误拦
+    n += 1
+    res, rc = run_check(_copy(BASE_CARD,
+                              allowed_paths=["tools/disk-waterline-carrier.py",
+                                              "tools/test-disk-waterline-carrier.py"],
+                              evidence=["tools/disk-waterline-carrier.py:1（首真卡 allowed_paths[0]，∈ 白名单）",
+                                        "tools/card-selfcontainment-check.py:52（本件 rc 三态面；判官面只读）",
+                                        "tools/dispatch-occupancy-check.py:52（形态参考；判官面只读）"]),
+                        tree=tree, base_probe=alive, co_repo="factory-os", out=out)
+    if face_of(res, "⑤")["verdict"] != "PASS" or rc != 0:
+        fails.append("T22 首真卡复现样例应 ⑤ PASS rc=0（得 %s rc=%d：%s）"
+                     % (face_of(res, "⑤")["verdict"], rc, face_of(res, "⑤")["detail"]))
+    else:
+        out.append("  [夹具 T22] 首真卡复现（disk-waterline 非登记表路径）⇒ PASS（rc=0，不误拦）")
+
+    # T23 裁 9 反夹具：真判官件（judge-paths 登记表点名单 swev-judge-v2.py，
+    # 关键词族命中）⇒ ⑤ INVALID rc=1——对真判官件此变更为变严方向验证
+    # （登记表点名单 < CODEOWNERS 全树）
+    n += 1
+    res, rc = run_check(_copy(BASE_CARD, allowed_paths=["tools/swev-judge-v2.py"]),
+                        tree=tree, base_probe=alive, co_repo="factory-os", out=out)
+    if face_of(res, "⑤")["verdict"] != "INVALID" or rc != 1:
+        fails.append("T23 真判官件应 ⑤ INVALID rc=1（得 %s rc=%d）"
+                     % (face_of(res, "⑤")["verdict"], rc))
+    else:
+        out.append("  [夹具 T23] 真判官件（swev-judge-v2.py 登记表点名）⇒ INVALID（rc=1，仍红）")
+
     if fails:
         out.append("FAIL selftest %d/%d 过：" % (n - len(fails), n))
         for f in fails:
             out.append("  " + f)
         return 1
-    out.append("selftest %d/%d 过（6 正 6 反逐项机检 + 补充 drills T13-T21："
+    out.append("selftest %d/%d 过（6 正 6 反逐项机检 + 补充 drills T13-T23："
                "幻指/依赖不可解/无 base 无补钉/证据越出/环境超集/新建件合法形态/"
-               "树面缺席 fail-loud/base 不可证 fail-loud/md 卡面解析回归）" % (n, n))
+               "树面缺席 fail-loud/base 不可证 fail-loud/md 卡面解析回归/"
+               "裁 9 首真卡复现不误拦/裁 9 真判官件仍红）" % (n, n))
     return 0
 
 
@@ -1112,7 +1119,7 @@ def _pin_mirror_ok(pin, mode, mirror):
 
 
 def run_reconcile(planner_path, out=None):
-    """双端一致：RULE_TABLE 共享规则 × planner.yml step 08 规则段 diff/钉值对账。
+    """双端一致：RULE_TABLE 共享规则 × planner-core.yml step 08 规则段 diff/钉值对账。
 
     零漂移判据：每条 pin 的片段在 step 08 段逐字在场（diff）+ sha256 复核
     （钉值）+ 语义镜像（本件实现的规则常量与片段同形）。任一不过 ⇒ DRIFT。
@@ -1120,11 +1127,11 @@ def run_reconcile(planner_path, out=None):
     """
     out = out if out is not None else []
     if not os.path.isfile(planner_path):
-        out.append("FAIL planner.yml 不在位：%s（对账无从做起 ⇒ fail-loud）" % rel(planner_path))
+        out.append("FAIL planner 正本不在位：%s（对账无从做起 ⇒ fail-loud）" % rel(planner_path))
         return None, 2
     with open(planner_path, "r", encoding="utf-8") as f:
         text = f.read()
-    out.append("RECONCILE · 规则表单源化对账（审卡闸 RULE_TABLE × planner.yml step 08）")
+    out.append("RECONCILE · 规则表单源化对账（审卡闸 RULE_TABLE × planner-core.yml step 08）")
     out.append("  planner：%s（%d 行）" % (rel(planner_path), len(text.splitlines())))
     out.append("  规则表 sha256（本件 RULE_TABLE 钉值）：%s" % RULE_TABLE_SHA256)
     rows, drift = [], []
@@ -1182,61 +1189,60 @@ def run_reconcile(planner_path, out=None):
 # 规则表单源化（施工步 2）：本件即审卡闸侧规则定义件（单一真源）；step 08 侧片段
 # 以 sha256 互钉对账（--reconcile 回读零漂移）。shared=双端同款（禁两处各自演化）；
 # gate_only=审卡闸独有（step 08 明示未落）；planner_only=planner 侧不属六要件。
-# pins 由 gen_pins.py 自 planner.yml 逐字抽取生成（2026-11-07，origin/main）。
+# pins 由 gen_pins.py 自 planner-core.yml step 08 逐字抽取生成（2026-11-07，origin/main）。
 RULE_TABLE = {"schema": "af.card.selfcontainment.rules.v1", "shared": [], "gate_only": [], "planner_only": []}
 RULE_TABLE["shared"] = [
     {"rule": "R1", "check": "①", "criterion": "验收命令期望退出码形制「→ rc=N」",
-     "step08_ref": "planner.yml step 08 M-1 主段 + step 08b ACC_RX 干跑腿",
+     "step08_ref": "planner-core.yml step 08 M-1 主段 + step 08b ACC_RX 干跑腿",
      "impl": "本件 RC_RE（check_acceptance：每条 acceptance 必含该形制，缺 ⇒ invalid）",
      "mirror_mode": "paren-insensitive", "mirror": RC_RE.pattern, "on_miss": "invalid",
      "pins": []},
     {"rule": "R2", "check": "②", "criterion": "base_sha 十六进制形制（7-40 位）",
-     "step08_ref": "planner.yml step 08 M-3 形制面",
+     "step08_ref": "planner-core.yml step 08 M-3 形制面",
      "impl": "本件 SHA_RE（check_base：SHA 形制判定 + ref 名走存在性探针）",
      "mirror_mode": "exact", "mirror": SHA_RE.pattern, "on_miss": "invalid",
      "pins": []},
     {"rule": "R3", "check": "②", "criterion": "pinned base 对仓实读（ls-remote 形态：refspecs + 全等/前缀命中）",
-     "step08_ref": "planner.yml step 08 M-3 实读面",
+     "step08_ref": "planner-core.yml step 08 M-3 实读面",
      "impl": "本件 probe_base_lsremote（LS_REMOTE_REFSPECS 同款；分支名走 ref 存在性，Q1 #2 第二形）",
      "mirror_mode": "contains", "mirror": list(LS_REMOTE_REFSPECS), "on_miss": "invalid/不可证 fail-loud",
      "pins": []},
     {"rule": "R4", "check": "⑤", "criterion": "allowed_paths 存在三形态（件本体/glob/父目录）",
-     "step08_ref": "planner.yml step 08 M-2",
+     "step08_ref": "planner-core.yml step 08 M-2",
      "impl": "本件 tree_hit（check_paths：同三形态；父目录在场=新建件合法形态）",
      "mirror_mode": "verbatim", "mirror": None, "on_miss": "invalid（禁幻指）",
      "pins": []},
-    {"rule": "R5", "check": "⑤", "criterion": "判官面关键词族",
-     "step08_ref": "planner.yml step 08 M-4 JUDGE_KEYWORD",
+    {"rule": "R5", "check": "⑤", "criterion": "判官面关键词族（judge-paths 登记表）",
+     "step08_ref": "planner-core.yml step 08 M-4 JUDGE_KEYWORD",
      "impl": "本件 JUDGE_KEYWORD（judge_hit 第一源，逐字同）",
      "mirror_mode": "exact", "mirror": JUDGE_KEYWORD.pattern, "on_miss": "invalid（硬红）",
      "pins": []},
-    {"rule": "R6", "check": "⑤", "criterion": "判官面 af 静态族",
-     "step08_ref": "planner.yml step 08 M-4 AF_JUDGE_FAMILY",
+    {"rule": "R6", "check": "⑤", "criterion": "判官面 af 静态族（judge-paths 登记表）",
+     "step08_ref": "planner-core.yml step 08 M-4 AF_JUDGE_FAMILY",
      "impl": "本件 AF_JUDGE_FAMILY（judge_hit 第二源，逐字同）",
      "mirror_mode": "exact", "mirror": AF_JUDGE_FAMILY.pattern, "on_miss": "invalid（硬红）",
      "pins": []},
-    {"rule": "R7", "check": "⑤", "criterion": "判官面 factory-os 派生缺口",
-     "step08_ref": "planner.yml step 08 M-4 JUDGE_STATIC_FACTORYOS",
+    {"rule": "R7", "check": "⑤", "criterion": "判官面 factory-os 静态缺口（judge-paths 登记表）",
+     "step08_ref": "planner-core.yml step 08 M-4 JUDGE_STATIC_FACTORYOS",
      "impl": "本件 JUDGE_STATIC_FACTORYOS（逐字同）",
      "mirror_mode": "exact", "mirror": list(JUDGE_STATIC_FACTORYOS), "on_miss": "invalid（硬红）",
      "pins": []},
-    {"rule": "R8", "check": "⑤", "criterion": "判官面 CODEOWNERS 派生读法",
-     "step08_ref": "planner.yml step 08 M-4 codeowners_patterns",
-     "impl": "本件 codeowners_patterns_from_text + codeowners_hit（同读法：跳过 #/★ 行、取 parts[1] @ 开头的锁面）",
-     "mirror_mode": "verbatim", "mirror": None, "on_miss": "invalid（硬红）",
-     "pins": []},
+    # R8（判官面 CODEOWNERS 派生读法）裁 9 退役：M-4 改单源=judge-paths 登记表
+    # （双源时代 CODEOWNERS 实读派生源误拦 tools/ 非登记表路径——首真卡
+    #  disk-waterline 假红 run 42366275279；57+ tools/ PR 合线实证）。规则号
+    # 留空不重排（R9-R11 号面稳定），钉桩侧 R8 pin 同批摘除。
     {"rule": "R9", "check": "⑤", "criterion": "跨仓/工作区裸前缀警告面",
-     "step08_ref": "planner.yml step 08 M-2 CROSS_TREE_BARE",
+     "step08_ref": "planner-core.yml step 08 M-2 CROSS_TREE_BARE",
      "impl": "本件 CROSS_TREE_BARE（path_scope：对不上仓树 repo 的裸前缀 ⇒ warning 不假红）",
      "mirror_mode": "exact", "mirror": list(CROSS_TREE_BARE), "on_miss": "warning（不可核不假红）",
      "pins": []},
     {"rule": "R10", "check": "④", "criterion": "depends_on 板号形制 repo#n",
-     "step08_ref": "planner.yml step 08 M-7",
+     "step08_ref": "planner-core.yml step 08 M-7",
      "impl": "本件 DEP_REPO_FORM（check_deps 三形之一；指向有效性由 planner 侧持同波集/台账锚集终裁——本闸判形制）",
      "mirror_mode": "exact", "mirror": DEP_REPO_FORM.pattern, "on_miss": "invalid",
      "pins": []},
     {"rule": "R11", "check": "④", "criterion": "task_id 形制（同波引用判据的形制面）",
-     "step08_ref": "planner.yml step 08 十字段 task_id 校验",
+     "step08_ref": "planner-core.yml step 08 十字段 task_id 校验",
      "impl": "本件 TASK_ID_FORM（check_deps 三形之二）",
      "mirror_mode": "exact", "mirror": TASK_ID_FORM.pattern, "on_miss": "invalid",
      "pins": []},
@@ -1258,27 +1264,33 @@ RULE_TABLE["planner_only"] = [
     {"rule": "十校验既有", "criterion": "schema/wave/created/policy/budgets/十字段/async↔bot-lane/merge_policy/ledger/state=queued/凭据形扫/空波 preflight"},
 ]
 
-# step 08 钉桩片段（gen_pins.py 自 planner.yml 逐字抽取 + sha256；禁手改——
+# step 08 钉桩片段（gen_pins.py 自 planner-core.yml 逐字抽取 + sha256；禁手改——
 # 改 pins 视同改规则表，必须同批重跑 gen_pins.py 并在变更日志留痕）
+# 裁 9（2026-11-07）：R8 pin（M-4 CODEOWNERS 派生读法 codeowners_patterns）随
+# M-4 单源化摘除——planner-core.yml 侧 codeowners_patterns/codeowners_hit 两函数
+# 已删，该片段在正本不再在场（留之即 DRIFT）。摘除后 pins 12 条（R1×2/R2/R3×2/
+# R4/R5/R6/R7/R9/R10/R11），R5-R7 三片段逐字未动（单源化只动源的选择，不动静态
+# 族常量本体）。其余 pins 行号为 D-122 前 planner.yml 历史定位（reconcile 现读行
+# 单独报），sha256 复核逐字在场。
 PINS_JSON = r"""
 [
  {
   "rule": "R1",
   "label": "M-1 acceptance 期望退出码形制（step 08 主段）",
   "lines": [
-   1504,
-   1504
+   1821,
+   1821
   ],
-  "fragment": "                      if not re.search(r\"→\\s*rc\\s*=\\s*\\d+\", a):",
-  "sha256": "5a1c3bfe58087fd8f54dd76f76ad6c32244079db74a24090ebd3e96c722841a3",
+  "fragment": "                          if not re.search(r\"→\\s*rc\\s*=\\s*\\d+\", a):",
+  "sha256": "38656192df2be56bf00e8a4b543fea6e3a2d6efb22c097a1d78038faba03edc1",
   "line_count": 1
  },
  {
   "rule": "R1",
   "label": "M-1 同族正则（step 08b ACC_RX 干跑腿）",
   "lines": [
-   1760,
-   1760
+   2439,
+   2439
   ],
   "fragment": "          ACC_RX = re.compile(r\"→\\s*rc\\s*=\\s*(\\d+)\")",
   "sha256": "80e9ebf5f0a657135d86a400e07680db763b438c921c66b926b408b0c99f538a",
@@ -1288,8 +1300,8 @@ PINS_JSON = r"""
   "rule": "R2",
   "label": "M-3 base_sha 十六进制形制",
   "lines": [
-   1357,
-   1357
+   2036,
+   2036
   ],
   "fragment": "              if not isinstance(base_sha, str) or not re.fullmatch(r\"[0-9a-f]{7,40}\", base_sha):",
   "sha256": "7722dc1c88688679dfae409862e5ac132e9a4a30f51f37f4fb80f0d062fd7b5e",
@@ -1299,8 +1311,8 @@ PINS_JSON = r"""
   "rule": "R3",
   "label": "M-3 pinned base 对仓实读命令（ls-remote 形态）",
   "lines": [
-   1368,
-   1369
+   2047,
+   2048
   ],
   "fragment": "                      [\"git\", \"-C\", \"factory-os\", \"ls-remote\", \"origin\",\n                       \"refs/heads/*\", \"refs/tags/*\", \"refs/pull/*/head\"],",
   "sha256": "9d11a4e593673df3a6b0abbc25a5afb44b7c4792472e38a66e21c67363119677",
@@ -1310,8 +1322,8 @@ PINS_JSON = r"""
   "rule": "R3",
   "label": "M-3 命中判据（全等或前缀）",
   "lines": [
-   1378,
-   1379
+   2057,
+   2058
   ],
   "fragment": "                      if not any(s == base_sha or s.startswith(base_sha)\n                                 for s in remote_shas):",
   "sha256": "ea27635718e92ca5f095e508aae7c3411f00ac521e6bcb2a83387e0474f05041",
@@ -1322,8 +1334,8 @@ PINS_JSON = r"""
   "rule": "R4",
   "label": "M-2 allowed_paths 存在三形态（件/glob/父目录）",
   "lines": [
-   1492,
-   1494
+   2170,
+   2172
   ],
   "fragment": "                      if (glob.glob(p) or os.path.exists(p)\n                              or (parent and os.path.exists(os.path.join(\"factory-os\", parent)))):\n                          continue",
   "sha256": "a50d36fc4e201ee560414938eb51235ac7cea7c0ac62113f7fb66f1760cec5a2",
@@ -1333,8 +1345,8 @@ PINS_JSON = r"""
   "rule": "R5",
   "label": "M-4 判官面关键词族 JUDGE_KEYWORD",
   "lines": [
-   1229,
-   1232
+   1935,
+   1938
   ],
   "fragment": "          JUDGE_KEYWORD = re.compile(\n              r\"(all-gates\\.sh|gate-pins\\.list|gate-pins-refresh|gate_inputs|subgates\\.list\"\n              r\"|mirror-scan-allowlist|clippy-baseline|scorechain-manifest|CODEOWNERS\"\n              r\"|judge|判官|判据)\")",
   "sha256": "67b06cd26a0684fc22f9f212c402cc01cd42779b59d35e2a8cc9b11337bc206b",
@@ -1344,8 +1356,8 @@ PINS_JSON = r"""
   "rule": "R6",
   "label": "M-4 判官面 af 静态族 AF_JUDGE_FAMILY",
   "lines": [
-   1233,
-   1237
+   1939,
+   1943
   ],
   "fragment": "          AF_JUDGE_FAMILY = re.compile(\n              r\"(?:^|[:/`])(ci/|proofs/|strategies/|packages/reportkit/\"\n              r\"|crates/af-execline/src/judge\\.rs|(?:[^\\s`]*/)?crates/.*/tests/\"\n              r\"|numbers\\.json|deliverables\\.yaml|doc-claims\\.txt\"\n              r\"|rust-toolchain\\.toml|Cargo\\.toml|Cargo\\.lock)\")",
   "sha256": "b6fcab18da2673864d4c65836f9a87eb0c87b89a7b0dc6cf4816d004ff26eabf",
@@ -1353,32 +1365,21 @@ PINS_JSON = r"""
  },
  {
   "rule": "R7",
-  "label": "M-4 判官面 factory-os 派生缺口 JUDGE_STATIC_FACTORYOS",
+  "label": "M-4 判官面 factory-os 静态缺口 JUDGE_STATIC_FACTORYOS",
   "lines": [
-   1238,
-   1238
+   1949,
+   1951
   ],
-  "fragment": "          JUDGE_STATIC_FACTORYOS = (\".github/workflows/gates.yml\",)",
-  "sha256": "01ca94d0653e448cb6f1dfb383164fa86246f765fd8c96d9f9fecf551129ee48",
-  "line_count": 1
- },
- {
-  "rule": "R8",
-  "label": "M-4 CODEOWNERS 派生读法 codeowners_patterns",
-  "lines": [
-   1255,
-   1269
-  ],
-  "fragment": "          def codeowners_patterns():\n              pats = []\n              co = os.path.join(\"factory-os\", \"CODEOWNERS\")\n              if os.path.exists(co):\n                  with open(co, encoding=\"utf-8\") as f:\n                      for ln in f:\n                          ln = ln.strip()\n                          if not ln or ln.startswith(\"#\") or ln.startswith(\"★\"):\n                              continue\n                          parts = ln.split()\n                          if len(parts) >= 2 and parts[1].startswith(\"@\"):\n                              pats.append(parts[0])\n              else:\n                  warnings.append(\"M-4: factory-os/CODEOWNERS 缺场——判官面①源退化，仅余②静态族\")\n              return pats",
-  "sha256": "ac7b3de345d61e567c85bf9c28aff8844a3eb00534b5e49b3ec1d26671d449c3",
-  "line_count": 15
+  "fragment": "          JUDGE_STATIC_FACTORYOS = (\".github/workflows/gates.yml\",\n                                    \"tools/card-selfcontainment-check.py\",\n                                    \"tools/dispatch-occupancy-check.py\")",
+  "sha256": "5957b7bc1c4553ee7f692f54dc0087816ee11785d01d332923e18b320ccafe29",
+  "line_count": 3
  },
  {
   "rule": "R9",
   "label": "M-2 跨仓/工作区裸前缀警告面 CROSS_TREE_BARE",
   "lines": [
-   1241,
-   1243
+   1954,
+   1956
   ],
   "fragment": "          CROSS_TREE_BARE = (\"af/\", \"crates/\", \"ci/\", \"proofs/\", \"strategies/\",\n                             \"packages/\", \"poc/\", \"kb-seed\", \"计划/\", \"30-工件/\",\n                             \"staging/\", \"外派\", \"状态/\")",
   "sha256": "3867d2c38d718b8830ff477edad06a522389590c3a505862f8ec199357904474",
@@ -1388,8 +1389,8 @@ PINS_JSON = r"""
   "rule": "R10",
   "label": "M-7 depends_on 板号形制 repo#n",
   "lines": [
-   1543,
-   1543
+   2221,
+   2221
   ],
   "fragment": "                      if re.fullmatch(r\"([A-Za-z0-9._-]+)?#\\d+\", head):",
   "sha256": "98403c6aac78dea8f6f3597edcdeb7706dae0a2eb07285b735ee7c8642f8970e",
@@ -1399,8 +1400,8 @@ PINS_JSON = r"""
   "rule": "R11",
   "label": "task_id 形制（同波引用判据的形制面）",
   "lines": [
-   1424,
-   1424
+   2102,
+   2102
   ],
   "fragment": "              if not re.fullmatch(r\"[a-z0-9][a-z0-9._-]{2,63}\", tid):",
   "sha256": "3556215eabfee5ad5ae0a738d702914d150d25d858fd7682ab9cb67ef646e469",
@@ -1460,9 +1461,7 @@ def main(argv):
     p.add_argument("--repo", help="目标仓 owner/name（base API 探针用）")
     p.add_argument("--base-probe", choices=["ls-remote", "api"], default=None,
                    help="base 存活性探针形态（缺省：有 --repo-root 用 ls-remote，否则有 --repo 用 api）")
-    p.add_argument("--codeowners-file", default=None,
-                   help="判官面 CODEOWNERS（缺省：--repo-root/CODEOWNERS 或仓内 CODEOWNERS）")
-    p.add_argument("--planner", default=DEFAULT_PLANNER, help="planner.yml 路径（--reconcile 用）")
+    p.add_argument("--planner", default=DEFAULT_PLANNER, help="planner-core.yml 路径（--reconcile 用）")
     p.add_argument("--reconcile", action="store_true", help="连同双端规则表对账一起跑")
     p.add_argument("--out", help="verdict JSON 落点（留痕，供 bot-bridge 消费）")
     p.add_argument("--json", action="store_true", help="stdout 打 JSON")
@@ -1502,20 +1501,10 @@ def main(argv):
         print("FAIL 仓树面不可读：%s（fail-loud，不出闸）" % exc, file=sys.stderr)
         return 2
 
-    # 判官面 CODEOWNERS（缺场 = ①源退化 warning，仅余静态族——同 step 08 纪律）
-    co_path = args.codeowners_file
-    if not co_path and args.repo_root:
-        co_path = os.path.join(args.repo_root, "CODEOWNERS")
-    if not co_path and os.path.isfile(DEFAULT_CODEOWNERS):
-        co_path = DEFAULT_CODEOWNERS
-    co_pats, co_src = [], None
-    if co_path and os.path.isfile(co_path):
-        with open(co_path, "r", encoding="utf-8") as f:
-            co_pats = codeowners_patterns_from_text(f.read())
-        co_src = rel(co_path)
+    # 判官面单源（裁 9）：judge-paths.md 静态族（登记表点名单）——CODEOWNERS 实读
+    # 派生源已去除（误拦 tools/ 非登记表路径；owner-review 门归 CODEOWNERS/分支
+    # 保护，职责分离）。判官面判定不再读取任何仓树文件。
     co_repo = tree.repo_name if tree is not None else "factory-os"
-    if not co_pats:
-        out.append("  提示：判官面①源（CODEOWNERS）缺场——仅余②静态族（同 step 08 M-4 退化纪律）")
 
     # base 探针
     mode = args.base_probe
@@ -1528,12 +1517,12 @@ def main(argv):
         base_probe = lambda b: probe_base_api(args.repo, b)                         # noqa: E731
 
     result, rc = run_check(card, tree=tree, base_probe=base_probe,
-                           co_pats=co_pats, co_repo=co_repo, out=out)
+                           co_repo=co_repo, out=out)
     if reconcile_report:
         result["reconcile"] = reconcile_report
-    if co_src:
-        result["judge_face_source"] = {"codeowners": co_src, "patterns": len(co_pats),
-                                       "static_factoryos": list(JUDGE_STATIC_FACTORYOS)}
+    result["judge_face_source"] = {
+        "source": "judge-paths.md 静态族（裁 9 单源；CODEOWNERS 实读派生源已退役）",
+        "static_factoryos": list(JUDGE_STATIC_FACTORYOS)}
     if args.out:
         with open(args.out, "w", encoding="utf-8") as f:
             json.dump(result, f, ensure_ascii=False, indent=1)
