@@ -1,0 +1,55 @@
+{
+  "schema": "af.cb-bench-dispatch.failpath-fixture.v1",
+  "note": "D-134 失败腿夹具 ② 部分交卷（factory-os#149）：diff 不完整+report 缺节 ⇒ 收件判据三条不过 ⇒ 记未收卷+回卡（卡面本卡交付第 1 条形制②逐字）。禁放宽判据迁就失败（P2）：未收卷即未收卷，判分腿不接如实记。读数为合成干跑输入；改本件=改夹具判据，随主件同批评审。",
+  "form": "partial_submission",
+  "form_label": "② 部分交卷（diff 不完整/report 缺节）",
+  "debt": "D-117",
+  "github_issue": 90,
+  "evidence": {
+    "sandbox_reply": {
+      "self_report": "partial",
+      "self_report_detail": "交部分结果：diff 块截断（末 hunk 缺收尾行）、report 五节缺 ④⑤",
+      "diff_blocks": 1,
+      "unified_diff_complete": false,
+      "unified_diff_detail": "diff 块截断：末 hunk 头有 @@ 但缺新增行收尾，unified diff 不完整",
+      "report_five_sections": false,
+      "report_sections_present": 3,
+      "report_missing_sections": [
+        "④",
+        "⑤"
+      ],
+      "apply_check_rc": 1,
+      "apply_check_detail": "pristine 基线 git apply --check rc=1（patch 不完整不可施加）",
+      "reply_fingerprints": [
+        "a1b2c3d4e5f6"
+      ]
+    },
+    "judge": {},
+    "silent_window": {
+      "exceeded": false,
+      "silence_seconds": 0,
+      "threshold_seconds": 300,
+      "hard_cap_seconds": 5400
+    }
+  },
+  "expect": {
+    "link_segments": [
+      "collect_check",
+      "judge",
+      "card_back"
+    ],
+    "collect_result": "not_collected",
+    "collect_failed_criteria": [
+      "unified_diff_complete",
+      "report_five_sections",
+      "pristine_apply_check_rc0"
+    ],
+    "judge_ran": false,
+    "verdict": "not_collected（未收卷）",
+    "card_back_suggested_label": "state:rejected",
+    "card_back_must_contain": "未收卷",
+    "trace_written": true,
+    "reply_chain_preserved": true,
+    "rescue_attempted": false
+  }
+}
