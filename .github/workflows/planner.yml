@@ -1157,6 +1157,401 @@ jobs:
               if content:
                   break
 
+          # ── 调查协议（两段式 · 向后兼容；规划质量二期 2026-11-07 调查环）──
+          # 首轮回复若是 {"investigations":[{kind,args},...]}（键在且值为数组）⇒ 白名单
+          #   只读执行（kind ∈ issue_body/file_head/run_log_tail/board_summary；gh api
+          #   GET；≤5 条、单条 10s、总 40s；任何失败=该条 unavailable 不重试；白名单外
+          #   kind=拒绝留痕不执行；第 6 条起=截断留痕不执行）⇒ 每条结果以 user 消息
+          #   追加 ⇒ 二次调用出 manifest。无该键或值非数组 ⇒ 现状路径零变化（本段整体
+          #   不触发；planner-raw.json 不落 investigations 键）。
+          # 预算：两次调用均入既有账本 planner-call-log.json（03b 配额闸 4/h 同口径）；
+          #   单跑硬顶 ≤2 次不变（首发+1）——两段式的第二次即 manifest 调用 ⇒ M-1 矫正
+          #   重试让位（attempts<2 自然不成立），形制问题交 step 08 终裁 fail-closed；
+          #   若首发已发生传输重试（attempts 已=2）⇒ 无配额出 manifest，fail-closed。
+          # 留痕：请求清单+每条结果摘要（截 200 字节）+计数进 planner-raw.json 的
+          #   investigations 段；不进 manifest（advisory：调查读数禁复述进输出字段）。
+          # 禁假数据：没读到的条日记 unavailable 附原因，禁凭印象补全（与 factory_obs
+          #   缺席合法同族）。
+          import io as _inv_io
+          import subprocess as _inv_sp
+          import urllib.parse as _inv_up
+          import zipfile as _inv_zip
+
+          INV_WHITELIST = ("issue_body", "file_head", "run_log_tail", "board_summary")
+          INV_MAX_ITEMS = 5          # 单轮调查请求上限（第 6 条起截断留痕）
+          INV_ITEM_TIMEOUT = 10      # 单条超时（秒）
+          INV_TOTAL_TIMEOUT = 40     # 全部合计超时（秒）
+          INV_BODY_CAP = 20000       # 追加给模型的单条内容上限（字符）
+          INV_HEAD_BYTES = 65536     # file_head 文件头上限（字节，≤64KB）
+
+          def _inv_repo(override=None):
+              return override or "%s/%s" % (os.environ.get("ORG", "CloudCrane-Software"),
+                                            os.environ.get("BOARD_REPO", "factory-os"))
+
+          def _inv_ok_repo(r):
+              return (isinstance(r, str) and r.count("/") == 1
+                      and all(p.strip() for p in r.split("/")))
+
+          def _inv_gh(args, timeout):
+              """gh api 只读执行（单条限时）；返回 (rc, stdout_bytes, stderr_text)。"""
+              try:
+                  p = _inv_sp.run(["gh"] + args, capture_output=True, timeout=timeout)
+                  return p.returncode, p.stdout or b"", (p.stderr or b"").decode("utf-8", "replace")
+              except _inv_sp.TimeoutExpired:
+                  return "timeout", b"", "timeout"
+              except Exception as e:
+                  return type(e).__name__, b"", str(e)[:200]
+
+          def _inv_flat(s):
+              return " ".join(str(s).split())
+
+          def _inv_trunc200(obj):
+              """留痕摘要：JSON 序列化后截 200 字节（换行压平）。"""
+              b = json.dumps(obj, ensure_ascii=False).encode("utf-8")[:200]
+              return b.decode("utf-8", "ignore").replace("\n", "\\n").replace("\r", "")
+
+          def _inv_echo(v):
+              """args 回显：过大则截 400 字节留痕（防病理大对象撑爆 artifact）。"""
+              try:
+                  b = json.dumps(v, ensure_ascii=False)
+              except Exception:
+                  return "<不可序列化>"
+              if len(b.encode("utf-8")) <= 400:
+                  return v
+              return (b.encode("utf-8")[:400].decode("utf-8", "ignore")
+                      + "…<截断，原 %d 字节>" % len(b.encode("utf-8")))
+
+          def _inv_issue_body(args, timeout):
+              num = args.get("number")
+              if isinstance(num, bool) or not isinstance(num, int) or num <= 0:
+                  return None, "args 形制非法：number 必须为正整数（实得 %r）" % (num,)
+              repo = _inv_repo(args.get("repo"))
+              if not _inv_ok_repo(repo):
+                  return None, "args 形制非法：repo 必须为 owner/name（实得 %r）" % (repo,)
+              rc, out, err = _inv_gh(
+                  ["api", "repos/%s/issues/%d" % (repo, num), "--jq",
+                   "{number,title,state,labels:[.labels[].name],body}"], timeout)
+              if rc != 0:
+                  return None, "gh api rc=%s：%s" % (rc, _inv_flat(err)[:120])
+              try:
+                  d = json.loads(out.decode("utf-8", "replace"))
+              except Exception as e:
+                  return None, "响应非 JSON：%s" % type(e).__name__
+              if not isinstance(d, dict):
+                  return None, "响应非对象"
+              body = d.get("body") or ""
+              if len(body) > INV_BODY_CAP:
+                  d["body"] = body[:INV_BODY_CAP]
+                  d["body_truncated"] = True
+                  d["body_truncated_note"] = ("正文超 %d 字符已截头（全文另取 gh api）"
+                                              % INV_BODY_CAP)
+              return d, None
+
+          def _inv_file_head(args, timeout):
+              path = args.get("path")
+              if (not isinstance(path, str) or not path.strip() or path.startswith("/")
+                      or ".." in path.split("/")):
+                  return None, "args 形制非法：path 必须为仓内相对路径（实得 %r）" % (path,)
+              repo = _inv_repo(args.get("repo"))
+              if not _inv_ok_repo(repo):
+                  return None, "args 形制非法：repo 必须为 owner/name（实得 %r）" % (repo,)
+              ref = args.get("ref")
+              url = "repos/%s/contents/%s" % (repo, _inv_up.quote(path.strip(), safe="/"))
+              if ref is not None:
+                  if not isinstance(ref, str) or not ref.strip():
+                      return None, "args 形制非法：ref 必须为非空字符串（实得 %r）" % (ref,)
+                  url += "?ref=" + _inv_up.quote(ref.strip(), safe="")
+              # raw 媒体类型直取文件字节（免 base64 全量解码）；本函数只取头 ≤64KB
+              rc, out, err = _inv_gh(
+                  ["api", "-H", "Accept: application/vnd.github.raw", url], timeout)
+              if rc != 0:
+                  return None, "gh api rc=%s：%s" % (rc, _inv_flat(err)[:120])
+              head = out[:INV_HEAD_BYTES]
+              text = head.decode("utf-8", "replace")
+              if text.lstrip()[:1] in ("{", "[") and '"message"' in text[:400]:
+                  return None, "内容面返回 GitHub 错误 JSON：%s" % _inv_flat(text)[:120]
+              return {"repo": repo, "path": path.strip(), "ref": ref,
+                      "head_bytes": len(head), "truncated": len(out) > INV_HEAD_BYTES,
+                      "content": text}, None
+
+          def _inv_run_log_tail(args, timeout):
+              rid = args.get("run_id")
+              if isinstance(rid, bool) or not isinstance(rid, int) or rid <= 0:
+                  return None, "args 形制非法：run_id 必须为正整数（实得 %r）" % (rid,)
+              repo = _inv_repo(args.get("repo"))
+              if not _inv_ok_repo(repo):
+                  return None, "args 形制非法：repo 必须为 owner/name（实得 %r）" % (repo,)
+              # gh api 跟随 302 直取日志 zip（2026-11-07 实测：200 application/zip）
+              rc, out, err = _inv_gh(
+                  ["api", "repos/%s/actions/runs/%d/logs" % (repo, rid)], timeout)
+              if rc != 0:
+                  return None, "gh api rc=%s：%s" % (rc, _inv_flat(err)[:120])
+              try:
+                  z = _inv_zip.ZipFile(_inv_io.BytesIO(out))
+                  names = [n for n in z.namelist() if not n.endswith("/")]
+                  text = "\n".join(z.read(n).decode("utf-8", "replace") for n in names)
+              except Exception as e:
+                  return None, "日志包解析失败：%s" % type(e).__name__
+              lines = text.splitlines()
+              tail = "\n".join(lines[-200:])[-INV_BODY_CAP:]
+              return {"repo": repo, "run_id": rid, "log_files": len(names),
+                      "total_lines": len(lines), "tail_lines": min(200, len(lines)),
+                      "tail": tail}, None
+
+          def _inv_board_summary(args, timeout):
+              state = args.get("state") or "open"
+              if state not in ("open", "closed", "all"):
+                  return None, ("args 形制非法：state 必须 ∈ open/closed/all（实得 %r）"
+                                % (state,))
+              repo = _inv_repo()
+              # ── 复用 step 04 读板函数形制（同款 gh api + 同款聚合；零第二真源）──
+              rc, out, err = _inv_gh(
+                  ["api", "repos/%s/issues?state=%s&per_page=100" % (repo, state),
+                   "--paginate", "--jq",
+                   ".[] | select(.pull_request == null) | "
+                   "{number, title, labels: [.labels[].name], body, updated_at}"], timeout)
+              if rc != 0:
+                  return None, "gh api rc=%s：%s" % (rc, _inv_flat(err)[:120])
+              issues = []
+              for line in out.decode("utf-8", "replace").splitlines():
+                  line = line.strip()
+                  if line:
+                      try:
+                          issues.append(json.loads(line))
+                      except Exception:
+                          pass
+              by_state, by_wave, in_flight, occupied, titles = {}, {}, set(), set(), []
+              for it in issues:
+                  labels = it.get("labels") or []
+                  for lb in labels:
+                      if lb.startswith("state:"):
+                          by_state[lb] = by_state.get(lb, 0) + 1
+                      if lb == "wave" or lb.startswith("wave-"):
+                          by_wave[lb] = by_wave.get(lb, 0) + 1
+                  titles.append({"number": it.get("number"), "title": it.get("title"),
+                                 "labels": labels})
+                  m = re.match(r"\[wave-\d+\]\s+([A-Za-z0-9._-]+)", it.get("title") or "")
+                  if m:
+                      in_flight.add(m.group(1))
+                  m2 = re.search(r"【债号】`([^`]+)`", it.get("body") or "")
+                  if m2:
+                      occupied.add(m2.group(1).strip())
+              return {"repo": repo, "state": state, "open_issues_total": len(issues),
+                      "by_state_label": by_state, "by_wave_label": by_wave,
+                      "in_flight_task_ids": sorted(in_flight),
+                      "occupied_debt_anchors": sorted(occupied),
+                      "issues": titles}, None
+
+          _INV_EXEC = {"issue_body": _inv_issue_body, "file_head": _inv_file_head,
+                       "run_log_tail": _inv_run_log_tail,
+                       "board_summary": _inv_board_summary}
+
+          def _inv_run(raw):
+              """执行首轮调查请求；返回 (trace, results_for_llm)。trace 进 planner-raw.json。"""
+              items = raw if isinstance(raw, list) else []
+              trace = {"protocol": "af.planner-investigations.v1",
+                       "max_items": INV_MAX_ITEMS, "item_timeout_s": INV_ITEM_TIMEOUT,
+                       "total_timeout_s": INV_TOTAL_TIMEOUT,
+                       "requested": len(items), "executed": 0, "unavailable": 0,
+                       "rejected": 0, "truncated": 0, "total_ms": 0, "items": []}
+              results = []
+              deadline = time.monotonic() + INV_TOTAL_TIMEOUT
+              t_start = time.monotonic()
+              for idx, it in enumerate(items):
+                  if not isinstance(it, dict):
+                      trace["items"].append({"index": idx, "kind": None, "args": None,
+                                             "status": "rejected",
+                                             "summary": "调查项非对象——拒绝执行留痕"})
+                      trace["rejected"] += 1
+                      results.append({"index": idx, "status": "rejected",
+                                      "note": "调查项非对象，未执行"})
+                      continue
+                  kind = it.get("kind")
+                  raw_args = it.get("args")
+                  args = raw_args if isinstance(raw_args, dict) else {}
+                  rec = {"index": idx, "kind": kind if isinstance(kind, str) else None,
+                         "args": _inv_echo(raw_args)}
+                  trace["items"].append(rec)
+                  if idx >= INV_MAX_ITEMS:
+                      rec["status"] = "truncated"
+                      rec["summary"] = ("超出单轮 %d 条上限——截断不执行留痕"
+                                        % INV_MAX_ITEMS)
+                      trace["truncated"] += 1
+                      results.append({"index": idx, "kind": rec["kind"],
+                                      "status": "truncated",
+                                      "note": "超出 %d 条上限，未执行" % INV_MAX_ITEMS})
+                      continue
+                  if not isinstance(kind, str) or kind not in INV_WHITELIST:
+                      rec["status"] = "rejected"
+                      rec["summary"] = ("kind=%r 不在只读白名单 %s——拒绝执行留痕"
+                                        % (kind, list(INV_WHITELIST)))
+                      trace["rejected"] += 1
+                      results.append({"index": idx, "kind": rec["kind"],
+                                      "status": "rejected",
+                                      "note": "kind 不在只读白名单，未执行"})
+                      continue
+                  remaining = deadline - time.monotonic()
+                  if remaining <= 0.5:
+                      rec["status"] = "unavailable"
+                      rec["summary"] = ("调查总超时 %ds 已用尽——未执行"
+                                        % INV_TOTAL_TIMEOUT)
+                      trace["unavailable"] += 1
+                      results.append({"index": idx, "kind": kind,
+                                      "status": "unavailable",
+                                      "note": "调查总超时 %ds，未执行" % INV_TOTAL_TIMEOUT})
+                      continue
+                  t0 = time.monotonic()
+                  eff = min(INV_ITEM_TIMEOUT, remaining)
+                  try:
+                      data, err = _INV_EXEC[kind](args, eff)
+                  except Exception as e:
+                      data, err = None, "执行器异常 %s" % type(e).__name__
+                  rec["ms"] = int((time.monotonic() - t0) * 1000)
+                  if err:
+                      rec["status"] = "unavailable"
+                      note = _inv_flat(err)[:160]
+                      if "timeout" in str(err).lower() and eff < INV_ITEM_TIMEOUT:
+                          note = ("总超时 %ds 约束（有效超时 %.1fs）：%s"
+                                  % (INV_TOTAL_TIMEOUT, eff, note))
+                      rec["summary"] = _inv_trunc200({"unavailable": note})
+                      trace["unavailable"] += 1
+                      results.append({"index": idx, "kind": kind, "status": "unavailable",
+                                      "note": _inv_flat(err)[:300]})
+                  else:
+                      rec["status"] = "executed"
+                      rec["summary"] = _inv_trunc200(data)
+                      trace["executed"] += 1
+                      results.append({"index": idx, "kind": kind, "status": "executed",
+                                      "data": data})
+              trace["total_ms"] = int((time.monotonic() - t_start) * 1000)
+              return trace, results
+
+          if content:
+              _inv_text = content.strip()
+              _inv_text = re.sub(r"^```(?:json)?\s*", "", _inv_text)
+              _inv_text = re.sub(r"\s*```$", "", _inv_text)
+              try:
+                  _inv_first = json.loads(_inv_text)
+              except Exception:
+                  _inv_first = None
+              if (isinstance(_inv_first, dict)
+                      and isinstance(_inv_first.get("investigations"), list)):
+                  _inv_items = _inv_first.get("investigations")
+                  if meta["attempts"] >= max_attempts:
+                      # 传输重试已耗尽单跑 ≤2 次配额 ⇒ 无槽位出 manifest，fail-closed
+                      # （调查不执行——省得白烧 40s 时钟；请求事实仍留痕）
+                      meta["investigations"] = {
+                          "protocol": "af.planner-investigations.v1",
+                          "requested": len(_inv_items), "executed": 0,
+                          "unavailable": 0, "rejected": 0, "truncated": 0,
+                          "kinds_requested": [it.get("kind") if isinstance(it, dict)
+                                              else None for it in _inv_items][:20],
+                          "note": ("单跑调用硬顶（≤%d 次）已被传输重试耗尽——调查未执行、"
+                                   "未产 manifest，fail-closed（下拍重试）" % max_attempts),
+                          "items": []}
+                      with open("planner-raw.json", "w", encoding="utf-8") as f:
+                          json.dump(meta, f, ensure_ascii=False, indent=1)
+                      print("调查请求已收悉（%d 条），但单跑调用硬顶（≤%d 次）已被传输重试"
+                            "耗尽——fail-closed（不执行调查、不产 manifest、不建 Issue）"
+                            % (len(_inv_items), max_attempts), file=sys.stderr)
+                      sys.exit(8)
+                  _inv_trace, _inv_results = _inv_run(_inv_items)
+                  meta["investigations"] = _inv_trace
+                  print("调查环：请求 %d · 执行 %d · unavailable %d · 拒绝 %d · 截断 %d"
+                        "（总 %dms）——结果已追加，二次调用出 manifest"
+                        % (_inv_trace["requested"], _inv_trace["executed"],
+                           _inv_trace["unavailable"], _inv_trace["rejected"],
+                           _inv_trace["truncated"], _inv_trace["total_ms"]))
+                  body["messages"] = body["messages"] + [
+                      {"role": "assistant", "content": _inv_text},
+                      {"role": "user", "content": json.dumps({
+                          "investigation_results": _inv_results,
+                          "instruction": "以上为只读调查结果（unavailable/拒绝/截断的条目"
+                                         "未执行，禁凭印象补全）。现在输出唯一一段 "
+                                         "af.wave-manifest.v1 manifest JSON（§五 骨架；"
+                                         "禁围栏禁解释；禁再输出 investigations）。",
+                      }, ensure_ascii=False)},
+                  ]
+                  print("两段式已用满单跑 ≤%d 次配额——M-1 矫正重试让位，形制问题交 "
+                        "step 08 终裁" % max_attempts)
+                  meta["attempts"] += 1
+                  _inv_t0 = time.monotonic()
+                  try:
+                      _inv_req = urllib.request.Request(
+                          base + "/chat/completions",
+                          data=json.dumps(body).encode("utf-8"),
+                          headers={"Authorization": "Bearer " + key,
+                                   "Content-Type": "application/json"},
+                          method="POST")
+                      with urllib.request.urlopen(_inv_req, timeout=300) as _inv_resp:
+                          _inv_payload = json.loads(_inv_resp.read().decode("utf-8"))
+                  except urllib.error.HTTPError as e:
+                      meta["calls"].append({"attempt": meta["attempts"], "http": e.code,
+                                            "ms": int((time.monotonic() - _inv_t0) * 1000),
+                                            "note": "manifest-call"})
+                      with open("planner-raw.json", "w", encoding="utf-8") as f:
+                          json.dump(meta, f, ensure_ascii=False, indent=1)
+                      print("二次调用（manifest）HTTP %s——fail-closed（单跑 ≤%d 次硬顶，"
+                            "不再重试）" % (e.code, max_attempts), file=sys.stderr)
+                      sys.exit(4)
+                  except Exception as e:
+                      meta["calls"].append({"attempt": meta["attempts"], "http": None,
+                                            "note": type(e).__name__ + "/manifest-call",
+                                            "ms": int((time.monotonic() - _inv_t0) * 1000)})
+                      with open("planner-raw.json", "w", encoding="utf-8") as f:
+                          json.dump(meta, f, ensure_ascii=False, indent=1)
+                      print("二次调用（manifest）传输失败 %s——fail-closed"
+                            % type(e).__name__, file=sys.stderr)
+                      sys.exit(5)
+                  _inv_usage = _inv_payload.get("usage") or {}
+                  _inv_finish = (_inv_payload.get("choices") or [{}])[0].get("finish_reason")
+                  meta["calls"].append({"attempt": meta["attempts"], "http": 200,
+                                        "ms": int((time.monotonic() - _inv_t0) * 1000),
+                                        "prompt_tk": _inv_usage.get("prompt_tokens"),
+                                        "completion_tk": _inv_usage.get("completion_tokens"),
+                                        "finish_reason": _inv_finish,
+                                        "note": "manifest-call"})
+                  if _inv_finish == "length":
+                      print("finish=length：二次调用输出被 max_tokens 截断（16384 档仍撞顶"
+                            "——候选交 08 终裁，如复现考虑提档）", file=sys.stderr)
+                  # 调用账本（同 07 既有口径：只记时间/用量，不记内容、不记密钥）
+                  _inv_now = datetime.now(timezone(timedelta(hours=8)))
+                  _inv_log = []
+                  if os.path.exists("planner-call-log.json"):
+                      try:
+                          _inv_log = json.load(open("planner-call-log.json",
+                                                    encoding="utf-8"))
+                      except Exception:
+                          _inv_log = []
+                  _inv_log.append({"hour": _inv_now.strftime("%Y%m%d%H"),
+                                   "run_id": os.environ["GITHUB_RUN_ID"],
+                                   "attempt": meta["attempts"], "http": 200,
+                                   "prompt_tk": _inv_usage.get("prompt_tokens"),
+                                   "completion_tk": _inv_usage.get("completion_tokens")})
+                  with open("planner-call-log.json", "w", encoding="utf-8") as f:
+                      json.dump(_inv_log[-500:], f, ensure_ascii=False)
+                  _inv_content = ((_inv_payload.get("choices") or [{}])[0]
+                                  .get("message") or {}).get("content") or ""
+                  if not _inv_content:
+                      with open("planner-raw.json", "w", encoding="utf-8") as f:
+                          json.dump(meta, f, ensure_ascii=False, indent=1)
+                      print("二次调用（manifest）空响应——fail-closed", file=sys.stderr)
+                      sys.exit(6)
+                  # 禁套娃：第二轮仍输出 investigations ⇒ 协议违反，fail-closed
+                  _inv_text2 = _inv_content.strip()
+                  _inv_text2 = re.sub(r"^```(?:json)?\s*", "", _inv_text2)
+                  _inv_text2 = re.sub(r"\s*```$", "", _inv_text2)
+                  try:
+                      _inv_second = json.loads(_inv_text2)
+                  except Exception:
+                      _inv_second = None
+                  if isinstance(_inv_second, dict) and "investigations" in _inv_second:
+                      with open("planner-raw.json", "w", encoding="utf-8") as f:
+                          json.dump(meta, f, ensure_ascii=False, indent=1)
+                      print("第二轮回复仍含 investigations 键——调查协议禁套娃，fail-closed",
+                            file=sys.stderr)
+                      sys.exit(8)
+                  content = _inv_content
           with open("planner-raw.json", "w", encoding="utf-8") as f:
               json.dump(meta, f, ensure_ascii=False, indent=1)
           if not content:
@@ -3279,6 +3674,10 @@ jobs:
             fi
             if [ -f planner-raw.json ]; then
               echo "- API：attempts=$(jq -r '.attempts' planner-raw.json) · prompt_tk=$(jq -r '[.calls[].prompt_tk] | add // 0' planner-raw.json) · completion_tk=$(jq -r '[.calls[].completion_tk] | add // 0' planner-raw.json)"
+            fi
+            if [ -f planner-raw.json ] && jq -e '.investigations' planner-raw.json >/dev/null 2>&1; then
+              echo "- 调查环（两段式）：请求=$(jq -r '.investigations.requested' planner-raw.json) · 执行=$(jq -r '.investigations.executed' planner-raw.json) · unavailable=$(jq -r '.investigations.unavailable' planner-raw.json) · 拒绝=$(jq -r '.investigations.rejected' planner-raw.json) · 截断=$(jq -r '.investigations.truncated' planner-raw.json)（总 $(jq -r '.investigations.total_ms' planner-raw.json)ms）"
+              jq -r \'.investigations.items[] | "  - [\(.index)] \(.kind // "?") \(.status) \(.ms // 0)ms \(.summary // "")\' planner-raw.json
             fi
             if [ -f issues-created.log ] && [ -s issues-created.log ]; then
               echo "- 新建 Issue："
