@@ -1,0 +1,371 @@
+# ============================================================================
+# planner-audit-weekly.yml —— planner 规划质量周审计（规划质量二期 · 2026-11-07）
+#
+# 定位（运营者 2026-11-07 成本裁定「有质量提升的多花 token 全上」：LLM/评审调
+#   tokenrhythm 同 key 换模型，免费、免新钥）：
+#   每周一对 planner 规划环做一次顾问式周审计——读近 7 天波次清单 manifest +
+#   板面结局 + planner-quality 读数 → tokenrhythm 同 key 换模型（glm-5.3）答固定
+#   问卷十题（每题 0-10 分 + 一句依据；无证据 ⇒ score=null，禁编中位分）→ 出
+#   {total, per_q, trend_vs_last, findings[]} 周报，append-only 落
+#   波次清单/quality/weekly-<YYYY>W<WW>.json，并评论到 planner-review 常驻 issue
+#   （标题前缀幂等检索，无则首建——与 planner step 08d 同一常驻面）。
+#
+# 【触发腿 · 双保险（必读）】
+#   GitHub schedule 在本组织有**不触发前科**（planner pace.sh 头注实证：
+#   "GitHub cron 调度器在本仓从未触发（event=schedule total=0）"——故 planner 改由
+#   anolis 每 10 分钟 dispatch）。本工作流因此取双触发腿：
+#     腿一（本件）：schedule 每周一 06:20（+08）。cron 为 UTC ⇒ '20 22 * * 0'
+#        （周日 22:20 UTC = 周一 06:20 +08；与 obs-nightly '30 18 * * *' 同族
+#        的 UTC 书写惯例）。
+#     腿二（anolis pacer 兜底）：~/af-pacer/weekly-audit.sh 由 crontab 周一
+#        06:25（anolis 本地时区 +08）触发——先查「本周是否已有本工作流 run」，
+#        有则 skip（防双报），无则 dispatch（与 pace.sh 同 API 同重试形制）。
+#   两腿都失效前的最后人工面：workflow_dispatch（本件第三触发方式）。
+#
+# 【边界纪律（与 planner step 08d 顾问评审腿同族，一字不苟）】
+#   · advisory：本审计**永不进门禁 verdict**——零触碰 gates.yml／required checks／
+#     planner step 08 十校验与一切判据面；结论只进周报件与常驻 issue 评论。
+#   · 决策/评审模型结论永不改判：planner 自家 09/09b/10 链不受本工作流影响。
+#   · LLM 调用不计入 planner 03b 计划调用预算（免费档同 key 换模型；本工作流
+#     不读不写 planner-call-log.json）。
+#   · 诚实性高于完成度：输入任何一腿采不到即显式 null + 原因码（degraded 点名）；
+#     问卷不可达 ⇒ 周报照落（空壳 + 结构化 finding + 常驻 issue 评论明示）且
+#     run fail-loud（末步状态闸）；部分缺题 ⇒ scored_count/trend 如实记 null。
+#   · 凭据：LLM_API_KEY 走 repo secret（明文只进 secret，禁打印禁入 artifact）；
+#     GitHub 读写用内置 GITHUB_TOKEN（零 App/PAT 进 CI）。
+#   · 周报 append-only：同周重跑⇒同文件 reports 数组追加（旧件一字不动）；
+#     目标文件非本 schema ⇒ 拒写 fail-closed（禁覆盖未知内容）。
+#
+# 【glm-5.3 参数定姿（2026-11-07 本机探针实测，tokenrhythm 免费档同 key）】
+#   · tokenrhythm /v1/models 在役 26 个模型，含 glm-5.3（同 key，免新钥）；
+#   · thinking 强制开（关思考 ⇒ 400 REASONING_REQUIRED），故不发 thinking 字段；
+#   · 输出面压制：默认深度隐藏推理可吃光整个输出面（4096 上限全耗、content 空、
+#     finish=length——与 kimi-k3 256 档同族事故）；API 支持 reasoning_effort
+#     =low|high|max（budget_tokens 400 不支持）——low 档实测 118 completion
+#     tokens/4.6s 回完整判词，故本器发 reasoning_effort=low（上游不收则剥参重试）；
+#   · temperature=0.2 实测 200 出词；
+#   · tokenrhythm.studio 经 gov 代理会 200-空响应（planner step 07/08d 同款实测）
+#     ⇒ 调用步 export NO_PROXY 直连。
+#
+# 【合线形制】波次清单/*.json 已移出 CODEOWNERS 判官锁（manifest 是规划产物；
+#   quality/weekly-*.json 同族规划产物）⇒ 本工作流走 planner 09/09b 同款两段式：
+#   commit 到 audit/weekly-<week> 分支 → 开 PR（base main）→ 轮询 required check
+#   `gates` 绿 → squash 合入 → 合后核验。gates 未绿 ⇒ PR 留开、run 红，fail-loud
+#   留运营者处置（禁假绿）。
+# ============================================================================
+
+name: planner-audit-weekly
+
+on:
+  schedule:
+    # 腿一：每周一 06:20(+08)。UTC 书写（GitHub cron 只吃 UTC）：周日 22:20 UTC。
+    - cron: '20 22 * * 0'
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: '手动触发事由（进 run 摘要与周报 trigger 段）'
+        required: false
+        default: 'manual-dispatch'
+      dry_run:
+        description: 'true = 只采集+问卷+组装+artifact，不 commit 不评论（演练）'
+        required: false
+        default: 'false'
+
+permissions:
+  contents: write          # commit 周报到 audit/weekly-<week> 分支
+  issues: write            # planner-review 常驻 issue 检索/首建/评论
+  pull-requests: write     # 两段式第二段：开 PR + gates 绿后 squash 合线
+
+concurrency:               # 单写者：禁重叠跑双解（schedule 腿与兜底腿可能撞窗）
+  group: planner-audit-weekly
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  ORG: 'CloudCrane-Software'
+  BOARD_REPO: 'factory-os'
+  # 任务书口径「factory-os/波次/」= 仓内实况 波次清单/（staging/factory-os/README.md §一）
+  WAVE_DIR: '波次清单'
+  LEDGER_FILE: '账本/阶段欠账台账.md'
+  # —— 周审计 LLM：基元律动 TokenRhythm glm-5.3（同 key 换模型，免费档免新钥；
+  #    密钥只走 repo secret LLM_API_KEY——与 planner/08d 同一 secret）——
+  LLM_BASE_URL: 'https://tokenrhythm.studio/v1'
+  LLM_MODEL: 'glm-5.3'
+  # —— 审计窗（任务书字面：近 7 天）——
+  AUDIT_WINDOW_DAYS: '7'
+  RUN_REASON: ${{ github.event.inputs.reason || 'scheduler' }}
+  DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # gh api 全程只用内置 Token
+      LLM_API_KEY: ${{ secrets.LLM_API_KEY }} # 周审计 LLM 钥匙（glm-5.3；明文只进 secret，不回显）
+    steps:
+      - name: '00 · 运行参数回显（禁打印任何密钥）'
+        run: |
+          {
+            echo "### planner 规划质量周审计"
+            echo "- run_id=${GITHUB_RUN_ID} · trigger=${GITHUB_EVENT_NAME} · reason=${RUN_REASON}"
+            echo "- dry_run=${DRY_RUN} · window_days=${AUDIT_WINDOW_DAYS}"
+            echo "- board=${ORG}/${BOARD_REPO} · wave_dir=${WAVE_DIR} · ledger=${LEDGER_FILE}"
+            echo "- model=${LLM_MODEL} @ ${LLM_BASE_URL}（key 走 secret LLM_API_KEY，不回显）"
+            echo "- 触发腿双保险：本件 schedule（周一 06:20 +08）＋anolis pacer weekly-audit.sh（周一 06:25 兜底，本周已有 run 则 skip）"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: '01 · checkout factory-os（波次清单 + 账本 + 审计器同仓）'
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: true
+
+      # ── 采集：manifest 近 7 天 + 板面结局 + planner-quality 读数 + 上周周报基线 ──
+      - name: '02 · 采集审计输入（只读：仓内账面 + GitHub API；采不到即 degraded 点名）'
+        run: |
+          set -euo pipefail
+          python3 -I tools/planner-audit-weekly.py --collect --out audit-inputs.json
+
+      # ── 问卷：glm-5.3 十题（fail-open advisory：不可达 ⇒ answers.status=unavailable，
+      #    报告照落空壳；本步捕获 rc 不中断，末步状态闸统一 fail-loud）──────────────
+      - name: '03 · tokenrhythm glm-5.3 答固定问卷十题（同 key 换模型；直连绕代理）'
+        id: answer
+        run: |
+          set -uo pipefail   # 本步无「预期失败即中止」语义：answer 失败也要续跑（报告照落）
+          # tokenrhythm.studio 经 gov 代理会 200-空响应（planner step 07/08d 同款实测）——直连
+          export NO_PROXY="tokenrhythm.studio,${NO_PROXY:-}" no_proxy="tokenrhythm.studio,${no_proxy:-}"
+          rc=0
+          python3 -I tools/planner-audit-weekly.py --answer \
+            --in audit-inputs.json --out audit-answers.json || rc=$?
+          echo "answer_rc=$rc" >> "$GITHUB_OUTPUT"
+          echo "问卷步 rc=$rc（3=不可达 fail-open advisory；0=ok/partial）"
+
+      # ── 组装：周报（append-only，路径按周编号派生波次清单/quality/weekly-YYYYWW.json）+ 摘要 ──
+      - name: '04 · 组装周报 weekly-<YYYY>W<WW>.json（append-only）+ 摘要'
+        id: assemble
+        run: |
+          set -euo pipefail
+          python3 -I tools/planner-audit-weekly.py --assemble \
+            --in audit-inputs.json --answers audit-answers.json \
+            --summary weekly-summary.md
+
+      # ── 两段式第一段：commit 周报到 audit/weekly-<week> 分支（append-only；禁覆盖历史）──
+      - name: '05 · commit 周报 → audit/weekly-<week> 分支（append-only）'
+        id: commit
+        if: inputs.dry_run != 'true'
+        env:
+          WEEK: ${{ steps.assemble.outputs.week }}
+        run: |
+          set -euo pipefail
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "工作树不干净——拒 commit（fail-closed）" >&2
+            git status --porcelain >&2
+            exit 8
+          fi
+          # WEEK=YYYY-WW ⇒ 文件名 weekly-YYYYWW.json（删全部连字符）
+          target="${WAVE_DIR}/quality/weekly-${WEEK//-/}.json"
+          if [ ! -f "$target" ]; then
+            echo "周报件不在场：$target（assemble 步应已落盘）——fail-closed" >&2
+            exit 8
+          fi
+          git config user.name "planner-audit-bot"
+          git config user.email "planner-audit-bot@users.noreply.github.com"
+          git checkout -b "audit/weekly-${WEEK}"
+          git add "$target"
+          git commit -m "planner-audit-weekly: ${WEEK} 周报 · total=${{ steps.assemble.outputs.total }} · status=${{ steps.assemble.outputs.llm_status }} · run ${GITHUB_RUN_ID}"
+          # 推专用分支（非 main）。scratch 审计分支：远端已存在且与本次产出分叉时
+          # （同周重跑/上轮 gates 红留开）force-with-lease 更新——开放 PR 自动跟随，
+          # 非历史分支无禁 force 约束（manifest 历史禁 force 纪律不适用本分支）。
+          if git ls-remote --exit-code --heads origin "audit/weekly-${WEEK}" >/dev/null 2>&1; then
+            git fetch origin "audit/weekly-${WEEK}"
+            if git merge-base --is-ancestor FETCH_HEAD HEAD; then
+              git push origin "HEAD:refs/heads/audit/weekly-${WEEK}"
+            else
+              echo "分支 audit/weekly-${WEEK} 远端已存在且分叉——force-with-lease 更新（scratch 审计分支）"
+              git push --force-with-lease "refs/heads/audit/weekly-${WEEK}" \
+                origin "HEAD:refs/heads/audit/weekly-${WEEK}"
+            fi
+          else
+            git push origin "HEAD:refs/heads/audit/weekly-${WEEK}"
+          fi
+          echo "committed: ${target} -> audit/weekly-${WEEK}"
+
+      # ── 两段式第二段：开 PR（幂等复用）→ 轮询 gates → 绿后 squash → 合后核验 ──
+      - name: '06 · 开 PR 并 gates 绿后 squash 合入 main'
+        id: merge_pr
+        if: inputs.dry_run != 'true'
+        env:
+          WEEK: ${{ steps.assemble.outputs.week }}
+        run: |
+          set -euo pipefail
+          branch="audit/weekly-${WEEK}"
+          target="${WAVE_DIR}/quality/weekly-${WEEK//-/}.json"
+          pr_num=$(gh api "repos/${ORG}/${BOARD_REPO}/pulls?head=${ORG}:${branch}&state=open&per_page=1" \
+                   --jq '.[0].number // empty' 2>/dev/null || true)
+          if [ -z "$pr_num" ]; then
+            pr_num=$(gh api -X POST "repos/${ORG}/${BOARD_REPO}/pulls" \
+              -f title="planner-audit-weekly: ${WEEK} 周报（问卷十题 · glm-5.3）" \
+              -f head="$branch" -f base="main" \
+              -f body="planner 规划质量周审计自动 PR（run ${GITHUB_RUN_ID} · ${RUN_REASON}）。
+
+          周报件：\`${target}\`（append-only：同周重跑⇒reports 数组追加，旧件一字不动）。
+          \`波次清单/*.json\`（含 quality/ 子目录）为规划产物，已移出 CODEOWNERS 判官锁 ⇒ 本 PR 0 批准。
+          合线条件：required check \`gates\` 绿；未绿则本 PR 留开、run 红，fail-loud 留运营者处置（禁假绿）。
+          advisory：本审计永不进门禁 verdict，零触碰 gates/required checks/planner step 08 十校验。" --jq '.number')
+          fi
+          echo "PR #${pr_num}（${branch} -> main）"
+          echo "pr_num=${pr_num}" >> "$GITHUB_OUTPUT"
+          head_sha=$(gh api "repos/${ORG}/${BOARD_REPO}/pulls/${pr_num}" --jq '.head.sha')
+          verdict=""
+          for i in $(seq 1 40); do   # 40×30s=20min 上限（anolis-heavy 自托管 runner）
+            verdict=$(gh api "repos/${ORG}/${BOARD_REPO}/commits/${head_sha}/check-runs" \
+              --jq '[.check_runs[] | select(.name=="gates")][0].conclusion // "pending"' 2>/dev/null || echo "pending")
+            echo "[gates ${i}/40] ${verdict}"
+            if [ "$verdict" != "pending" ] && [ "$verdict" != "null" ] && [ -n "$verdict" ]; then break; fi
+            sleep 30
+          done
+          echo "gates_verdict=${verdict}" >> "$GITHUB_OUTPUT"
+          if [ "$verdict" != "success" ]; then
+            echo "gates 未绿（verdict=${verdict:-超时}）——PR #${pr_num} 留开不合并；fail-loud 留运营者处置（禁假绿）" >&2
+            exit 10
+          fi
+          gh api -X PUT "repos/${ORG}/${BOARD_REPO}/pulls/${pr_num}/merge" \
+            -f merge_method="squash" \
+            -f commit_title="planner-audit-weekly: ${WEEK} 周报合线（PR #${pr_num} · gates 绿）" \
+            --jq '{merged, sha}'
+          git fetch origin main
+          if git cat-file -e "FETCH_HEAD:${target}" 2>/dev/null; then
+            echo "merged-to-main: ${target}"
+            echo "merged=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "合后核验失败：${target} 不在 main HEAD——fail-loud" >&2
+            exit 11
+          fi
+
+      # ── 评论 planner-review 常驻 issue（与 08d 同一幂等检索/首建口径；dry_run 抑制）──
+      - name: '07 · 评论 planner-review 常驻 issue（幂等检索→无则首建→评论）'
+        if: ${{ !cancelled() }}
+        env:
+          WEEK: ${{ steps.assemble.outputs.week }}
+        run: |
+          set -euo pipefail
+          DRY_RUN="$DRY_RUN" WEEK="$WEEK" PR_NUM="${{ steps.merge_pr.outputs.pr_num }}" \
+          GATES_VERDICT="${{ steps.merge_pr.outputs.gates_verdict }}" \
+          MERGED="${{ steps.merge_pr.outputs.merged }}" \
+          python3 -I - <<'PY'
+          import json, os, re, subprocess, sys
+
+          ORG, REPO = os.environ.get("ORG", "CloudCrane-Software"), os.environ.get("BOARD_REPO", "factory-os")
+          PREFIX = "planner-review"
+          dry = (os.environ.get("DRY_RUN") or "false") == "true"
+          week = os.environ.get("WEEK") or "?"
+          pr_num, gates, merged = (os.environ.get(k) or "" for k in ("PR_NUM", "GATES_VERDICT", "MERGED"))
+
+          def gh(args, inp=None):
+              r = subprocess.run(["gh"] + args, capture_output=True, input=inp, text=True, timeout=60)
+              return r.returncode, r.stdout, r.stderr
+
+          summary = open("weekly-summary.md", encoding="utf-8").read().strip()
+          if dry:
+              status = "DRY_RUN=true 演练——未 commit 未合线未评论（演练语义，零板面写入）"
+          elif merged == "true":
+              status = "已 squash 合入 main（PR #%s · gates=%s）" % (pr_num, gates or "success")
+          elif pr_num:
+              status = "合线未完成：PR #%s 留开（gates=%s）——run 日志见 run 详情" % (pr_num, gates or "未知")
+          else:
+              status = "合线未尝试（commit/PR 步早败或 dry_run）——周报件状态见 run 日志"
+          comment = summary + "\n\n- 周报落库状态：%s\n" % status
+
+          # 常驻 issue：标题前缀检索（幂等）→ 无则首建
+          rc, out, err = gh(["api", "repos/%s/%s/issues?state=open&per_page=100" % (ORG, REPO),
+                             "--jq", ".[] | select(.pull_request == null) | {number, title}"])
+          if rc != 0:
+              print("常驻 issue 检索失败：%s" % err[:200], file=sys.stderr)
+              sys.exit(5)
+          standing = None
+          for ln in out.splitlines():
+              ln = ln.strip()
+              if not ln:
+                  continue
+              it = json.loads(ln)
+              if str(it.get("title") or "").startswith(PREFIX):
+                  standing = it
+                  break
+          created = False
+          if standing is None:
+              if dry:
+                  print("DRY_RUN：常驻 issue 不在场且不首建（演练零板面写入）")
+                  print(comment)
+                  sys.exit(0)
+              body = ("planner-review 常驻 issue（幂等检索标题前缀 `planner-review`）。\n\n"
+                      "用途（两族评论落点）：\n"
+                      "① planner step 08d 分层顾问评审腿：kimi-k3 快判 verdict=block 时，"
+                      "L2（qwen3.8-flash）扩写的完整评审评论；\n"
+                      "② planner-audit-weekly 周审计：每周一 06:20(+08)（anolis pacer 兜底 06:25）"
+                      "的问卷十题周报摘要（glm-5.3 · tokenrhythm 同 key 换模型）。\n\n"
+                      "纪律：两族评论均为 advisory——永不进门禁 verdict，零触碰 gates/required "
+                      "checks/planner step 08 十校验。\n\n"
+                      "本 issue 由工作流自动查找/建立（标题前缀幂等检索）。")
+              rc, out, err = gh(["-X", "POST", "repos/%s/%s/issues" % (ORG, REPO),
+                                 "-f", "title=%s · planner 规划质量常驻 issue" % PREFIX,
+                                 "-f", "body=%s" % body, "--jq", ".number"])
+              if rc != 0:
+                  print("常驻 issue 首建失败：%s" % err[:200], file=sys.stderr)
+                  sys.exit(5)
+              standing = {"number": int(out.strip())}
+              created = True
+          n = standing["number"]
+          if dry:
+              print("DRY_RUN：评论不落板（suppressed）。目标 issue #%d（created=%s）" % (n, created))
+              print(comment)
+              sys.exit(0)
+          rc, out, err = gh(["-X", "POST", "repos/%s/%s/issues/%d/comments" % (ORG, REPO, n),
+                             "-f", "body=%s" % comment, "--jq", ".id"])
+          if rc != 0:
+              # 评论投递失败不改审计结论——周报件已落库（或留 PR），如实点名
+              print("评论投递失败：%s——周报结论不受影响（周报件以仓库/PR 为准）" % err[:200],
+                    file=sys.stderr)
+              sys.exit(0)
+          print("评论已落 planner-review 常驻 issue #%d（created=%s · comment_id=%s）"
+                % (n, created, out.strip()))
+
+      # ── run 摘要 + artifact（禁含密钥与 LLM 响应正文——只落分数/依据/usage）──
+      - name: '08 · run 摘要 + artifact 上传'
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: planner-audit-weekly-${{ github.run_id }}
+          if-no-files-found: warn
+          path: |
+            audit-inputs.json
+            audit-answers.json
+            weekly-summary.md
+            波次清单/quality/weekly-*.json
+
+      - name: '09 · 问卷状态闸（advisory fail-loud：不可达 ⇒ run 红；缺题 ⇒ 黄标警告）'
+        if: ${{ !cancelled() }}
+        env:
+          ANSWER_RC: ${{ steps.answer.outputs.answer_rc }}
+          STATUS: ${{ steps.assemble.outputs.llm_status }}
+        run: |
+          {
+            echo "### 周审计收口"
+            echo "- 问卷步 rc=${ANSWER_RC} · 状态=${STATUS}"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ -s weekly-summary.md ]; then
+            printf '\n' >> "$GITHUB_STEP_SUMMARY"
+            cat weekly-summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ "$STATUS" = "unavailable" ] || [ "$ANSWER_RC" = "3" ]; then
+            echo "问卷不可达（status=unavailable）：本周周报为空壳（scores 全 null + 结构化 finding），"
+                 "已按 advisory fail-open 落库并评论；run fail-loud 待运营者处置（查 LLM_API_KEY/tokenrhythm 出口）。" >&2
+            exit 1
+          fi
+          if [ "$STATUS" = "partial" ]; then
+            echo "::warning::问卷部分缺题（status=partial）——周报已如实记 null（禁编分），trend 跳过不可比题；建议下拍复查 prompt 遵循度。"
+          fi
+          echo "周审计完成：status=${STATUS}（advisory：永不进门禁 verdict）"
