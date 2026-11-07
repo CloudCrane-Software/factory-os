@@ -20,6 +20,11 @@
     planner-call-log.json）。
   · 诚实性高于完成度：任何一腿采不到即显式 null + 原因码，禁把「没采到」装扮成
     「零」；问卷不可达 ⇒ 报告照落（空壳 + 结构化 finding）且 run fail-loud。
+  · quality 读数形制（2026-11-07 红队 A3 修复后）：wave-*.quality.json 每行一条
+    card_quality，`failure_modes` = **list[str]**（回评器 build_record 落码形）；
+    聚合口径与 planner-core.yml quality_recent 逐字同源（去重取末条 + 只聚
+    scored=true + 逐串计数），坏行/坏类型 fail-loud——禁吞成空表（空表必须是
+    「真没有失败模式」，不得是「解析失败静默清零」；后者曾使 q09 恒满分）。
   · 凭据：LLM_API_KEY 只进请求头（零打印零落盘零 argv）；GitHub 读用内置
     GITHUB_TOKEN（CI）／PAT（本地环境变量传入），同样零打印零落盘。
 
@@ -63,6 +68,8 @@ REPO = os.environ.get("AUDIT_REPO") or "CloudCrane-Software/factory-os"
 API = "https://api.github.com"
 WAVE_DIR = os.environ.get("WAVE_DIR") or "波次清单"
 LEDGER_FILE = os.environ.get("LEDGER_FILE") or "账本/阶段欠账台账.md"
+# 仓根（tools/ 的上一级）——自测夹具/现势源件对拍定位用（CI 检出树即仓根）
+REPO_ROOT_DEFAULT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 QUALITY_SUBDIR = "quality"
 LLM_BASE_URL = (os.environ.get("LLM_BASE_URL") or "https://tokenrhythm.studio/v1").rstrip("/")
 LLM_MODEL = os.environ.get("LLM_MODEL") or "glm-5.3"
@@ -114,7 +121,9 @@ QUESTIONS = [
      "rubric": "10=输入全部新鲜无 degraded；0=输入陈旧或多腿 degraded。按实测读数给分。"},
     {"id": "q09", "topic": "失败模式趋势",
      "ask": "quality 读数 top failure_modes 的严重度与集中度（少数模式高频复发=低分）",
-     "rubric": "10=失败模式分散且低频；0=单一模式大面积复发。"},
+     "rubric": "10=失败模式分散且低频；0=单一模式大面积复发。给分**必须引用具体 mode 名与计数**"
+               "（digest.quality_merged_failure_modes 或各波 top_failure_modes）；该段为 null/不可证时"
+               " score=null——digest 空列表不等于无失败模式（A3 事故：解析 bug 曾使恒空 ⇒ 恒满分）。"},
     {"id": "q10", "topic": "规划环健康",
      "ask": "planner run 成功率、失败聚因、artifact 在场情况（近 7 天 runs 读数）",
      "rubric": "10=成功率 100% 且读数齐全；0=大面失败或缺读数。按读数给分。"},
@@ -287,30 +296,76 @@ def manifest_in_window(manifest, cut, now):
 
 
 def parse_quality_file(path):
-    """读单个 wave-*.quality.json（JSONL：每行一条 card_quality）→ 聚合 dict。"""
+    """读单个 wave-*.quality.json（JSONL：每行一条 card_quality）→ 聚合 dict。
+
+    源件真实 schema（planner-quality-score.py build_record 落码实证）：
+      `failure_modes` = **list[str]**（失败模式串列表）——**不是 dict**。
+    聚合口径与 planner 输入面（planner-core.yml quality_recent 段）逐字同源，
+    防「两个机器聚合器对同一批源件给出相反的失败模式面」（红队 A3 实证事故）：
+      ① 按 (wave, card.task_id) 去重取末条（同卡重评=末条为准）；
+      ② failure_modes 只聚 scored=true 记录（与 grades 同口径；均分注
+         「按去重后已评卡加权」——一期遥测同注）；
+      ③ 逐串计数，按频次降序取 top CAP_FAILURE_MODES。
+
+    形制纪律（A3 事故根因修复）：坏行/坏类型 **fail-loud**——
+    抛 ValueError 点名文件名+行号+实得类型。禁 try/except 吞成空表：
+    「top_failure_modes 空」必须是「真没有失败模式」，不得是「解析失败
+    静默清零」。后者正是 q09 恒满分的直接根因（digest 空表 ⇒ 问卷无
+    失败模式读数 ⇒ 无法区分「无模式」与「没采到」）。
+    """
     records = []
     with open(path, encoding="utf-8") as f:
-        for ln in f:
+        for ln_no, ln in enumerate(f, 1):
             ln = ln.strip()
             if not ln:
                 continue
             try:
                 obj = json.loads(ln)
-            except Exception:
-                continue
-            if isinstance(obj, dict):
-                records.append(obj)
+            except ValueError as e:
+                raise ValueError("%s 第 %d 行非 JSON：%s（禁吞行——修源件或修解析器）"
+                                 % (os.path.basename(path), ln_no, e))
+            if not isinstance(obj, dict):
+                raise ValueError("%s 第 %d 行非对象（实得 %s）——quality JSONL 每行须为 card_quality 对象"
+                                 % (os.path.basename(path), ln_no, type(obj).__name__))
+            records.append(obj)
+    # ① 同卡去重取末条（与 planner-core.yml last_by_card 同口径；无重评时恒等）。
+    #    无卡面身份（缺 wave 或缺 card.task_id）的记录**禁参与去重**——禁把
+    #    「身份不可导」静默折叠成一条（那会是另一款「静默丢数据」）。
+    def _card_key(r):
+        card = r.get("card") if isinstance(r.get("card"), dict) else {}
+        return (r.get("wave"), card.get("task_id")) if (r.get("wave") and card.get("task_id")) else None
+
+    last_idx = {}
+    for i, r in enumerate(records):
+        k = _card_key(r)
+        if k:
+            last_idx[k] = i
+    dedup = [r for i, r in enumerate(records)
+             if _card_key(r) is None or last_idx[_card_key(r)] == i]
     grades, scored, modes = {}, 0, {}
     six_pass = six_total = 0
-    for r in records:
+    for r in dedup:
         if r.get("scored") and r.get("grade"):
             g = str(r["grade"]).strip().upper()
             grades[g] = grades.get(g, 0) + 1
             scored += 1
+        # ③ failure_modes 真实形制 = list[str]；dict（A3 前的误解形）与其它
+        #    坏类型一律 fail-loud——静默跳过即把「采集失败」伪装成「无失败模式」。
         fm = r.get("failure_modes")
-        if isinstance(fm, dict):
-            for m, n in fm.items():
-                modes[m] = modes.get(m, 0) + (n if isinstance(n, int) else 1)
+        if fm is None:
+            fm = []
+        if not isinstance(fm, list):
+            raise ValueError("%s：failure_modes 形制坏（实得 %s，期望 list[str]）——"
+                             "禁按 dict 静默解析（A3 事故形）；卡 %r"
+                             % (os.path.basename(path), type(fm).__name__,
+                                (r.get("card") or {}).get("task_id")))
+        if r.get("scored"):
+            for m in fm:
+                if not isinstance(m, str) or not m.strip():
+                    raise ValueError("%s：failure_modes 元素坏（实得 %r）——期望非空模式串；卡 %r"
+                                     % (os.path.basename(path), m,
+                                        (r.get("card") or {}).get("task_id")))
+                modes[m] = modes.get(m, 0) + 1
         six = ((r.get("items") or {}).get("six_essential") or {}) if isinstance(r.get("items"), dict) else {}
         if isinstance(six, dict):
             six_pass += _int(six.get("pass")) or 0
@@ -318,14 +373,15 @@ def parse_quality_file(path):
     den = sum(grades.values())
     gv = {"A": 4, "B": 3, "C": 2, "D": 1}
     return {
-        "wave": (records[0].get("wave") if records else None),
-        "file": os.path.basename(path), "records": len(records),
+        "wave": (dedup[0].get("wave") if dedup else None),
+        "file": os.path.basename(path), "records": len(records), "cards": len(dedup),
         "scored": scored, "grades": grades,
         "mean_grade": round(sum(gv.get(g, 0) * n for g, n in grades.items()) / den, 3) if den else None,
         "grade_scale": "A=4 B=3 C=2 D=1（与一期遥测同映射）",
         "six_essential_pass": six_pass, "six_essential_total": six_total,
         "top_failure_modes": [{"mode": m, "count": n} for m, n in
                               sorted(modes.items(), key=lambda kv: -kv[1])[:CAP_FAILURE_MODES]],
+        "failure_modes_scope": "scored=true 记录逐串计数（与 grades 同口径；去重取末条）",
     }
 
 
@@ -443,18 +499,34 @@ def build_digest(inp):
         notes.append("manifest 超帽截断：%d→%d" % (len(manifests), CAP_MANIFESTS))
         manifests = manifests[:CAP_MANIFESTS]
     quality = [{
-        "wave": q.get("wave"), "records": q.get("records"), "scored": q.get("scored"),
+        "wave": q.get("wave"), "records": q.get("records"), "cards": q.get("cards"),
+        "scored": q.get("scored"),
         "grades": q.get("grades"), "mean_grade": q.get("mean_grade"),
         "six_essential_pass": q.get("six_essential_pass"),
         "six_essential_total": q.get("six_essential_total"),
         "top_failure_modes": q.get("top_failure_modes"),
+        "parse_error": q.get("parse_error"),
     } for q in (inp.get("quality") or [])]
+    # 跨波合并失败模式面（与 planner-core.yml merged_modes / 一期遥测
+    # planner_quality_recent.top_failure_modes 同源同口径）——周审 q09 与遥测
+    # 对同一批源件必须给出同一个面（A3 事故：两聚合器曾给出相反面）。
+    merged_modes = {}
+    for q in quality:
+        for m in (q.get("top_failure_modes") or []):
+            if isinstance(m, dict) and m.get("mode"):
+                merged_modes[m["mode"]] = merged_modes.get(m["mode"], 0) + (m.get("count") or 0)
+    quality_merged = [{"mode": m, "count": n} for m, n in
+                      sorted(merged_modes.items(), key=lambda kv: -kv[1])[:CAP_FAILURE_MODES]]
+    if any(q.get("parse_error") for q in quality):
+        quality_merged = None      # 有波次解析失败 ⇒ 合并面不可证（禁拿部分波充全量）
+        notes.append("quality 合并失败模式面不可证：存在解析失败波次（见各波 parse_error）")
     board = inp.get("board") or {}
     runs = inp.get("planner_runs") or {}
     digest = {
         "window": inp.get("window"),
         "manifests": manifests,
         "quality": quality,
+        "quality_merged_failure_modes": quality_merged,
         "board": {
             "open_issues_total": board.get("open_issues_total"),
             "wave_open_n": len(board.get("wave_open") or []),
@@ -852,11 +924,21 @@ def collect(window_days=WINDOW_DAYS, wave_dir=WAVE_DIR, ledger_file=LEDGER_FILE,
         m["include_reason"] = reason
         data["manifests"].append(m)
     # ── planner-quality 读数（wave-*.quality.json，JSONL）──
+    # 解析失败 **fail-loud**：点名进 notes+degraded，并落一条 top_failure_modes=null
+    # 的占位条目——禁静默缺席（缺席=digest 无该波=问卷无从判断「没采到」，
+    # 正是 A3 事故「空表被当成无失败模式」的同款失明）。
     for p in sorted(glob.glob(os.path.join(wave_dir, "wave-*.quality.json"))):
         try:
             data["quality"].append(parse_quality_file(p))
-        except Exception as e:
-            notes.append("quality 解析失败 %s：%s" % (os.path.basename(p), type(e).__name__))
+        except Exception as e:   # noqa: BLE001 —— 单件坏不拖死整审计，但必须显式留证
+            msg = "quality 解析失败 %s：%s: %s" % (os.path.basename(p), type(e).__name__, e)
+            notes.append(msg)
+            degraded.append("quality-parse-fail:%s" % os.path.basename(p))
+            data["quality"].append({
+                "wave": None, "file": os.path.basename(p), "records": None, "cards": None,
+                "scored": None, "grades": {}, "mean_grade": None,
+                "six_essential_pass": None, "six_essential_total": None,
+                "top_failure_modes": None, "parse_error": msg})
     # ── 欠账台账 ──
     try:
         with open(ledger_file, encoding="utf-8") as f:
@@ -1338,13 +1420,17 @@ def self_test():
     ck("ledger open ids", led["open_anchors"] == ["D-2", "OBS-D5"], led)
 
     # ④ quality 聚合（JSONL；A×1+D×3 ⇒ mean 1.75）
+    # 形制按**源件真实 schema**：failure_modes = list[str]（planner-quality-score.py
+    # build_record 落码形；A3 事故前的旧夹具误用 dict 形，把 bug 喂成了「通过」）。
     tmp = tempfile.mkdtemp(prefix="audit-st-")
     try:
         qp = os.path.join(tmp, "wave-99.quality.json")
         with open(qp, "w", encoding="utf-8") as f:
-            for g in ("A", "D", "D", "D"):
+            for g, fm in (("A", []), ("D", ["卡面无 file:line 证据锚"]),
+                          ("D", ["卡面无 file:line 证据锚", "卡面无钉桩基线"]),
+                          ("D", ["卡面无 file:line 证据锚"])):
                 f.write(json.dumps({"wave": "wave-99", "scored": True, "grade": g,
-                                    "failure_modes": {"卡面无 file:line 证据锚": 1},
+                                    "failure_modes": fm,
                                     "items": {"six_essential": {"pass": 3, "total": 6}}},
                                    ensure_ascii=False) + "\n")
         q = parse_quality_file(qp)
@@ -1352,7 +1438,78 @@ def self_test():
         ck("quality grades {A:1,D:3}", q["grades"] == {"A": 1, "D": 3}, q)
         ck("quality mean=1.75", q["mean_grade"] == 1.75, q)
         ck("quality six 12/24", (q["six_essential_pass"], q["six_essential_total"]) == (12, 24), q)
-        ck("quality top modes", q["top_failure_modes"][0]["mode"] == "卡面无 file:line 证据锚", q)
+        ck("quality top modes（list 形逐串计数）",
+           q["top_failure_modes"] == [{"mode": "卡面无 file:line 证据锚", "count": 3},
+                                      {"mode": "卡面无钉桩基线", "count": 1}], q)
+        # ④a 形制纪律 fail-loud：dict 形 failure_modes（A3 事故形）必须炸，禁吞成空表
+        for bad_fm, why in (({"卡面无 file:line 证据锚": 1}, "dict 形（A3 事故形）"),
+                            (["ok", 3], "元素非串"), ("rc=0", "整体非 list")):
+            bad_p = os.path.join(tmp, "wave-98.quality.json")
+            with open(bad_p, "w", encoding="utf-8") as f:
+                f.write(json.dumps({"wave": "wave-98", "scored": True, "grade": "D",
+                                    "failure_modes": bad_fm}, ensure_ascii=False) + "\n")
+            try:
+                parse_quality_file(bad_p)
+                ck("坏形制 fail-loud（%s）" % why, False, "未抛异常——禁吞")
+            except ValueError:
+                ck("坏形制 fail-loud（%s）" % why, True)
+        bad_line = os.path.join(tmp, "wave-97.quality.json")
+        with open(bad_line, "w", encoding="utf-8") as f:
+            f.write('{"wave": "wave-97", "scored": true}\nnot-json\n')
+        try:
+            parse_quality_file(bad_line)
+            ck("坏行 fail-loud（非 JSON）", False, "未抛异常——禁吞行")
+        except ValueError:
+            ck("坏行 fail-loud（非 JSON）", True)
+
+        # ④b 回归夹具（红队 A3 事故复发防护）：喂**真实源件快照**（仓内
+        #   tools/fixtures/planner-audit-weekly-quality-2026W45.jsonl，逐行录自
+        #   波次清单/wave-0{1,2,6}.quality.json——2026-W45 周审计窗内三波原样），
+        #   聚合 top_failure_modes 必须等于一期遥测同源读数 **11/10/7/6/4/3**
+        #   （telemetry-20261107-首轮.json planner_quality_recent.top_failure_modes，
+        #   read_from_run 116）。bug 期该读数为恒空 ⇒ q09 恒满分，故钉死真值。
+        fx = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures",
+                          "planner-audit-weekly-quality-2026W45.jsonl")
+        ck("回归夹具在场", os.path.isfile(fx), fx)
+        qf = parse_quality_file(fx)
+        expect_top = [
+            {"mode": "acceptance 缺期望退出码/期望串形制", "count": 11},
+            {"mode": "卡面无 file:line 证据锚", "count": 10},
+            {"mode": "depends_on 悬引用/收卷边界缺", "count": 7},
+            {"mode": "allowed_paths 缺席", "count": 6},
+            {"mode": "卡面无钉桩基线", "count": 4},
+            {"mode": "gates 收卷未绿", "count": 3},
+        ]
+        ck("回归夹具 records=15/cards=15", (qf["records"], qf["cards"]) == (15, 15), qf)
+        ck("回归夹具 scored=11", qf["scored"] == 11, qf)
+        ck("回归夹具 top_failure_modes == 11/10/7/6/4/3（遥测同源真值）",
+           qf["top_failure_modes"] == expect_top, qf["top_failure_modes"])
+        # ④c 现势源件 schema 不变量（live 对拍）：仓内三波真件逐行须为 list 形
+        #   failure_modes 且合并面非空——A3 症状（源件非空而聚合恒空）在此显形。
+        #   只查**形制不变量**，不查精确计数：历史波可被 replay 追加重评（append-only），
+        #   计数会随重评漂移（精确真值由上方冻结夹具钉死）；源件不在场（异目录跑
+        #   自测）时显式记 SKIP——不可证不猜绿，但也不因「没带源件」判红。
+        live = [os.path.join(REPO_ROOT_DEFAULT, "波次清单", n)
+                for n in ("wave-01.quality.json", "wave-02.quality.json", "wave-06.quality.json")]
+        present = [p for p in live if os.path.isfile(p)]
+        if len(present) == len(live):
+            live_bad_shape, live_merged = [], {}
+            for p in live:
+                with open(p, encoding="utf-8") as f:
+                    for ln_no, ln in enumerate(f, 1):
+                        ln = ln.strip()
+                        if not ln:
+                            continue
+                        fm = json.loads(ln).get("failure_modes")
+                        if fm is not None and not isinstance(fm, list):
+                            live_bad_shape.append("%s:%d:%s" % (os.path.basename(p), ln_no, type(fm).__name__))
+                for m in (parse_quality_file(p).get("top_failure_modes") or []):
+                    live_merged[m["mode"]] = live_merged.get(m["mode"], 0) + m["count"]
+            ck("现势源件 failure_modes 全 list 形（A3 schema 闸）", not live_bad_shape, live_bad_shape)
+            ck("现势源件合并失败模式面非空（A3 症状闸）", bool(live_merged), live_merged)
+        else:
+            ck("现势源件对拍 SKIP（%d/3 在场——异目录跑自测，不可证不猜绿）" % len(present), True,
+               [os.path.basename(p) for p in present])
 
         # ④b 锚交叉核对（确定性；板面腿失败 ⇒ 重复率 null 不猜零）
         ac_in = {
