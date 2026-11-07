@@ -45,6 +45,23 @@ advisory 边界（禁项置顶，D7=C-5 禁区铁律）：
     主写路径 --post 板面写只动 issue comment 与 label 两面）；
   - 评分公式落码出处注：grade_formula = af.planner-quality.v1（本文件 grade() 段，
     判据=Q1 §3.4.2 六项构成；A/B/C/D 档界为本器确定性落码，na 项跳过不折算）。
+
+【2026-11-07 红队 A2 加固（只变严；任务书核定）】
+  实证（attack1 A2，实跑）：六要件纯形制机检下，构造卡
+    {'title':'补充说明', 'acceptance':['echo ok → rc=0'], 'base_sha':'main',
+     'note':'参考 docs/x.md:1', 'merge_policy':'squash', 'depends_on':[],
+     'allowed_paths':['README.md'], 'env_precondition':'none'}
+  ⇒ C1..C6 全过（6/6）⇒ grade(6, True, 0, 0, 0, 1.0) = **A**；且
+    grade(6, None, …) = **B** 但判词写「全绿」（gates 无证据=na 时）。
+  本批两处加固（评分器是 advisory 面不是判据门，可以也应该变严）：
+  ① C1（check_six_manifest/check_six_board）：acceptance 命令行须**同时**含
+     「可执行命令形态（首个真命令 token 在白名单或仓内真实文件引用）＋显式
+     「→ rc=N」」——纯文本/引用不存在文件作命令/非判别命令（echo/true/…）
+     一律不过（acceptance_cmd_ok 段）；
+  ② grade()：gates_final_green=na（收卷门不可证）⇒ 顶 C 且禁出「全绿」判词；
+     build_record 同步落 failure mode「gates 收卷门不可证（na）」留机器可读痕迹。
+  未做（越界项，留登记）：C3 file:line 存在性校验、replay gates 文本匹配改 PR
+  API 实读、C1 挂 08b 干跑通过率——A2 修标 #1/#2 已列，属判据/接线面裁后事项。
   - S1 供给约束注记（排期补漏员 2026-11-06 补注·查漏清单落档）：本评分器零模型调用
     （纯确定性文本/数字机检）；回评/判分 advisory 面未来若接入模型调用，必须守 S1
     三路一适配器 decide(state, questions[])、短超时 1–2s、429 退避、主→备自动切换、
@@ -98,8 +115,83 @@ TERMINAL_STATES = {"ledgered", "merged"}
 #   board 卡（trial）：检查对象 = issue 正文（§3.1 判据原样适用）；
 #   manifest 卡（replay）：卡面字段即 manifest 条目，逐条映射（各带 basis 注）。
 FILELINE_RX = re.compile(r"\S+\.\w{1,8}:\d+")
-ACC_MARKER_RX = re.compile(r"(→\s*rc\s*=\s*\d+)|(rc\s*=\s*\d+)|(#\s*exit\s*\d+)|(exit\s+\d+)|(退出码)")
+# ── C1 验收命令形制（2026-11-07 红队 A2 加固；只变严）────────────────────────
+# 攻击实证（attack1 A2，实跑）：纯形制机检下，构造卡
+#   acceptance=['echo ok → rc=0']（配 base_sha/note file:line/merge_policy/
+#   allowed_paths 四项形制）⇒ C1..C6 全过 ⇒ grade(6, True, 0, 0, 0, 1.0) = **A**。
+# 根因：旧 C1 只用 ACC_MARKER_RX 在串里找「rc=/exit/退出码」字样——字样在即过，
+#   不问命令是否真实可执行、是否有判别力。
+# 加固判据（任务书核定，只变严）：acceptance 命令行须**同时**满足
+#   ① 显式期望退出码形「→ rc=N」（ACC_RC_RX；禁裸 rc=0 串/「退出码」文字充数）；
+#   ② 首个真命令 token 在白名单（可执行且具判别力的真实命令族），或为**仓内
+#      真实文件引用**（如 ./tools/x.py 在场）。
+#   echo/true/false/yes/:/printf 等恒 rc=0 的非判别命令显式排除——「echo ok」
+#   写了等于没写（永远 rc=0，零判别力）。
+ACC_RC_RX = re.compile(r"→\s*rc\s*=\s*\d+")
+ACC_CMD_WHITELIST = {
+    "python3", "python", "jq", "bash", "sh", "curl", "git", "grep", "rg", "ssh",
+    "ls", "cat", "head", "tail", "wc", "find", "sed", "awk", "sort", "uniq",
+    "diff", "test", "make", "cmake", "cargo", "rustc", "npm", "node", "pip",
+    "pytest", "ruff", "mypy", "flake8", "black", "isort", "docker", "go",
+    "tar", "xargs", "cut", "tr", "stat", "file", "md5sum", "sha256sum",
+}
+NON_DISCRIMINATING_CMDS = {"echo", "true", "false", "yes", ":", "printf", "sleep"}
+# 命令行首部可跳过的非命令 token：环境赋值前缀（FOO=bar）、编号前缀（1.）、
+# shell 前缀关键字（cd/export/source/. —— 各带一个参数）与命令连接符
+# （&&/;/||/|）——跳过它们取**第一个真命令**（保守取首，不扫全链）。
+_CMD_ASSIGN_RX = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=.*$")
+_CMD_ENUM_RX = re.compile(r"^\d+[.、)]$")
+_CMD_PREFIX_KW = ("cd", "export", "source", ".")
+_CMD_CONNECTORS = ("&&", ";", "||", "|")
 ENV_CMD_TOKENS = ("cargo", "docker", "nvidia-smi", "gpu")
+
+
+def _repo_root():
+    """仓根（tools/ 的上一级）——C1 仓内真实文件引用判定用。"""
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _first_cmd_token(cmd_text):
+    """取命令行首个「真命令」token（跳过环境赋值/编号/shell 前缀/连接符）。"""
+    skip_next_arg = False
+    for tok in str(cmd_text).split():
+        if skip_next_arg:
+            skip_next_arg = False
+            continue
+        if _CMD_ASSIGN_RX.match(tok) or _CMD_ENUM_RX.match(tok):
+            continue
+        if tok in _CMD_PREFIX_KW:
+            skip_next_arg = True          # cd <dir> / export VAR=val / source <f> / . <f>
+            continue
+        if tok in _CMD_CONNECTORS:
+            continue
+        return tok
+    return ""
+
+
+def acceptance_cmd_ok(cmd_text):
+    """C1 单项判定（红队 A2 加固，只变严）→ (ok, why)。
+
+    须同时满足：① 显式「→ rc=N」期望退出码形；② 首个真命令 token 在白名单
+    （或带路径白名单命令，如 /usr/bin/python3）**或**为仓内真实文件引用。
+    纯文本无真命令/引用不存在文件作命令/非判别命令（echo ok）一律不过——
+    形制合规的废卡不得刷 C1（曾致 junk 卡 C1..C6 全过拿 A）。
+    说明：命令**参数位**的仓内文件存在性不在本判据内（归 step 08b 干跑实证面，
+    评分器不执行命令——A2 修标 #1「接线即可」，本直修不越界）。
+    """
+    s = str(cmd_text)
+    if not ACC_RC_RX.search(s):
+        return False, "缺显式「→ rc=N」期望退出码形（禁裸 rc=/exit/退出码 字样充数）"
+    tok = _first_cmd_token(s)
+    if not tok:
+        return False, "无可解析命令 token"
+    base = os.path.basename(tok)
+    if base in ACC_CMD_WHITELIST and base not in NON_DISCRIMINATING_CMDS:
+        return True, "白名单命令 %s" % tok
+    rel = tok[2:] if tok.startswith("./") else tok
+    if os.path.isfile(os.path.join(_repo_root(), rel)):
+        return True, "仓内真实文件引用 %s" % tok
+    return False, "命令 %r 不在白名单且非仓内真实文件" % tok
 
 
 def now_ts():
@@ -117,10 +209,15 @@ def check_six_board(body):
     seg = acc_block.group(1) if acc_block else (body or "")
     items = [ln for ln in seg.splitlines() if re.match(r"^\s*\d+[.、)]\s+", ln)]
     if items:
-        bad = [ln.strip()[:60] for ln in items if not ACC_MARKER_RX.search(ln)]
+        bad, why = [], []
+        for ln in items:
+            ok, reason = acceptance_cmd_ok(ln)
+            if not ok:
+                bad.append(ln.strip()[:60])
+                why.append(reason)
         detail.append({"check": "C1_acceptance_expected_outcome", "pass": not bad,
-                       "basis": "Q1 §3.1 #1：每条验收须可解析期望退出码/期望串",
-                       "unparsed": bad})
+                       "basis": "Q1 §3.1 #1（A2 加固）：每条验收须带显式「→ rc=N」且首个命令 token 在白名单或仓内真实文件",
+                       "unparsed": bad, "reject_reasons": why})
     else:
         detail.append({"check": "C1_acceptance_expected_outcome", "pass": False,
                        "basis": "Q1 §3.1 #1：未检出编号验收条目", "unparsed": []})
@@ -159,10 +256,15 @@ def check_six_manifest(card, manifest, wave_task_ids):
     detail = []
     acc = card.get("acceptance") or []
     if acc:
-        bad = [str(a)[:60] for a in acc if not ACC_MARKER_RX.search(str(a))]
+        bad, why = [], []
+        for a in acc:
+            ok, reason = acceptance_cmd_ok(a)
+            if not ok:
+                bad.append(str(a)[:60])
+                why.append(reason)
         detail.append({"check": "C1_acceptance_expected_outcome", "pass": not bad,
-                       "basis": "§3.1 #1×manifest 映射：逐条 acceptance 须带期望退出码/期望串（rc=/exit/退出码）",
-                       "unparsed": bad})
+                       "basis": "§3.1 #1×manifest 映射（A2 加固）：逐条 acceptance 须带显式「→ rc=N」且首个命令 token 在白名单或仓内真实文件",
+                       "unparsed": bad, "reject_reasons": why})
     else:
         detail.append({"check": "C1_acceptance_expected_outcome", "pass": False,
                        "basis": "§3.1 #1×manifest 映射：卡面 acceptance 字段缺席", "unparsed": []})
@@ -197,11 +299,13 @@ def check_six_manifest(card, manifest, wave_task_ids):
 def grade(six_pass, gates_final_green, objections, unchecked, push_rounds, dry_rate):
     """评分公式 af.planner-quality.v1（确定性落码；出处注：构成=Q1 §3.4.2 六项；
     档界语义：D=真红/诚实缺口（收卷门未绿、交卷未勾、异议高频、六要件大面积缺）；
-    C=过程成本显性（追加推送/异议/缺项）；B=全绿低成本（na 项跳过不折算——
-    na 不得换 A）；A=全绿零成本且六项全可证（零 na）。na 政策：na 项只放行
-    更低档位，禁止把「无证据」当「已达标」换 A。gates_ok 取收卷终态
-    （final_green）——首过与否经 push_rounds 计成本，首推红而收卷绿属 C/B
-    过程成本，不判 D（真红停车语义只落在收卷未绿）。"""
+    C=过程成本显性或**关键证据面不可证**（追加推送/异议/缺项/gates=na——红队 A2
+    加固：gates 无证据时禁出「全绿」判词，「不可证」不是「已达标」）；
+    B=全绿低成本（干跑/push 等 na 项存在——na 不得换 A）；
+    A=全绿零成本且六项全可证（零 na）。na 政策：na 项只放行更低档位，
+    禁止把「无证据」当「已达标」换 A。gates_ok 取收卷终态（final_green）——
+    首过与否经 push_rounds 计成本，首推红而收卷绿属 C/B 过程成本，不判 D
+    （真红停车语义只落在收卷未绿）；final_green=na（无收卷门证据）⇒ 顶 C。"""
     # D 档（任一即 D）
     if gates_final_green is False:
         return "D", "gates 收卷未绿（真红）"
@@ -211,6 +315,10 @@ def grade(six_pass, gates_final_green, objections, unchecked, push_rounds, dry_r
         return "D", "异议评论≥3（高频受阻）"
     if (six_pass is not None and six_pass <= 3):
         return "D", "六要件机检≤3/6（卡面自包含大面积缺）"
+    # gates=na（收卷门不可证）⇒ 顶 C：禁出「全绿」判词（红队 A2 实证：na 时
+    # B 档判词仍写「全绿」，docstring 自述「na 项只放行更低档位」而实码不是）
+    if gates_final_green is None:
+        return "C", "gates 收卷门不可证（na）——禁出「全绿」判词；na 不折 A/B"
     # C 档（任一即 C）
     if (objections is not None and objections >= 1):
         return "C", "异议评论 1-2（施工期受阻留痕）"
@@ -224,7 +332,7 @@ def grade(six_pass, gates_final_green, objections, unchecked, push_rounds, dry_r
     if (push_rounds == 0 and dry_rate == 1.0
             and push_rounds is not None and dry_rate is not None):
         return "A", "全绿零成本：gates 首过+零异议+零未勾+单推+干跑 100%"
-    return "B", "全绿低成本（na 项存在或追加 push≤2——na 不折 A）"
+    return "B", "全绿低成本（干跑/追加 push 面 na 或追加 push≤2——na 不折 A）"
 
 
 # ─────────────────────────── ANC-5 判卷键校验（第 6 裁） ───────────────────────────
@@ -382,6 +490,10 @@ def build_record(wave, mode, card_ref, scored, six_detail, gates, push, objectio
 
     if fg.get("value") is False:
         failure_modes.append("gates 收卷未绿")
+    elif scored and fg.get("na", True):
+        # 收卷门不可证（na）显式入失败模式——禁把「无证据」静默折算成「全绿」
+        # （红队 A2：na 时判词曾出「全绿」；grade 侧已降 C，此处留机器可读痕迹）
+        failure_modes.append("gates 收卷门不可证（na）")
     if push_rec.get("value") is not None and push_rec["value"] >= 3:
         failure_modes.append("追加 push≥3 轮")
     for k, v in (obj_rec.get("by_kind") or {}).items():
@@ -741,6 +853,81 @@ def mode_selftest():
     d10 = check_six_board(body_c1)
     c1 = [x for x in d10 if x["check"] == "C1_acceptance_expected_outcome"][0]
     assert c1["pass"] is False, "回读形无 rc 应 fail"
+    # ── 夹具 13-18：红队 A2 加固回归（junk 卡必须 ≤C；合法真卡仍 A/B）──────────
+    # 13 · attack1 A2 原样 junk 卡（实跑曾 C1..C6 全过拿 A）：
+    #   acceptance=['echo ok → rc=0'] —— echo 恒 rc=0 零判别力 ⇒ C1 须 fail
+    junk_card = {'title': '补充说明', 'acceptance': ['echo ok → rc=0'], 'base_sha': 'main',
+                 'note': '参考 docs/x.md:1', 'merge_policy': 'squash', 'depends_on': [],
+                 'allowed_paths': ['README.md'], 'env_precondition': 'none'}
+    dj = check_six_manifest(junk_card, {'base_sha': 'main'}, set())
+    pj = sum(1 for x in dj if x["pass"])
+    c1j = [x for x in dj if x["check"] == "C1_acceptance_expected_outcome"][0]
+    assert c1j["pass"] is False, "A2 junk 卡 C1 应 fail（echo 非判别命令），实得 pass"
+    assert pj == 5, "A2 junk 卡六要件应 5/6（只 C1 挂），实得 %d：%s" % (pj, dj)
+    gj, bj = grade(pj, True, 0, 0, 0, 1.0)          # 即便 gates 全绿零成本
+    assert gj == "C", "A2 junk 卡应 ≤C，实得 %s（%s）" % (gj, bj)
+    # 13b · 同 junk 卡走 replay 记录路径（gates na）⇒ 同样 ≤C 且带 na 失败模式
+    rec_j = build_record("wave-01", "replay",
+                         {"task_id": "t-junk", "debt": None, "channel": "?", "issue": None,
+                          "pr": None, "state_at_score": "merged"},
+                         scored=True, six_detail=dj, gates=None, push=None,
+                         objections={"value": 0, "na": False, "basis": "无板面 issue 通道"},
+                         unchecked={"value": 0, "na": False, "basis": "闭环"},
+                         dry_rate={"value": None, "na": True, "reason": "未提供干跑证据面"},
+                         evidence={})
+    assert rec_j["grade"] == "C", "A2 junk 卡（gates na）应 C，实得 %s" % rec_j["grade"]
+    assert "gates 收卷门不可证（na）" in rec_j["failure_modes"], rec_j["failure_modes"]
+    # 14 · 命令引用不存在文件作**命令本身** ⇒ C1 fail（仓内无该文件）
+    ghost = dict(good, acceptance=["tools/ghost-不存在.py → rc=0"])
+    cg = [x for x in check_six_manifest(ghost, man1, {"t-good"})
+          if x["check"] == "C1_acceptance_expected_outcome"][0]
+    assert cg["pass"] is False, "引用不存在文件作命令应 fail"
+    # 15 · 缺显式「→ rc=N」形（裸 rc=0 串/「退出码」文字）⇒ C1 fail
+    for loose in ("python3 -I tools/x.py rc=0", "跑全部测试，预期退出码 0",
+                  "python3 -I tools/x.py # exit 0"):
+        cl = [x for x in check_six_manifest(dict(good, acceptance=[loose]), man1, {"t-good"})
+              if x["check"] == "C1_acceptance_expected_outcome"][0]
+        assert cl["pass"] is False, "缺「→ rc=N」显式形应 fail：%r" % loose
+    # 16 · 合法真卡仍 A/B：白名单命令 + 显式 rc 形 ⇒ C1 pass；仓内真实文件引用同过
+    ok_forms = ["python3 -I tools/x.py → rc=0", "bash -c 'true' → rc=1",
+                "jq -e .a f.json → rc=0", "cd 波次清单 && git status → rc=0"]
+    for form in ok_forms:
+        cf = [x for x in check_six_manifest(dict(good, acceptance=[form]), man1, {"t-good"})
+              if x["check"] == "C1_acceptance_expected_outcome"][0]
+        assert cf["pass"] is True, "合法命令形应 pass：%r（%s）" % (form, cf.get("reject_reasons"))
+    real_file_cmd = "tools/%s --selftest → rc=0" % os.path.basename(os.path.abspath(__file__))
+    crf = [x for x in check_six_manifest(dict(good, acceptance=[real_file_cmd]), man1, {"t-good"})
+           if x["check"] == "C1_acceptance_expected_outcome"][0]
+    assert crf["pass"] is True, "仓内真实文件引用应 pass：%r（%s）" % (
+        real_file_cmd, crf.get("reject_reasons"))
+    bare_cmd = "%s --selftest → rc=0" % os.path.basename(os.path.abspath(__file__))
+    crb = [x for x in check_six_manifest(dict(good, acceptance=[bare_cmd]), man1, {"t-good"})
+           if x["check"] == "C1_acceptance_expected_outcome"][0]
+    assert crb["pass"] is False, "仓内不存在该裸名（须仓根相对路径）应 fail"
+    gA, _ = grade(6, True, 0, 0, 0, 1.0)
+    assert gA == "A", "合法真卡（六项全可证+零成本）仍应 A，实得 %s" % gA
+    # 17 · gates=na 从 B「全绿」降 C：禁出「全绿」判词（A2 第二通道）
+    gna, bna = grade(6, None, None, None, None, None)
+    assert gna == "C", "gates=na 应降 C，实得 %s（%s）" % (gna, bna)
+    assert "全绿低成本" not in bna and "全绿零成本" not in bna, \
+        "gates=na 判词禁出全绿档措辞：%s" % bna
+    # 17b · gates 真绿 + push/dry na ⇒ 仍 B（na 只放行更低档，不误伤真绿卡）
+    gB, _ = grade(6, True, 0, 0, None, None)
+    assert gB == "B", "gates 真绿 + na 项应 B，实得 %s" % gB
+    # 18 · board 卡面同族加固：编号条目须白名单命令 + 显式 rc 形
+    body_ok = ("## 验收命令集\n"
+               "1. python3 -I tools/x.py → rc=0\n"
+               "2. jq -e .ok 波次清单/wave-01.json → rc=0\n"
+               "base=main\n依赖：无\n本卡不做：不碰判据面\n"
+               "allowed_paths: tools/x.py, 波次清单/wave-01.json\n"
+               "证据：tools/x.py:12\n")
+    d16 = check_six_board(body_ok)
+    c16 = [x for x in d16 if x["check"] == "C1_acceptance_expected_outcome"][0]
+    assert c16["pass"] is True, "board 合法编号条目应 pass：%s" % c16.get("reject_reasons")
+    body_junk = body_ok.replace("1. python3 -I tools/x.py → rc=0", "1. echo ok → rc=0")
+    c16b = [x for x in check_six_board(body_junk)
+            if x["check"] == "C1_acceptance_expected_outcome"][0]
+    assert c16b["pass"] is False, "board junk 条目（echo）应 fail"
     # ── 夹具 11/12（ANC-5 判卷键钉版本指纹·运营者 2026-11-07 第 6 裁·裁定点名两例）──
     # 形制：answers 件头 `key_for: <被测件 sha256[:12]>`；replay 对拍前校验声明集 ×
     # 当次被测件实读集。动机实证：constitution mini v1→v2 后 answers.md 仍自钉 v1
@@ -816,7 +1003,8 @@ def mode_selftest():
         assert "key_mismatch" in (r_stale["scored_reason"] or ""), r_stale["scored_reason"]
     finally:
         shutil.rmtree(kd, ignore_errors=True)
-    print("SELFTEST OK：12 组夹具全过（六要件机检/评分档界/na 政策/advisory 写入集断言/"
+    print("SELFTEST OK：18 组夹具全过（六要件机检/评分档界/na 政策/advisory 写入集断言/"
+          "A2 加固回归：junk 卡 ≤C·合法真卡仍 A/B·gates=na 禁出全绿／"
           "ANC-5 判卷键：match 计分·key_mismatch 拒计·key_missing/key_unreadable fail-closed·"
           "集合对拍·形制违例拒认）")
     return 0
