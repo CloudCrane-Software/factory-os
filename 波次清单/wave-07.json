@@ -1,0 +1,339 @@
+{
+ "schema": "af.wave-manifest.backfill.v1",
+ "wave": "wave-07",
+ "created_at": "2026-11-07T12:26:14+0800",
+ "policy": "制度 v1；30-工件/波次自转器-20261106/制度-v1.md（波次自转开发制度）",
+ "backfill": {
+  "by": "信息面回正施工员（运营者裁定：planner 的世界必须与真实产线对齐）",
+  "at": "2026-11-07T12:26:14+0800",
+  "method": "三仓板面+PR+timeline+台账回溯重建（非原始规划产物复原）",
+  "sources": [
+   "GET /repos/CloudCrane-Software/{factory-os,.github,af}/issues?state=all（46+6+6 张 issue 实拉）",
+   "GET /repos/.../pulls?state=all（59+24+53 张 PR 实拉）",
+   "issues/N/timeline 交叉引用事件（32 张 wave-05..08 卡逐卡实拉）",
+   "计划/阶段欠账台账.md 正本行级坐标（144 行）",
+   "30-工件/夜轨E-20261107/终夜审计-20261107.md §一（23 卡终态对账，交叉印证）"
+  ],
+  "note": "补档件：planner step 05 只消费 wave/cards[].{task_id,debt,channel,mem_budget_g,state}/base_sha 六字段；本件按 wave-03.json 形制另附板面/PR 证据坐标备查。base_sha 一律 null（原始规划基线未留档，禁编造；step 06 活体钉桩基线实读 origin/main 顶端，不受影响）。",
+  "known_gap": "wave-04 有板面卡（factory-os#5/#7/#8/#9，closed）但无 manifest 亦不在本批授权范围（任务只授权 wave-05/06/07/08 四件）——latest 将由 wave-03 直接跳到 wave-08，wave-04 缺档事实在此如实登记，不伪装。"
+ },
+ "base_sha": null,
+ "base_sha_note": "原始规划基线未留档——补档不编造；planner step 06 活体钉桩基线实读 factory-os origin/main 顶端，本字段不参与。",
+ "cards": [
+  {
+   "task_id": "w07-redteam-legB",
+   "debt": "D-95",
+   "channel": "bot-lane",
+   "mem_budget_g": 2,
+   "title": "[wave-07][D-95] 红队腿 B：redteam_review.py LLM 咨询（夜间 advisory）＋注入负控＋Jev r…",
+   "state": "merged",
+   "board": {
+    "repo": "CloudCrane-Software/factory-os",
+    "issue": 28,
+    "labels": [
+     "wave",
+     "state:merged"
+    ],
+    "created_at": "2026-11-06T11:55:23Z",
+    "closed_at": "2026-11-06T19:43:38Z"
+   },
+   "merge": {
+    "prs": [
+     {
+      "number": 73,
+      "merged_at": "2026-11-06T19:06:19Z",
+      "merge_commit": "c583d5e625d5",
+      "head": "task/w07d95-redteam-legB"
+     },
+     {
+      "number": 74,
+      "merged_at": "2026-11-06T19:18:25Z",
+      "merge_commit": "0556c1889f91",
+      "head": "task/w07d95-redteam-legB-fix2"
+     },
+     {
+      "number": 76,
+      "merged_at": "2026-11-06T19:33:18Z",
+      "merge_commit": "6d6b88ba99e7",
+      "head": "task/w07d95-redteam-legB-fix3"
+     }
+    ]
+   },
+   "note": "主 PR#73＋两轮接线修复 #74/#76"
+  },
+  {
+   "task_id": "w07-otlp-beacon",
+   "debt": "D-96",
+   "channel": "bot-lane",
+   "mem_budget_g": 2,
+   "title": "[wave-07][D-96] 观测 L3：sandbox_otel.py 发射件＋span 名册三名＋OTLP token 轮换核对＋端到…",
+   "state": "merged",
+   "board": {
+    "repo": "CloudCrane-Software/factory-os",
+    "issue": 29,
+    "labels": [
+     "wave",
+     "state:merged"
+    ],
+    "created_at": "2026-11-06T11:55:26Z",
+    "closed_at": "2026-11-06T18:46:08Z"
+   },
+   "merge": {
+    "prs": [
+     {
+      "number": 70,
+      "merged_at": "2026-11-06T18:44:52Z",
+      "merge_commit": "79c3e8d65f50",
+      "head": "task/w07d96-otlp-beacon"
+     }
+    ]
+   }
+  },
+  {
+   "task_id": "w07-card-selfcontainment",
+   "debt": "D-97",
+   "channel": "bot-lane",
+   "mem_budget_g": 2,
+   "title": "[wave-07][D-97] 审卡闸机检件 card-selfcontainment-check.py（六要件机检，与 step 08 双…",
+   "state": "merged",
+   "board": {
+    "repo": "CloudCrane-Software/factory-os",
+    "issue": 30,
+    "labels": [
+     "wave",
+     "state:merged"
+    ],
+    "created_at": "2026-11-06T11:55:27Z",
+    "closed_at": "2026-11-06T18:54:38Z"
+   },
+   "merge": {
+    "prs": [
+     {
+      "number": 71,
+      "merged_at": "2026-11-06T18:52:58Z",
+      "merge_commit": "884b3341930d",
+      "head": "task/w07-d97-card-selfcontainment"
+     }
+    ]
+   }
+  },
+  {
+   "task_id": "w07-af-gates-orgswitch",
+   "debt": "D-98",
+   "channel": "bot-lane",
+   "mem_budget_g": 2,
+   "title": "[wave-07][D-98] af gates 接线：内联→org 可复用 gates.yml@main 切换（消双真源）＋fast_te…",
+   "state": "rejected",
+   "board": {
+    "repo": "CloudCrane-Software/af",
+    "issue": 10,
+    "labels": [
+     "wave",
+     "state:rejected"
+    ],
+    "created_at": "2026-11-06T11:55:29Z",
+    "closed_at": null
+   },
+   "note": "关卡评论 2026-11-06T18:39:08Z：施工未开工即停车（修判据面超 allowed_paths）→ state:rejected 且 issue 保持 open（范式内，同 fos#90；终夜审计 §五）。零 PR 零合线。"
+  },
+  {
+   "task_id": "w07-merge-criteria-ruling",
+   "debt": "D-99",
+   "channel": null,
+   "mem_budget_g": 2,
+   "title": "[standing][D-99] 合流判据降级裁决登记卡（L-14/Q2 G-3——本批最重未决缺口，owner 二选一）",
+   "state": "queued",
+   "board": {
+    "repo": "CloudCrane-Software/factory-os",
+    "issue": 31,
+    "labels": [
+     "wave",
+     "state:queued"
+    ],
+    "created_at": "2026-11-06T11:55:31Z",
+    "closed_at": null
+   },
+   "note": "standing 裁决登记卡（非施工卡）；卡面未声明通道（channel=null 如实）"
+  },
+  {
+   "task_id": "w07-gpu-broker",
+   "debt": "D-100",
+   "channel": "harness",
+   "mem_budget_g": null,
+   "title": "[wave-07][D-100] GPU broker P2：准入账本扩 GPU 列＋anolis 执行器最小件（与 bench 判分腿同科…",
+   "state": "merged",
+   "board": {
+    "repo": "CloudCrane-Software/factory-os",
+    "issue": 32,
+    "labels": [
+     "wave",
+     "state:merged"
+    ],
+    "created_at": "2026-11-06T11:55:33Z",
+    "closed_at": "2026-11-06T20:05:24Z"
+   },
+   "merge": {
+    "prs": [
+     {
+      "number": 85,
+      "merged_at": "2026-11-06T20:05:22Z",
+      "merge_commit": "36d950b8995f",
+      "head": "task/w07d100-gpu-broker"
+     }
+    ]
+   }
+  },
+  {
+   "task_id": "w07-video-gw-token-debt",
+   "debt": "D-101",
+   "channel": "harness",
+   "mem_budget_g": null,
+   "title": "[wave-07][D-101] video-gw P3：vidu/海螺同形路由＋higress annotation 内嵌活 token …",
+   "state": "merged",
+   "board": {
+    "repo": "CloudCrane-Software/factory-os",
+    "issue": 33,
+    "labels": [
+     "wave",
+     "state:merged"
+    ],
+    "created_at": "2026-11-06T11:55:35Z",
+    "closed_at": "2026-11-06T20:50:02Z"
+   },
+   "merge": {
+    "prs": [
+     {
+      "number": 89,
+      "merged_at": "2026-11-06T20:50:00Z",
+      "merge_commit": "ed4923a5234d",
+      "head": "task/w07d101-video-gw-token-debt"
+     }
+    ]
+   },
+   "note": "首投 PR#88 未合线（closed unmerged），PR#89 为合线轮；台账仓本 D-101 行由同步腿 PR#98 追加（正本无此行=终夜审计 F2 登记项）"
+  },
+  {
+   "task_id": "w07-tac-cotrial",
+   "debt": "D-102",
+   "channel": "bot-lane",
+   "mem_budget_g": 4,
+   "title": "[wave-07][D-102] TAC 多 agent 协同试跑卡：父卡+子卡板面协同（S4 接力/S5 互审）＋af-relay 交接块",
+   "state": "merged",
+   "board": {
+    "repo": "CloudCrane-Software/factory-os",
+    "issue": 34,
+    "labels": [
+     "wave",
+     "state:merged"
+    ],
+    "created_at": "2026-11-06T11:55:37Z",
+    "closed_at": "2026-11-06T22:34:35Z"
+   },
+   "merge": {
+    "prs": [
+     {
+      "number": 94,
+      "merged_at": "2026-11-06T21:15:56Z",
+      "merge_commit": "5d105f8f9446",
+      "head": "task/92-sde-fix-factual-mistake"
+     },
+     {
+      "number": 95,
+      "merged_at": "2026-11-06T21:24:46Z",
+      "merge_commit": "f641080b997a",
+      "head": "task/93-sde-update-readme"
+     }
+    ]
+   },
+   "note": "父卡无己名 PR：完工回执评论 2026-11-06T21:29:21Z（父#34+子#92/#93+PR#94/#95 全读数）＋板面终检员 22:34:35Z 补关留注；施工产出=子卡 PR#94/#95"
+  },
+  {
+   "task_id": "w07-tac-cotrial-A",
+   "debt": "D-102-A",
+   "channel": "bot-lane",
+   "mem_budget_g": 2,
+   "title": "[wave-07][D-102-A] TAC 子卡 A：sde-fix-factual-mistake（agent.yaml 两处事实订正）",
+   "state": "merged",
+   "board": {
+    "repo": "CloudCrane-Software/factory-os",
+    "issue": 92,
+    "labels": [
+     "wave",
+     "state:merged"
+    ],
+    "created_at": "2026-11-06T21:06:06Z",
+    "closed_at": "2026-11-06T21:15:57Z"
+   },
+   "merge": {
+    "prs": [
+     {
+      "number": 94,
+      "merged_at": "2026-11-06T21:15:56Z",
+      "merge_commit": "5d105f8f9446",
+      "head": "task/92-sde-fix-factual-mistake"
+     }
+    ]
+   }
+  },
+  {
+   "task_id": "w07-tac-cotrial-B",
+   "debt": "D-102-B",
+   "channel": "bot-lane",
+   "mem_budget_g": 2,
+   "title": "[wave-07][D-102-B] TAC 子卡 B：sde-update-readme（README 贡献章节）——S4 接力第二棒＋w…",
+   "state": "merged",
+   "board": {
+    "repo": "CloudCrane-Software/factory-os",
+    "issue": 93,
+    "labels": [
+     "wave",
+     "state:merged"
+    ],
+    "created_at": "2026-11-06T21:06:11Z",
+    "closed_at": "2026-11-06T21:24:48Z"
+   },
+   "merge": {
+    "prs": [
+     {
+      "number": 95,
+      "merged_at": "2026-11-06T21:24:46Z",
+      "merge_commit": "f641080b997a",
+      "head": "task/93-sde-update-readme"
+     }
+    ]
+   }
+  },
+  {
+   "task_id": "w07-fos-gates-l2l3",
+   "debt": "D-103",
+   "channel": "bot-lane",
+   "mem_budget_g": 2,
+   "title": "[wave-07][D-103] factory-os PR 剖面接 all-gates L2/L3 门族（按卡点选+缺件显式判红）",
+   "state": "merged",
+   "board": {
+    "repo": "CloudCrane-Software/factory-os",
+    "issue": 35,
+    "labels": [
+     "wave",
+     "state:merged"
+    ],
+    "created_at": "2026-11-06T11:55:39Z",
+    "closed_at": "2026-11-06T19:01:51Z"
+   },
+   "merge": {
+    "prs": [
+     {
+      "number": 72,
+      "merged_at": "2026-11-06T19:00:35Z",
+      "merge_commit": "3c095c008544",
+      "head": "task/w07d103-gates-l2l3"
+     }
+    ]
+   }
+  }
+ ],
+ "notes": [
+  "D-95..D-97/D-99..D-103 在台账正本无行；D-101 行仅存于仓本（同步腿 PR#98 追加，正本缺行=终夜审计 F2）。",
+  "af#10（D-98）rejected：零施工零 PR，诚实停车留痕（终夜审计 §五）。"
+ ]
+}
