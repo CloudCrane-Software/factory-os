@@ -1,0 +1,4 @@
+{
+ "schema": "af.some-other-tool.reading.v9",
+ "note": "负例夹具：schema 不符，采集器必须拒收（fail-closed 不猜）"
+}
