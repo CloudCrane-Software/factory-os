@@ -2401,6 +2401,522 @@ jobs:
                    len(continuations), len(near_matches), len(non_buildable), len(missing_rows)))
           PY
 
+      # ── step 08d（规划质量二期 · 2026-11-07 运营者成本裁定）：分层顾问评审腿 ───
+      # 定位：08/08b/08c 之后的顾问评审层（09 commit 前最后一道）。三层架构：
+      #   L0 廉价预备（每拍必跑·免费）：tokenrhythm 同 key model=qwen3.8-flash；
+      #      输入=manifest 候选＋08/08b/08c 三段校验摘要＋板面在飞卡摘要（重输入）；
+      #      输出 JSON {prep_summary(≤200字), candidate_issues ≤8条}（轻输出）。
+      #   L1 贵模型快判（每拍必跑·极小输出）：同 key model=kimi-k3；输入=L0 全部
+      #      产出＋manifest；输出只许 JSON {verdict, score, top_gaps≤3}；输出面 256
+      #      硬顶；提示词明令「快速判断，禁展开论述，禁写建议全文，禁复述材料」；超时 60s/
+      #      非 JSON/不可达 ⇒ fail-open 放行并记 review=unavailable（评审缺位不拦正产）。
+      #   L2 廉价扩写（仅 verdict=block 才跑）：qwen3.8-flash 把 candidate_issues+
+      #      top_gaps 扩写成完整评审评论，发 planner-review 常驻 issue（无则首建）；
+      #      verdict=pass ⇒ 零扩写零评论零 issue 写。
+      # 拦截语义：verdict=block 或 08c 红 ⇒ 不 commit 不建 Issue（fail-closed 家族，
+      #   只许更保守，无放行权）。读数：manifest-validation.json 增 review 段（只增键：
+      #   prep_issues/k3_verdict/k3_score/blocked＋telemetry：review_score/
+      #   review_blocked/k3_completion_tokens）＋planner-review.json 全量件。
+      # 边界：决策模型结论永不进门禁 verdict——本步只拦 planner 自家 09/09b/10 链，
+      #   零触碰 gates.yml；评审腿调用（免费档同 key 换模型）不计入 03b 计划调用预算。
+      - name: '08d · 分层顾问评审腿（L0 廉价预备→L1 贵模型快判 fail-open→L2 扩写评论；review 段只增键）'
+        id: review
+        if: steps.quota.outputs.plan_allowed == 'true' && steps.validate.outputs.outcome == 'plan'
+        timeout-minutes: 8
+        run: |
+          set -euo pipefail
+          # tokenrhythm 直连（step 07 同款实测：gov 代理 200-空响应）
+          export NO_PROXY="tokenrhythm.studio,${NO_PROXY:-}" no_proxy="tokenrhythm.studio,${no_proxy:-}"
+          python3 -I - <<'PY'
+          # ══ step 08d（规划质量二期 · 2026-11-07 运营者成本裁定）：分层顾问评审腿 ══
+          # 定位：step 08 十校验（M-1..M-9）、08b 干跑、08c 实质门之后的「顾问评审」
+          #   层——09 commit 之前的最后一道软硬兼备闸。十校验与既有判据一字不动：本步
+          #   纯新增，只更严（fail-closed 家族：verdict=block ⇒ 本步 exit 1 ⇒ 09/09b/10
+          #   被步骤默认 success() 语义跳过，不 commit 不建 Issue）。
+          # 三层架构（运营者 2026-11-07 成本裁定：LLM/评审调 tokenrhythm 同 key 换模型，
+          #   免费、免新钥——LLM_API_KEY 走同一 repo secret，只换 model 字段）：
+          #   L0 廉价预备（每拍必跑，免费）：model=qwen3.8-flash。输入=manifest 候选
+          #      ＋08/08b/08c 三段校验摘要＋板面在飞卡摘要（重输入）；输出 JSON
+          #      {prep_summary(≤200字), candidate_issues:[{kind,card,reason}] ≤8条}
+          #      （轻输出）——重输入轻输出段由廉价模型承担。
+          #   L1 贵模型快判（每拍必跑、极小输出）：model=kimi-k3。输入=L0 全部产出
+          #      ＋manifest；输出只许 JSON {verdict:"pass"|"block", score:0-100,
+          #      top_gaps:[≤3条、每条≤20字]}；输出面 256 硬顶；提示词明令「快速判断，
+          #      禁展开论述，禁写建议全文，禁复述材料」。超时 60s／非 JSON／不可达 ⇒
+          #      fail-open 放行并记 review=unavailable（评审缺位不拦正产——理由见下）。
+          #   L2 廉价扩写（仅 verdict=block 时才跑）：model=qwen3.8-flash 把
+          #      candidate_issues+top_gaps 扩写成完整评审评论，发 planner-review 常驻
+          #      issue（无则首建，标题前缀检索幂等）；verdict=pass 时零扩写零评论零
+          #      issue 写（连常驻 issue 检索都不做）。
+          # fail-open 理由注释（运营者裁定语义）：评审腿是「顾问」层——它的拦截力只来自
+          #   kimi-k3 实际产出的 block 判词；贵模型不可达/超时/非 JSON 时评审缺位，
+          #   按「评审缺位不拦正产」放行（fail-open），缺位事实全部落盘留证
+          #   （review=unavailable＋原因码），不静默、不假装判过。与 08c 的关系：08c
+          #   红 ⇒ 09/09b/10 早停（本步根本不会被执行）；本步另设 belt-and-braces 复核
+          #   manifest-validation.json 的 substance.verdict，万一 08c 放行红色通过，
+          #   本步仍 fail-closed 拦下（只许更保守，无放行权）。
+          # 边界纪律：
+          #   ① 决策模型结论永不进门禁 verdict——本步 verdict 只拦 planner 自家
+          #      09/09b/10 链，零触碰 gates.yml／required checks；唤醒闸 Jev 的
+          #      run/skip 决策与本步互不相干（头注 9④ 同款语义）。
+          #   ② 评审腿调用不计入 planner-call-log.json 的计划调用预算（03b 配额闸
+          #      零弱化：plan 调用仍按 ≤4 次/h 计数）——运营者成本裁定「免费档同 key
+          #      换模型」，评审用量单独记入 review 段 telemetry；如运营者改判要并入
+          #      预算，只需在本步 L0/L1/L2 三处调用点追加同 07 的 log append（一行）。
+          #   ③ DRY_RUN=true 演练：L2 扩写照跑（文本留 artifact），评论不落板
+          #      （comment_posted=false＋suppressed 原因）——演练不产生板面写入。
+          #   ④ tokenrhythm 直连绕代理（step 07 同款实测：gov 代理 200-空响应）。
+          #   ⑤ kimi-k3 参数实测定姿（2026-11-07 本机探针，免费档同 key）：
+          #      thinking 开着必须 temperature=1.0 且输出面 256 全耗在隐藏推理
+          #      （隐藏推理耗 257、正文空、finish=length）；关思考
+          #      （thinking={"type":"disabled"}）必须 temperature=0.6，实测
+          #      正文仅 22 token 即返回完整判词、content={"verdict":"pass","score":85,
+          #      "top_gaps":[]}、finish=stop——输出面确实压住（读数见施工记录）。
+          # 读数：manifest-validation.json 增 review 段（只增键：prep_issues 数/
+          #   k3_verdict/k3_score/blocked＋telemetry：review_score、review_blocked、
+          #   k3_completion_tokens）＋planner-review.json 全量件（artifact 同档）。
+          import json, os, re, subprocess, sys, time, urllib.error, urllib.request
+          from datetime import datetime, timezone, timedelta
+
+          TZ8 = timezone(timedelta(hours=8))
+          L0_MODEL = "qwen3.8-flash"      # 廉价预备腿（免费档；L2 扩写同型）
+          L1_MODEL = "kimi-k3"            # 贵模型快判腿（输出面 256 token 硬顶）
+          L2_MODEL = "qwen3.8-flash"      # 扩写腿（仅 verdict=block）
+          L1_MAX_TOKENS = 256             # 输出面压制：任务规定档
+          L1_TIMEOUT_S = 60               # 超时 ⇒ fail-open
+          L1_TEMPERATURE = 0.6            # kimi-k3 关思考的强制档（探针实测）
+          L1_ATTEMPTS = 2                 # 429/5xx/传输错退避重试一次，仍败 ⇒ fail-open
+          L0_MAX_TOKENS = 2048
+          L0_TIMEOUT_S = 90
+          L2_MAX_TOKENS = 2048
+          L2_TIMEOUT_S = 90
+          STANDING_PREFIX = "planner-review"   # 常驻 issue 标题前缀（幂等检索）
+          ISSUE_KINDS = ("duplicate", "hallucinated_anchor", "busywork",
+                         "stale_context", "other")
+
+          base = (os.environ.get("LLM_BASE_URL") or "https://tokenrhythm.studio/v1").rstrip("/")
+          key = os.environ.get("LLM_API_KEY") or ""
+          dry_run = (os.environ.get("DRY_RUN") or "false") == "true"
+          run_id = os.environ.get("GITHUB_RUN_ID") or "local"
+          run_reason = os.environ.get("RUN_REASON") or "cron"
+          ORG = os.environ.get("ORG", "CloudCrane-Software")
+          BOARD_REPO = os.environ.get("BOARD_REPO", "factory-os")
+          val_path = "manifest-validation.json"
+          now_iso = datetime.now(TZ8).isoformat(timespec="seconds")
+
+          errors, notes = [], []
+
+          def write_review(review, exit_code):
+              """review 段落盘（只增键）＋全量件＋GITHUB_OUTPUT；返回 exit code。"""
+              report = json.load(open(val_path, encoding="utf-8"))
+              report["review"] = review
+              with open(val_path, "w", encoding="utf-8") as f:
+                  json.dump(report, f, ensure_ascii=False, indent=1)
+              with open("planner-review.json", "w", encoding="utf-8") as f:
+                  json.dump(review, f, ensure_ascii=False, indent=1)
+              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+                  f.write("verdict=%s\nblocked=%s\nscore=%s\n"
+                          % (review.get("k3_verdict"),
+                             "true" if review.get("blocked") else "false",
+                             "" if review.get("k3_score") is None else review.get("k3_score")))
+              return exit_code
+
+          def llm_call(model, system, user_obj, max_tokens, temperature, timeout_s,
+                       attempts=1, disable_thinking=False):
+              """tokenrhythm /chat/completions 调用（同 key 换模型；step 07 同形通道）。
+              返回 (ok, payload|None, err, attempts_used)。零凭据处置：key 只进头。"""
+              body = {"model": model, "temperature": temperature,
+                      "messages": [{"role": "system", "content": system},
+                                   {"role": "user", "content": json.dumps(user_obj, ensure_ascii=False)}]}
+              # 赋值形落 max_tokens——禁字面量 "max_tokens": <变量> 形（bot-scrub G-13
+              # 凭据形态误判家族：token 关键词 + 非数值 6+ 字符值即命中，fail-closed 门红）
+              body["max_tokens"] = max_tokens
+              if disable_thinking:
+                  # kimi-k3 免费档实测：不关思考则 256 token 全耗隐藏推理、content 空
+                  body["thinking"] = {"type": "disabled"}
+              last, used = None, 0
+              for attempt in range(1, attempts + 1):
+                  used = attempt
+                  req = urllib.request.Request(
+                      base + "/chat/completions",
+                      data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+                      headers={"Authorization": "Bearer " + key,
+                               "Content-Type": "application/json"}, method="POST")
+                  try:
+                      with urllib.request.urlopen(req, timeout=timeout_s) as resp:
+                          payload = json.loads(resp.read().decode("utf-8"))
+                      return True, payload, None, used
+                  except urllib.error.HTTPError as e:
+                      last = "HTTP %s" % e.code
+                      if e.code in (429, 500, 502, 503, 504) and attempt < attempts:
+                          time.sleep(3)
+                          continue
+                      return False, None, last, used
+                  except Exception as e:
+                      last = type(e).__name__
+                      if attempt < attempts:
+                          time.sleep(3)
+                          continue
+                      return False, None, last, used
+              return False, None, last, used
+
+          def parse_json_content(payload):
+              """取 choices[0].message.content 并剥围栏解析 JSON；失败抛 ValueError。"""
+              content = ((payload.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+              text = content.strip()
+              text = re.sub(r"^```(?:json)?\s*", "", text)
+              text = re.sub(r"\s*```$", "", text)
+              out = json.loads(text)
+              if not isinstance(out, dict):
+                  raise ValueError("JSON 非对象")
+              return out
+
+          # ══ 0) 输入在场核（与 08c 同口径：硬缺场即步骤红，fail-loud）══
+          man = json.load(open("manifest-candidate.json", encoding="utf-8"))
+          report = json.load(open(val_path, encoding="utf-8"))
+          cards = [c for c in (man.get("cards") or []) if isinstance(c, dict)]
+          board, dry = {}, {}
+          try:
+              board = json.load(open("board-state.json", encoding="utf-8"))
+          except Exception:
+              notes.append("board-state.json 缺场/不可读——板面在飞摘要按空处理")
+          try:
+              dry = json.load(open("dryrun-report.json", encoding="utf-8"))
+          except Exception:
+              notes.append("dryrun-report.json 缺场/不可读——08b 摘要按空处理")
+          substance = report.get("substance") or {}
+
+          # ══ 0b) belt-and-braces：08c 红复核（万一红色通过，本步仍 fail-closed）══
+          if substance.get("verdict") == "red":
+              review = {
+                  "checked_at": now_iso,
+                  "step": "08d 分层顾问评审腿（L0 廉价预备→L1 贵模型快判 fail-open→L2 扩写评论）",
+                  "prep_issues": 0, "k3_verdict": "not-run", "k3_score": None,
+                  "blocked": True,
+                  "blocked_by": "08c-substance-red",
+                  "reason": "manifest-validation.json substance.verdict=red（fail-closed 家族："
+                            "不 commit 不建 Issue；L0/L1/L2 均未跑）",
+                  "telemetry": {"review_score": None, "review_blocked": True,
+                                "k3_completion_tokens": None},
+                  "note": notes and "｜".join(notes) or None,
+              }
+              print("08d：08c 实质门 red 复核拦截（fail-closed，未跑评审腿）", file=sys.stderr)
+              sys.exit(write_review(review, 1))
+
+          # ══ 1) 装配 L0 输入（manifest 候选＋三段校验摘要＋板面在飞摘要）══
+          def card_brief(c):
+              return {"task_id": c.get("task_id"), "debt": c.get("debt"),
+                      "title": c.get("title"), "state": c.get("state"),
+                      "channel": c.get("channel"), "mem_budget_g": c.get("mem_budget_g"),
+                      "allowed_paths": c.get("allowed_paths") or [],
+                      "depends_on": c.get("depends_on") or [],
+                      "acceptance_count": len(c.get("acceptance") or [])}
+
+          l0_input = {
+              "manifest_candidates": [card_brief(c) for c in cards],
+              "validation_summaries": {
+                  "step08": {"outcome": report.get("outcome"), "ok": report.get("ok"),
+                             "cards_total": report.get("cards_total"),
+                             "new_cards": report.get("new_cards"),
+                             "errors_count": len(report.get("errors") or []),
+                             "warnings_count": len(report.get("warnings") or []),
+                             "missing_items": report.get("missing_items")},
+                  "step08b": {"outcome": dry.get("outcome"),
+                              "cards": dry.get("cards"),
+                              "needs_env_dryrun_count": len(dry.get("needs_env_dryrun_cards") or []),
+                              "cmd_red_count": len(dry.get("cmd_red_cards") or []),
+                              "main_tree_zero_write": (dry.get("main_tree_zero_write") or {}).get("equal")},
+                  "step08c": {"verdict": substance.get("verdict"),
+                              "red_count": substance.get("red_count"),
+                              "amber_count": substance.get("amber_count"),
+                              "dedup": {k: len(v or []) for k, v in (substance.get("dedup") or {}).items()},
+                              "buildability": {k: len(v or []) for k, v in
+                                               (substance.get("buildability") or {}).items()
+                                               if isinstance(v, list)}},
+              },
+              "board_inflight": {
+                  "open_issues_total": board.get("open_issues_total"),
+                  "in_flight_task_ids": board.get("in_flight_task_ids") or [],
+                  "occupied_debt_anchors": board.get("occupied_debt_anchors") or [],
+              },
+          }
+
+          # ══ 2) L0 廉价预备（免费档；重输入轻输出）══
+          L0_SYSTEM = (
+              "你是规划质量评审的廉价预备腿。只依据给定材料做机器可证的预筛，禁编造。"
+              "只输出一个 JSON 对象："
+              "{\"prep_summary\":\"≤200字总体摘要\","
+              "\"candidate_issues\":[{\"kind\":\"duplicate|hallucinated_anchor|busywork|"
+              "stale_context|other\",\"card\":\"card[i]或task_id\",\"reason\":\"≤60字理由\"}"
+              "（最多8条）]}。禁输出 JSON 以外的任何文字。")
+          l0 = {"model": L0_MODEL, "ok": False, "http": None, "ms": None,
+                "completion_tokens": None, "error": None,
+                "prep_summary": None, "candidate_issues": [], "input_errors": []}
+          if not key:
+              review = {
+                  "checked_at": now_iso,
+                  "step": "08d 分层顾问评审腿（L0 廉价预备→L1 贵模型快判 fail-open→L2 扩写评论）",
+                  "prep_issues": 0, "k3_verdict": "unavailable", "k3_score": None,
+                  "blocked": False, "blocked_by": None,
+                  "reason": "LLM_API_KEY 缺席——评审腿不可用，fail-open 放行（评审缺位不拦正产）",
+                  "l0": dict(l0, error="LLM_API_KEY 缺席"),
+                  "telemetry": {"review_score": None, "review_blocked": False,
+                                "k3_completion_tokens": None},
+                  "note": "｜".join(notes) if notes else None,
+              }
+              print("08d：LLM_API_KEY 缺席——fail-open 放行（评审缺位）", file=sys.stderr)
+              sys.exit(write_review(review, 0))
+
+          t0 = time.monotonic()
+          ok, payload, err, used = llm_call(L0_MODEL, L0_SYSTEM, l0_input,
+                                            L0_MAX_TOKENS, 0.2, L0_TIMEOUT_S)
+          l0["ms"] = int((time.monotonic() - t0) * 1000)
+          l0["attempts"] = used
+          l0["ok"] = ok
+          if ok:
+              usage = payload.get("usage") or {}
+              l0["http"] = 200
+              l0["completion_tokens"] = usage.get("completion_tokens")
+              try:
+                  prep = parse_json_content(payload)
+                  l0["prep_summary"] = str(prep.get("prep_summary") or "")[:200]
+                  raw_issues = prep.get("candidate_issues")
+                  if not isinstance(raw_issues, list):
+                      raise ValueError("candidate_issues 非数组")
+                  norm = []
+                  for it in raw_issues[:8]:
+                      if not isinstance(it, dict):
+                          continue
+                      kind = str(it.get("kind") or "other")
+                      if kind not in ISSUE_KINDS:
+                          kind = "other"
+                      norm.append({"kind": kind, "card": str(it.get("card") or ""),
+                                   "reason": str(it.get("reason") or "")[:120]})
+                  l0["candidate_issues"] = norm
+              except Exception as e:
+                  ok = False
+                  err = "L0 响应非合规 JSON：%s" % e
+          if not ok:
+              # L0 缺位 ⇒ 评审腿整体不可用 ⇒ fail-open 放行（与 L1 不可达同族：
+              # 评审缺位不拦正产），缺位事实落盘
+              review = {
+                  "checked_at": now_iso,
+                  "step": "08d 分层顾问评审腿（L0 廉价预备→L1 贵模型快判 fail-open→L2 扩写评论）",
+                  "prep_issues": 0, "k3_verdict": "unavailable", "k3_score": None,
+                  "blocked": False, "blocked_by": None,
+                  "reason": "L0 廉价预备腿不可用（%s）——评审缺位，fail-open 放行" % err,
+                  "l0": dict(l0, error=err),
+                  "telemetry": {"review_score": None, "review_blocked": False,
+                                "k3_completion_tokens": None},
+                  "note": "｜".join(notes) if notes else None,
+              }
+              print("08d：L0 不可用（%s）——fail-open 放行（评审缺位）" % err, file=sys.stderr)
+              sys.exit(write_review(review, 0))
+
+          prep_issues = l0["candidate_issues"]
+
+          # ══ 3) L1 贵模型快判（输出面 256 token 硬顶；fail-open）══
+          L1_SYSTEM = (
+              "你是规划质量评审快判器。只输出一个 JSON 对象："
+              "{\"verdict\":\"pass\"|\"block\",\"score\":0-100,\"top_gaps\":[最多3条、每条≤20字]}。"
+              "快速判断，禁展开论述，禁写建议全文，禁复述材料。禁输出 JSON 以外的任何文字。")
+          l1_input = {
+              "prep": {"prep_summary": l0["prep_summary"],
+                       "candidate_issues": prep_issues},
+              "manifest": {"wave": man.get("wave"), "cards_total": len(cards),
+                           "cards": [card_brief(c) for c in cards]},
+          }
+          l1 = {"model": L1_MODEL, "ok": False,
+                "http": None, "ms": None, "attempts": 0, "completion_tokens": None,
+                "verdict": "unavailable", "score": None, "top_gaps": [],
+                "fail_open": False, "error": None}
+          l1["max_tokens"] = L1_MAX_TOKENS   # 赋值形（G-13 误判家族规避，同 llm_call）
+          t0 = time.monotonic()
+          ok, payload, err, used = llm_call(L1_MODEL, L1_SYSTEM, l1_input,
+                                            L1_MAX_TOKENS, L1_TEMPERATURE, L1_TIMEOUT_S,
+                                            attempts=L1_ATTEMPTS, disable_thinking=True)
+          l1["ms"] = int((time.monotonic() - t0) * 1000)
+          l1["attempts"] = used
+          if ok:
+              usage = payload.get("usage") or {}
+              l1["http"] = 200
+              l1["completion_tokens"] = usage.get("completion_tokens")
+              finish = (payload.get("choices") or [{}])[0].get("finish_reason")
+              l1["finish_reason"] = finish
+              try:
+                  v = parse_json_content(payload)
+                  verdict = str(v.get("verdict") or "")
+                  if verdict not in ("pass", "block"):
+                      raise ValueError("verdict 非法值 %r" % verdict)
+                  l1["verdict"] = verdict
+                  score = v.get("score")
+                  l1["score"] = score if isinstance(score, int) and 0 <= score <= 100 else None
+                  tg = v.get("top_gaps")
+                  l1["top_gaps"] = [str(x)[:40] for x in (tg or [])[:3]] if isinstance(tg, list) else []
+                  l1["ok"] = True
+              except Exception as e:
+                  l1["error"] = "L1 响应非合规 JSON：%s" % e
+          if not l1["ok"]:
+              # fail-open：超时/非 JSON/不可达 ⇒ 放行并记 review=unavailable
+              # （评审缺位不拦正产——顾问层拦截力只来自实际产出的 block 判词）
+              l1["fail_open"] = True
+              l1["error"] = l1["error"] or ("L1 不可达/失败：%s" % err)
+              review = {
+                  "checked_at": now_iso,
+                  "step": "08d 分层顾问评审腿（L0 廉价预备→L1 贵模型快判 fail-open→L2 扩写评论）",
+                  "prep_issues": len(prep_issues), "k3_verdict": "unavailable",
+                  "k3_score": None, "blocked": False, "blocked_by": None,
+                  "reason": "L1 kimi-k3 快判不可用（%s）——fail-open 放行并记缺位"
+                            "（评审缺位不拦正产）" % l1["error"],
+                  "l0": l0, "l1": l1,
+                  "telemetry": {"review_score": None, "review_blocked": False,
+                                "k3_completion_tokens": l1["completion_tokens"]},
+                  "note": "｜".join(notes) if notes else None,
+              }
+              print("08d：L1 不可用（%s）——fail-open 放行（评审缺位不拦正产）" % l1["error"],
+                    file=sys.stderr)
+              sys.exit(write_review(review, 0))
+
+          # ══ 4) verdict 分支 ══
+          blocked = (l1["verdict"] == "block")
+          l2 = {"model": L2_MODEL, "called": False, "http": None, "ms": None,
+                "completion_tokens": None, "comment_posted": False,
+                "issue_number": None, "issue_url": None, "comment_id": None,
+                "suppressed_reason": None, "error": None}
+
+          def gh_api(args, timeout=180):
+              r = subprocess.run(["gh", "api"] + args, capture_output=True, text=True,
+                                 timeout=timeout)
+              if r.returncode != 0:
+                  raise RuntimeError("gh api %s rc=%d：%s"
+                                     % (" ".join(args[:2]), r.returncode,
+                                        (r.stderr or "").strip()[:160]))
+              return r.stdout.strip()
+
+          if blocked:
+              # ── L2 廉价扩写（仅 block 跑；pass 时本段整体不执行——零扩写零评论）──
+              l2["called"] = True
+              L2_SYSTEM = (
+                  "你是规划质量评审扩写器（廉价腿）。把「候选问题清单＋快判缺口」扩写成一份"
+                  "完整评审评论（GitHub markdown），供下一拍规划改进。结构：①总体判断（一句）"
+                  "②问题逐条（类型/卡/理由/建议动作）③快判缺口清单④下一拍改进指令（≤5条、可执行）。"
+                  "只依据给定材料组织语言，禁编造新事实，禁复述整份 manifest。"
+                  "直接输出评论正文，禁代码围栏、禁解释。")
+              l2_input = {"wave": man.get("wave"), "run_id": run_id,
+                          "run_reason": run_reason,
+                          "prep_summary": l0["prep_summary"],
+                          "candidate_issues": prep_issues,
+                          "top_gaps": l1["top_gaps"], "k3_score": l1["score"]}
+              t0 = time.monotonic()
+              ok, payload, err, used = llm_call(L2_MODEL, L2_SYSTEM, l2_input,
+                                                L2_MAX_TOKENS, 0.2, L2_TIMEOUT_S)
+              l2["ms"] = int((time.monotonic() - t0) * 1000)
+              l2["attempts"] = used
+              comment_text = None
+              if ok:
+                  usage = payload.get("usage") or {}
+                  l2["http"] = 200
+                  l2["completion_tokens"] = usage.get("completion_tokens")
+                  comment_text = (((payload.get("choices") or [{}])[0].get("message") or {})
+                                  .get("content") or "").strip()
+              if not comment_text:
+                  l2["error"] = l2["error"] or ("L2 扩写失败：%s" % err)
+                  print("08d：L2 扩写失败（%s）——block 判定不受影响（无放行权）" % err,
+                        file=sys.stderr)
+              else:
+                  footer = ("\n\n---\n*planner 分层顾问评审腿（step 08d · 规划质量二期 "
+                            "2026-11-07）：L0 %s 预备 %d 条候选问题 · L1 %s 快判 "
+                            "verdict=block score=%s · L2 %s 扩写 · run %s（%s）· "
+                            "全量读数 manifest-validation.json review 段／"
+                            "planner-review.json*"
+                            % (L0_MODEL, len(prep_issues), L1_MODEL, l1["score"],
+                               L2_MODEL, run_id, run_reason))
+                  comment = comment_text + footer
+                  if dry_run:
+                      l2["suppressed_reason"] = ("DRY_RUN=true 演练——扩写文本已生成并留 "
+                                                 "artifact，按演练语义不落板面写入")
+                      print("08d：DRY_RUN 演练——L2 评论不落板（suppressed）", file=sys.stderr)
+                  else:
+                      # ── planner-review 常驻 issue：标题前缀检索（幂等）→ 无则首建 → 评论 ──
+                      try:
+                          out = gh_api(["repos/%s/%s/issues?state=open&per_page=100"
+                                        % (ORG, BOARD_REPO),
+                                        "--jq", ".[] | select(.pull_request == null) | {number, title}"])
+                          standing = None
+                          for ln in out.splitlines():
+                              ln = ln.strip()
+                              if not ln:
+                                  continue
+                              it = json.loads(ln)
+                              if str(it.get("title") or "").startswith(STANDING_PREFIX):
+                                  standing = it
+                                  break
+                          if standing is None:
+                              body = ("planner 分层顾问评审腿（step 08d · 规划质量二期 "
+                                      "2026-11-07）常驻 issue。\n\n"
+                                      "用途：kimi-k3 快判 verdict=block 时，L2"
+                                      "（qwen3.8-flash）把候选问题与缺口扩写为完整评审评论"
+                                      "落在此处，供下一拍规划改进。\n\n"
+                                      "机制：每拍 08d 跑三层（L0 廉价预备 → L1 贵模型快判 "
+                                      "输出面 256 fail-open → L2 扩写评论）；verdict=pass "
+                                      "时零评论零写入；k3 不可达 ⇒ fail-open 放行并记 "
+                                      "review=unavailable（评审缺位不拦正产）。\n\n"
+                                      "本 issue 由 planner 自动查找/建立（标题前缀 "
+                                      "`planner-review` 幂等检索）。")
+                              num = gh_api(["-X", "POST", "repos/%s/%s/issues" % (ORG, BOARD_REPO),
+                                            "-f", "title=%s · 规划质量顾问评审常驻 issue" % STANDING_PREFIX,
+                                            "-f", "body=%s" % body, "--jq", ".number"])
+                              standing = {"number": int(num), "title": STANDING_PREFIX, "created": True}
+                          n = standing["number"]
+                          l2["issue_number"] = n
+                          l2["issue_url"] = "https://github.com/%s/%s/issues/%d" % (ORG, BOARD_REPO, n)
+                          l2["issue_created"] = bool(standing.get("created"))
+                          cid = gh_api(["-X", "POST",
+                                        "repos/%s/%s/issues/%d/comments" % (ORG, BOARD_REPO, n),
+                                        "-f", "body=%s" % comment, "--jq", ".id"])
+                          l2["comment_id"] = int(cid)
+                          l2["comment_posted"] = True
+                      except Exception as e:
+                          # 评论投递失败不改判——block 判定照立（只许更保守，无放行权）
+                          l2["error"] = "评论投递失败：%s" % e
+                          print("08d：L2 评论投递失败（%s）——block 判定不受影响" % e,
+                                file=sys.stderr)
+
+          review = {
+              "checked_at": now_iso,
+              "step": "08d 分层顾问评审腿（L0 廉价预备→L1 贵模型快判 fail-open→L2 扩写评论）",
+              "prep_issues": len(prep_issues),
+              "k3_verdict": l1["verdict"],
+              "k3_score": l1["score"],
+              "blocked": blocked,
+              "blocked_by": "kimi-k3-verdict-block" if blocked else None,
+              "l0": l0, "l1": l1, "l2": l2,
+              "telemetry": {"review_score": l1["score"],
+                            "review_blocked": blocked,
+                            "k3_completion_tokens": l1["completion_tokens"]},
+              "note": "fail-closed 家族：k3 verdict=block 或 08c 红 ⇒ 本步 exit 1 ⇒ "
+                      "09/09b/10 跳过（不 commit 不建 Issue）；L1 超时 60s/非 JSON/不可达 "
+                      "⇒ fail-open 放行记 review=unavailable（评审缺位不拦正产）；verdict=pass "
+                      "⇒ 零扩写零评论零 issue 写；manifest-validation.json 只增 review 键，"
+                      "既有键零触碰；评审腿调用不计入 03b 计划调用预算（免费档同 key 换模型，"
+                      "运营者成本裁定）。",
+          }
+          if notes:
+              review["input_notes"] = notes
+          write_review(review, 1 if blocked else 0)
+          if blocked:
+              print("评审腿 block（fail-closed：不 commit、不建 Issue）：score=%s · 候选问题 %d 条"
+                    % (l1["score"], len(prep_issues)), file=sys.stderr)
+              for g in l1["top_gaps"]:
+                  print(" - gap: " + g, file=sys.stderr)
+              for it in prep_issues:
+                  print(" - %s [%s] %s" % (it["kind"], it["card"], it["reason"]), file=sys.stderr)
+              sys.exit(1)
+          print("评审腿 pass：L0 候选问题 %d 条 · L1 score=%s · top_gaps=%s · "
+                "L2 零调用（零扩写零评论零 issue 写）"
+                % (len(prep_issues), l1["score"], l1["top_gaps"] or "无"))
+          PY
+
       # ── 08s（D-91 验收①）：shadow 决策留证——DRY_RUN=true 时唤醒闸决策只进
       # jev-shadow.json 不生效；本步把 wake 的 would 决策与本波 actual outcome 并档，
       # 落 artifact 供「重合率 ≥80% 空转被压对／有活被压=0」累计评读 ──
@@ -2684,6 +3200,10 @@ jobs:
             if [ -f jev-shadow.json ]; then
               echo "- 唤醒闸 shadow（D-91）：would=$(jq -r '.would_decision' jev-shadow.json)/$(jq -r '.would_family' jev-shadow.json) · actual=$(jq -r '.actual_outcome // "无"' jev-shadow.json) · 型=$(jq -r '.shadow_type' jev-shadow.json) · enforced=false"
             fi
+            if [ -f planner-review.json ]; then
+              echo "- 顾问评审（08d）：k3_verdict=$(jq -r '.k3_verdict' planner-review.json) · score=$(jq -r '.k3_score // "n/a"' planner-review.json) · prep_issues=$(jq -r '.prep_issues' planner-review.json) · blocked=$(jq -r '.blocked' planner-review.json) · k3_completion_tokens=$(jq -r '.telemetry.k3_completion_tokens // "n/a"' planner-review.json)"
+              jq -r '.l1.top_gaps[]? | "-   gap: " + .' planner-review.json
+            fi
             if [ -f planner-raw.json ]; then
               echo "- API：attempts=$(jq -r '.attempts' planner-raw.json) · prompt_tk=$(jq -r '[.calls[].prompt_tk] | add // 0' planner-raw.json) · completion_tk=$(jq -r '[.calls[].completion_tk] | add // 0' planner-raw.json)"
             fi
@@ -2712,6 +3232,7 @@ jobs:
             manifest-candidate.raw.txt
             manifest-validation.json
             dryrun-report.json
+            planner-review.json
             jev-shadow.json
             issues-todo.json
             issues-created.json
