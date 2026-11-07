@@ -98,7 +98,7 @@ name: planner
 on:
   schedule:
     # 每 10 分钟轻唤醒：由 job `wake`（唤醒闸，见头注 9）先判值不值得烧贵腿；
-    # 提频换响应性，GLM 调用稳态仍被 03b 配额闸钉在 ≤2 次/h
+    # 提频换响应性，GLM 调用稳态仍被 03b 配额闸钉在 ≤4 次/h（2026-11-07 运营者授权 2→4，见 env 注）
     - cron: '*/10 * * * *'
   workflow_dispatch:
     inputs:
@@ -143,7 +143,10 @@ env:
   LLM_MODEL: 'deepseek-v4.1-flash-1017'
   LLM_PROVIDER: 'tokenrhythm'
   # —— 硬配额与预算（= 制度-v1 §五 + wave-01.json budgets 真源）——
-  MAX_API_CALLS_PER_HOUR: '2'
+  # 2026-11-07 运营者授权（规划质量二期：质量提升的多花 token 全上）：
+  #   小时调用上限 2→4。03b 配额闸语义零弱化（fail-closed：超限即 skip、
+  #   不调 LLM 不建卡不 commit）——放宽的只是预算帽，不是判据面。
+  MAX_API_CALLS_PER_HOUR: '4'
   MAX_CARDS_PER_WAVE: '20'
   ANOLIS_MEM_CAP_G: '45'
   LOCAL_MEM_CAP_G: '3'
@@ -1971,6 +1974,431 @@ jobs:
                 "prose-skip=%d · needs-env-dryrun=%s · 主树零写入=%s"
                 % (outcome, len(todo), bench_skipped, passed_entries, env_red_entries,
                    prose_skipped, needs_env or "无", zero_write))
+          PY
+
+      # ── step 08c（规划质量二期 · 2026-11-07）：实质质量门 ─────────────────────
+      # 定位：step 08 十校验（M-1..M-9 形制/占用/判官面）与 08b 干跑（命令面可跑性）
+      #   之后的「实质面」第二道闸——09 commit 之前最后一道。十校验与既有判据一字
+      #   不动：本步纯新增，只更严（fail-closed 家族）。任何红 ⇒ 本步 exit 1 ⇒
+      #   09/09b/10 被步骤默认 success() 语义跳过（不 commit、不建 Issue），红波作废
+      #   留证（artifact 同档）。判据三条：
+      #   ① 去重核验：manifest 每卡对「板面 open 卡 + 近 7 天 merged 卡」实时比对
+      #      （gh api 实读，GITHUB_TOKEN 走既有 gh api 通道=step 04 同形）——
+      #      debt 锚同锚 open 卡 ⇒ 红；近 7 天 merged 同锚 ⇒ 红（台账 ✅ 回填滞后
+      #      兜底）；allowed_paths 与 open 卡交集非空且非同卡族续作（续作须 manifest
+      #      卡 depends_on 显式声明）⇒ 红；task_id 形近（编辑距离≤2）⇒ amber 不拦。
+      #   ② 锚可施工性：debt 锚台账行在（M-6 既有）基础上，行文本含
+      #      裁决/登记/待运营者 ⇒ 红（此类锚不可施工，须先落裁决）。
+      #   ③ 全部结果进 manifest-validation.json 新增 substance 段（只增键）；红消息
+      #      带具体卡与证据坐标（issue 号/台账行号/交集路径）。
+      # 夹具：三正（干净新锚/合法续作/独立路径）三负（同锚重开/路径冲突无声明/裁决类
+      #   锚）+附证（merged-7d 同锚/形近 amber）本地实跑，读数落
+      #   30-工件/规划质量二期-20261107/（负例全红正例全绿）。
+      - name: '08c · 实质质量门（去重核验 open+7d merged · 锚可施工性 · substance 段只增键）'
+        id: substance
+        if: steps.quota.outputs.plan_allowed == 'true' && steps.validate.outputs.outcome == 'plan'
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          python3 -I - <<'PY'
+          # ══ step 08c（规划质量二期 · 2026-11-07）：实质质量门 ══
+          # 定位：step 08 十校验（M-1..M-9 形制/占用/判官面）与 08b 干跑（命令面
+          #   可跑性）之后的「实质面」第二道闸——09 commit 之前最后一道。十校验与
+          #   既有判据一字不动：本步纯新增，只更严（fail-closed 家族）。任何红 ⇒
+          #   本步 exit 1 ⇒ 09/09b/10 被步骤默认 success() 语义跳过（不 commit、
+          #   不建 Issue），红波作废留证（artifact 同档）。
+          # 判据三条（全部机读实据，禁「不可证=过」）：
+          #   ① 去重核验——manifest 每卡对「板面 open 卡 + 近 7 天 merged 卡」实时
+          #      比对（gh api 实读；GITHUB_TOKEN 走既有 gh api 通道=step 04 同形，
+          #      代码零凭据处置）：
+          #      · SUB-1 debt 锚同锚已有 open 卡 ⇒ 红（同锚重开）；
+          #      · SUB-2 debt 锚同锚近 7 天 merged 卡 ⇒ 红（台账 ✅ 回填滞后于板面
+          #        合线的实测缺口兜底——D-110/D-112/D-113 2026-11-06 合线而台账行仍
+          #        「未开始」；M-6 done_anchors 同族，本步换 fresh 实读源）；
+          #      · SUB-3 allowed_paths 与 open 卡交集非空且非同卡族续作 ⇒ 红（卡面
+          #        allowed_paths 与 issue body【允许路径】行比对；续作须 manifest 卡
+          #        depends_on 显式声明，三形之一：repo#n 板号／台账锚号／同波 task_id）；
+          #      · SUB-4 task_id 形近（编辑距离≤2）⇒ amber 警告进 substance 段不拦。
+          #   ② 锚可施工性——debt 锚台账行在（M-6 既有）基础上：
+          #      · SUB-5 行文本含 裁决/登记/待运营者 ⇒ 红（此类锚不可施工，须先落裁决）；
+          #      · SUB-6 台账行不在场/台账缺场 ⇒ 红（可施工性不可证，fail-closed）。
+          #   ③ 结果全部进 manifest-validation.json 新增 substance 段（只增键：既有
+          #      键零触碰）；红消息带具体卡（card[i]/task_id）与证据坐标（issue 号、
+          #      台账行号、交集路径）。
+          # 板面卡字段提取面（显式设计决策，供运营者 adjudicate）：
+          #   step 04 占用扫描只认 planner 建卡题面形（【债号】/【任务】/【允许路径】）；
+          #   板面实况另有 CNB「卡面（自包含）」形（债号建议: **X** / task_id: `x` /
+          #   allowed_paths: `…`）与红队/夜轨手工卡形（锚只在标题方括号，body 为 prose）——
+          #   夜轨C3 记录 §五.2 已登记「planner 只认【债号】形、af-card/1.0 块进规划环须
+          #   走裁决（D-6/D-4）」的既有缺口。本步按任务「对板面 open 卡+近 7 天 merged 卡
+          #   实读比对」的要求三形都读（只增不减、只更严）；每卡记录 format/anchor_source
+          #   与不可读卡清单进 substance 段供审计；af-card/1.0 机读行块暂不读（该形制入
+          #   规划环属 D-6/D-4 裁决面，不越权）。
+          # 夹具（本地实跑，读数落 30-工件/规划质量二期-20261107/）：三正=干净新锚
+          #   ／合法续作／独立路径；三负=同锚重开／路径冲突无声明／裁决类锚；附证=
+          #   merged-7d 同锚＋CNB 形锚重开＋CNB 形路径冲突＋标题锚形重开。负例全红正例全绿。
+          import json, os, re, subprocess, sys
+          from datetime import datetime, timezone, timedelta
+
+          TZ8 = timezone(timedelta(hours=8))
+          WINDOW_DAYS = 7
+          errors, warnings = [], []
+          man = json.load(open("manifest-candidate.json", encoding="utf-8"))
+          val_path = "manifest-validation.json"
+          report = json.load(open(val_path, encoding="utf-8"))
+          cards = [c for c in (man.get("cards") or []) if isinstance(c, dict)]
+
+          ORG = os.environ.get("ORG", "CloudCrane-Software")
+          BOARD_REPO = os.environ.get("BOARD_REPO", "factory-os")
+          LEDGER = os.path.join("factory-os",
+                                os.environ.get("LEDGER_FILE", "账本/阶段欠账台账.md"))
+
+          # ── 板面实读（gh api；step 04 同形通道。实读失败=去重不可证 ⇒ fail-closed）──
+          now_utc = datetime.now(timezone.utc)
+          since_iso = (now_utc - timedelta(days=WINDOW_DAYS)).strftime("%Y-%m-%dT%H:%M:%SZ")
+          PROJ = ('.[] | select(.pull_request == null) | '
+                  '{number, title, labels: [.labels[].name], body, closed_at}')
+
+          def gh_issues(query):
+              url = "repos/%s/%s/issues?%s" % (ORG, BOARD_REPO, query)
+              r = subprocess.run(["gh", "api", url, "--paginate", "--jq", PROJ],
+                                 capture_output=True, text=True, timeout=180)
+              if r.returncode != 0:
+                  raise RuntimeError("gh api issues?%s rc=%d：%s"
+                                     % (query, r.returncode, (r.stderr or "").strip()[:160]))
+              out = []
+              for ln in r.stdout.splitlines():
+                  ln = ln.strip()
+                  if ln:
+                      out.append(json.loads(ln))
+              return out
+
+          api_reads = {"channel": "gh api（GITHUB_TOKEN 由 runner 注入 gh；step 04 同形）",
+                       "window_days": WINDOW_DAYS, "since_iso": since_iso,
+                       "open_query": "state=open&per_page=100",
+                       "merged_query": "state=closed&since=%s&per_page=100" % since_iso}
+          open_issues, closed_issues = [], []
+          try:
+              open_issues = gh_issues("state=open&per_page=100")
+              closed_issues = gh_issues("state=closed&since=%s&per_page=100" % since_iso)
+          except Exception as exc:
+              errors.append("SUB-0: 板面 GitHub API 实读失败——去重核验不可证，fail-closed：%s" % exc)
+
+          # ── 卡面机读字段（三形制：planner 题面形 + CNB 卡面自包含形 + 标题锚形）──
+          # planner 形（step 10 建卡题面）：【债号】`X`／【任务】`tid`／【允许路径】a；b
+          # CNB 形（板面存量主形）：债号建议: **X**／task_id: `tid`／allowed_paths: `…`（只取
+          #   反引号段=机器定界，行内非反引号 prose 不当路径——保守不臆造）。
+          # 标题锚形（红队/夜轨手工卡第三形）：锚只在标题方括号（[wave-08][D-110] …），
+          #   body 为 prose——标题是板面锚的规范载体（三种建卡渠道同遵），作锚兜底；
+          #   anchor_source 逐卡留证（body/title）供审计。
+          BODY_ANCHOR = re.compile(r"【债号】`([^`]+)`")
+          BODY_TASK = re.compile(r"【任务】`([^`]+)`")
+          BODY_PATHS = re.compile(r"【允许路径】([^\n]*)")
+          CNB_ANCHOR = re.compile(r"债号(?:建议)?\s*[:：]\s*\*\*([^*]+)\*\*")
+          CNB_TASK = re.compile(r"task_id\s*[:：]\s*`([^`]+)`")
+          CNB_PATHS_LINE = re.compile(r"^\s*-\s*allowed_paths[^:：]*[:：]\s*(.+)$", re.M)
+          TITLE_ANCHOR = re.compile(
+              r"\[[^\]\n]{0,24}\]\s*\[([A-Za-z]{1,5}-[A-Za-z0-9-]+)\]"
+              r"|^\[(?!wave-)([A-Za-z]{1,5}-[A-Za-z0-9-]+)[\] ]")
+
+          def entry_path(ent):
+              """「repo: 路径（注记）」→ (repo, path)；裸路径 → ("factory-os", path)。
+              与 step 08 entry_repo_path 同口径（口径一致才有交集可比）。"""
+              s = str(ent).strip().strip("`")
+              m = re.match(r"^([A-Za-z0-9._-]+)\s*:\s*(.+)$", s)
+              repo = ""
+              if m:
+                  repo, s = m.group(1), m.group(2)
+              s = s.split("（")[0].split("(")[0].strip().strip("`\"'")
+              return (repo or "factory-os"), (s or "")
+
+          def split_paths(text):
+              """planner 形【允许路径】行 → (repo, path) 集。分隔符只认 ；;、,，——禁按 /
+              切（/ 是路径分隔符本身，切了就把 tools/x.py 剁碎）。"""
+              out = set()
+              for part in re.split(r"[；;、,，]", text or ""):
+                  part = part.strip()
+                  if part:
+                      repo, p = entry_path(part)
+                      if p:
+                          out.add((repo, p))
+              return out
+
+          def backtick_paths(line):
+              """CNB 形 allowed_paths 行 → (repo, path) 集（只取反引号定界段）。"""
+              out = set()
+              for seg in re.findall(r"`([^`]+)`", line or ""):
+                  repo, p = entry_path(seg)
+                  if p:
+                      out.add((repo, p))
+              return out
+
+          def board_card(it):
+              """issue → {number,title,format,task_id,anchor,anchor_source,paths}。三形制
+              提取（planner 题面形优先 → CNB 卡面自包含形 → 标题锚兜底）；format 与
+              anchor_source 供 substance 段审计（none=本步读不到该卡字段）。"""
+              body = it.get("body") or ""
+              title = it.get("title") or ""
+              fmt = "none"
+              tid = anchor = ""
+              paths = set()
+              m = BODY_TASK.search(body)
+              if m:
+                  tid, fmt = m.group(1).strip(), "planner"
+              m = BODY_ANCHOR.search(body)
+              if m:
+                  anchor = m.group(1).strip()
+                  fmt = "planner"
+              m = BODY_PATHS.search(body)
+              if m:
+                  paths = split_paths(m.group(1))
+                  fmt = "planner"
+              if fmt == "none":
+                  m = CNB_TASK.search(body)
+                  if m:
+                      tid = m.group(1).strip()
+                      fmt = "cnb-selfcontained"
+                  m = CNB_ANCHOR.search(body)
+                  if m:
+                      anchor = m.group(1).strip()
+                      fmt = "cnb-selfcontained"
+                  m = CNB_PATHS_LINE.search(body)
+                  if m:
+                      paths = backtick_paths(m.group(1))
+                      fmt = "cnb-selfcontained"
+              anchor_source = "body" if anchor else ""
+              if not anchor:
+                  m = TITLE_ANCHOR.search(title)
+                  if m:
+                      anchor = (m.group(1) or m.group(2) or "").strip()
+                      if anchor:
+                          anchor_source = "title"
+                          if fmt == "none":
+                              fmt = "title-anchor"
+              return {"number": it.get("number"),
+                      "title": (it.get("title") or "")[:80],
+                      "format": fmt, "task_id": tid, "anchor": anchor,
+                      "anchor_source": anchor_source, "paths": paths}
+
+          open_cards = [board_card(it) for it in open_issues]
+          merged7 = []
+          for it in closed_issues:
+              if "state:merged" not in (it.get("labels") or []):
+                  continue
+              closed_at = it.get("closed_at") or ""
+              if closed_at:
+                  try:
+                      ts = datetime.fromisoformat(closed_at.replace("Z", "+00:00"))
+                  except ValueError:
+                      continue
+                  if (now_utc - ts) > timedelta(days=WINDOW_DAYS):
+                      continue      # 出窗（since 参数按 updated_at 过滤，closed_at 双保险）
+              merged7.append(board_card(it))
+          fmt_census = {}
+          for c in open_cards + merged7:
+              fmt_census[c["format"]] = fmt_census.get(c["format"], 0) + 1
+          unreadable = [{"number": c["number"], "title": c["title"]}
+                        for c in open_cards + merged7 if c["format"] == "none"]
+
+          # ── SUB-1/2：debt 锚重复 ──
+          open_by_anchor, merged_by_anchor = {}, {}
+          for c in open_cards:
+              if c["anchor"]:
+                  open_by_anchor.setdefault(c["anchor"], []).append(c)
+          for c in merged7:
+              if c["anchor"]:
+                  merged_by_anchor.setdefault(c["anchor"], []).append(c)
+          anchor_dup_open, anchor_dup_merged = [], []
+          for i, c in enumerate(cards):
+              tag = "card[%d]" % i
+              tid = c.get("task_id") or "?"
+              debt = (c.get("debt") or "").strip()
+              for oc in open_by_anchor.get(debt, []):
+                  anchor_dup_open.append({"card": tag, "task_id": tid, "debt": debt,
+                                          "issue": oc["number"], "issue_format": oc["format"],
+                                          "issue_anchor_source": oc["anchor_source"],
+                                          "issue_task_id": oc["task_id"],
+                                          "issue_title": oc["title"]})
+                  errors.append("SUB-1: %s（task_id=%s）debt 锚 %s 与板面 open 卡 "
+                                "factory-os#%d（task_id=%s · 形制 %s · 锚源 %s · %s）重复——同锚重开；"
+                                "换锚或先产 register-debt-* 登记新债行"
+                                % (tag, tid, debt, oc["number"], oc["task_id"] or "?",
+                                   oc["format"], oc["anchor_source"] or "?", oc["title"]))
+              for mc in merged_by_anchor.get(debt, []):
+                  anchor_dup_merged.append({"card": tag, "task_id": tid, "debt": debt,
+                                            "issue": mc["number"], "issue_format": mc["format"],
+                                            "issue_anchor_source": mc["anchor_source"],
+                                            "issue_task_id": mc["task_id"]})
+                  errors.append("SUB-2: %s（task_id=%s）debt 锚 %s 与近 %d 天 merged 卡 "
+                                "factory-os#%d（task_id=%s · 形制 %s · 锚源 %s）重复——台账 ✅ 回填滞后"
+                                "于板面合线（M-6 done_anchors 同族 fresh 兜底）；换锚或先落裁决"
+                                % (tag, tid, debt, WINDOW_DAYS, mc["number"],
+                                   mc["task_id"] or "?", mc["format"],
+                                   mc["anchor_source"] or "?"))
+
+          # ── SUB-3：allowed_paths × open 卡交集（续作须 depends_on 显式声明）──
+          path_conflicts, continuations = [], []
+          for i, c in enumerate(cards):
+              tag = "card[%d]" % i
+              tid = c.get("task_id") or "?"
+              ap = c.get("allowed_paths")
+              card_paths = {entry_path(x) for x in ap} if isinstance(ap, list) else set()
+              deps = c.get("depends_on") or []
+              dep_heads = [d.split()[0].strip("，。；、") for d in deps if d.split()] \
+                  if isinstance(deps, list) else []
+              for oc in open_cards:
+                  inter = sorted(card_paths & oc["paths"])
+                  if not inter:
+                      continue
+                  n = oc["number"]
+                  declared = ((oc["task_id"] and oc["task_id"] in dep_heads)
+                              or ("%s#%d" % (BOARD_REPO, n) in dep_heads)
+                              or ("#%d" % n in dep_heads)
+                              or (oc["anchor"] and oc["anchor"] in dep_heads))
+                  if declared:
+                      continuations.append({"card": tag, "task_id": tid, "issue": n,
+                                            "issue_format": oc["format"],
+                                            "issue_task_id": oc["task_id"],
+                                            "paths": [list(p) for p in inter],
+                                            "declared_deps": list(deps)})
+                  else:
+                      path_conflicts.append({"card": tag, "task_id": tid, "issue": n,
+                                             "issue_format": oc["format"],
+                                             "issue_task_id": oc["task_id"],
+                                             "paths": [list(p) for p in inter]})
+                      errors.append("SUB-3: %s（task_id=%s）allowed_paths 与板面 open 卡 "
+                                    "factory-os#%d（task_id=%s · 形制 %s）交集非空且未声明续作"
+                                    "（depends_on 无 %s#%d／%s／锚号）——同区双解风险；"
+                                    "交集路径=%s；同卡族续作须在 depends_on 显式声明"
+                                    % (tag, tid, n, oc["task_id"] or "?", oc["format"],
+                                       BOARD_REPO, n, oc["task_id"] or "?",
+                                       "、".join("%s:%s" % (r, p) for r, p in inter)))
+
+          # ── SUB-4：task_id 形近（编辑距离≤2）⇒ amber 不拦 ──
+          def edit_distance(a, b):
+              if a == b:
+                  return 0
+              if abs(len(a) - len(b)) > 2:
+                  return 3
+              prev = list(range(len(b) + 1))
+              for i in range(1, len(a) + 1):
+                  cur = [i] + [0] * len(b)
+                  for j in range(1, len(b) + 1):
+                      cur[j] = min(prev[j] + 1, cur[j - 1] + 1,
+                                   prev[j - 1] + (a[i - 1] != b[j - 1]))
+                  prev = cur
+              return prev[len(b)]
+
+          universe = ([("open", c) for c in open_cards if c["task_id"]]
+                      + [("merged_7d", c) for c in merged7 if c["task_id"]])
+          near_matches = []
+          for i, c in enumerate(cards):
+              tag = "card[%d]" % i
+              tid = c.get("task_id") or ""
+              if not tid:
+                  continue
+              for kind, bc in universe:
+                  d = edit_distance(tid, bc["task_id"])
+                  if d <= 2:
+                      near_matches.append({"card": tag, "task_id": tid, "peer_kind": kind,
+                                           "peer_task_id": bc["task_id"],
+                                           "peer_issue": bc["number"], "distance": d})
+                      warnings.append("SUB-4: %s（task_id=%s）与板面 %s 卡 factory-os#%d "
+                                      "task_id=%s 编辑距离=%d（≤2 形近）——amber 警告不拦，"
+                                      "请人工复核是否同题" % (tag, tid, kind, bc["number"],
+                                                             bc["task_id"], d))
+
+          # ── SUB-5/6：锚可施工性（台账行文本关键词；行坐标随证据落）──
+          NON_BUILDABLE_KW = ("裁决", "登记", "待运营者")
+          ledger_rows, ledger_present = {}, os.path.exists(LEDGER)
+          if ledger_present:
+              with open(LEDGER, encoding="utf-8") as f:
+                  for ln_no, line in enumerate(f, 1):
+                      m = re.match(r"^\|\s*([A-Za-z]{1,5}-[A-Za-z0-9-]+)\s*\|", line)
+                      if m:
+                          ledger_rows.setdefault(m.group(1), (ln_no, line.rstrip()))
+          else:
+              errors.append("SUB-6: 台账不在场 %s——锚可施工性不可证，fail-closed" % LEDGER)
+          non_buildable, missing_rows, register_skipped = [], [], []
+          for i, c in enumerate(cards):
+              tag = "card[%d]" % i
+              tid = c.get("task_id") or ""
+              debt = (c.get("debt") or "").strip()
+              if tid.startswith("register-debt-"):
+                  register_skipped.append({"card": tag, "task_id": tid, "debt": debt,
+                                           "note": "登记卡拟新建债行——行不在场=本体语义，跳过可施工性判"})
+                  continue
+              row = ledger_rows.get(debt)
+              if row is None:
+                  missing_rows.append({"card": tag, "task_id": tid, "debt": debt})
+                  errors.append("SUB-6: %s（task_id=%s）debt 锚 %s 台账行不在场（%s）——"
+                                "可施工性不可证，fail-closed（M-6 同族：先产 register-debt-* "
+                                "登记卡或换锚）" % (tag, tid, debt, LEDGER))
+                  continue
+              ln_no, text = row
+              hit = [k for k in NON_BUILDABLE_KW if k in text]
+              if hit:
+                  non_buildable.append({"card": tag, "task_id": tid, "debt": debt,
+                                        "ledger_file": LEDGER, "ledger_line": ln_no,
+                                        "keywords": hit, "row_excerpt": text[:120]})
+                  errors.append("SUB-5: %s（task_id=%s）debt 锚 %s 台账行含不可施工关键词 %s"
+                                "（坐标 %s:%d）——此类锚不可施工，须先落裁决；行摘：%s"
+                                % (tag, tid, debt, hit, LEDGER, ln_no, text[:80]))
+
+          # ── substance 段落盘（只增键：report 既有键零触碰）──
+          substance = {
+              "checked_at": datetime.now(TZ8).isoformat(timespec="seconds"),
+              "step": "08c 实质质量门（去重核验 open+7d merged · 锚可施工性 · 规划质量二期 2026-11-07）",
+              "api_reads": dict(api_reads,
+                                open_issues=len(open_issues),
+                                merged_7d=len(merged7),
+                                open_cards_with_anchor=sum(1 for c in open_cards if c["anchor"]),
+                                merged7_with_anchor=sum(1 for c in merged7 if c["anchor"]),
+                                format_census=fmt_census,
+                                unreadable_cards=unreadable),
+              "dedup": {
+                  "anchor_duplicates_open": anchor_dup_open,
+                  "anchor_duplicates_merged_7d": anchor_dup_merged,
+                  "path_conflicts": path_conflicts,
+                  "declared_continuations": continuations,
+                  "task_id_near_matches": near_matches,
+              },
+              "buildability": {
+                  "keywords": list(NON_BUILDABLE_KW),
+                  "ledger_file": LEDGER,
+                  "ledger_present": ledger_present,
+                  "non_buildable_anchors": non_buildable,
+                  "missing_rows": missing_rows,
+                  "register_debt_cards_skipped": register_skipped,
+              },
+              "verdict": "red" if errors else "green",
+              "red_count": len(errors),
+              "amber_count": len(warnings),
+              "errors": errors,
+              "warnings": warnings,
+              "note": "fail-closed 家族：任何红 ⇒ 本步 exit 1 ⇒ 09/09b/10 跳过（不 commit "
+                      "不建 Issue）；SUB-4 形近 amber 不拦；manifest-validation.json 只增 "
+                      "substance 键，既有键零触碰；卡面字段三形制提取（planner 题面形 + "
+                      "CNB 卡面自包含形 + 标题锚兜底，format/anchor_source 逐卡留证，"
+                      "af-card/1.0 机读块属 D-6/D-4 裁决面暂不读）。",
+          }
+          report["substance"] = substance
+          with open(val_path, "w", encoding="utf-8") as f:
+              json.dump(report, f, ensure_ascii=False, indent=1)
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+              f.write("verdict=%s\nred_count=%d\namber_count=%d\n"
+                      % (substance["verdict"], len(errors), len(warnings)))
+          if errors:
+              print("实质质量门 red（fail-closed：不 commit、不建 Issue）：", file=sys.stderr)
+              for e in errors:
+                  print(" - " + e, file=sys.stderr)
+              sys.exit(1)
+          print("实质质量门 green：板面 open %d（带锚 %d）· 近 7 天 merged %d · 形制分布 %s · "
+                "锚重开 open %d/merged %d · 路径冲突 %d · 合法续作 %d · 形近 amber %d · "
+                "不可施工锚 %d · 缺行 %d"
+                % (len(open_cards), sum(1 for c in open_cards if c["anchor"]), len(merged7),
+                   fmt_census, len(anchor_dup_open), len(anchor_dup_merged), len(path_conflicts),
+                   len(continuations), len(near_matches), len(non_buildable), len(missing_rows)))
           PY
 
       # ── 08s（D-91 验收①）：shadow 决策留证——DRY_RUN=true 时唤醒闸决策只进
