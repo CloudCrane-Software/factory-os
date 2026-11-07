@@ -1,0 +1,37 @@
+# 夹具态：unknown —— CNB-1 quota 端点 404（卡面 P3 例：个人命名空间无池实体、
+# 或池实体不存在；此处合成同形 404）⇒ 不可证 ⇒ fail-closed 禁派（rc=2），
+# 且禁把「没采到」当 0（free_dev_core_hours/consumed 恒 None）。
+# CNB-2 可读且达标 ⇒ 明细仍判 ok，但总体裁决 unknown > ok（不可证不猜绿）。
+# 本件零网络零 token。
+schema: cnb-quota-precheck.fixture/1
+state: unknown
+accounts:
+  CNB-1:
+    org: Cloudbird-Software
+    token_key: CNB-1-all-privilege
+    quota:
+      http: 404
+      body:
+        message: 404 page not found
+    volume:
+      http: 200
+      body:
+        dev_in_sec: 0
+        ci_in_sec: 0
+  CNB-2:
+    org: zhuzhu-team
+    token_key: CNB-2-all-privilege
+    quota:
+      http: 200
+      body:
+        dev_in_sec:
+          total: 5760000
+          free: 5760000
+        ci_in_sec:
+          total: 576000
+          free: 576000
+    volume:
+      http: 200
+      body:
+        dev_in_sec: 0
+        ci_in_sec: 0
