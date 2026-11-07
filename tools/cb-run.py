@@ -14,7 +14,10 @@
        未 blocked、非 timeout/failed）；org 按剩余槽位动态均衡；任务按 120 名单顺序（D1→D3）
        取两 org state 并集里没有的题（全局去重，每题只派一次）；发行限速 3s/issue。
     4. 判分队列：收补丁的题排队，2 个 worker 线程跑 cb-judge.sh（本机判分并发 ≤2，
-       全部 subprocess 带 stdin=DEVNULL——mingda 教训）；判完追加结果行到
+       全部 subprocess 带 stdin=DEVNULL——mingda 教训）；**判分步起手先过判官件部署
+       面对账门（tools/judge-deploy-recon-gate.py --pre-judge，Q10 修·2026-11-07）：
+       active 面 sha 不符（漂移/调包）或缓存记录面双 sha 被污染 ⇒ 拒判 fail-closed
+       （不落结果行不计判，禁假阴；翻 judge_blocked 留人工）**；判完追加结果行到
        /tmp/bench-fix1-{tier}-deepseek-cb/results.jsonl（字段口径与首两行一致；tier 从
        计划/s1-swev-120.json 查）→ state 记 judged。镜像缺失先 fast-pull.py 按需补拉
        （盘 ≥88% 或拉取失败 → blocked_no_image 留人工，不占派发槽位）。
@@ -55,6 +58,7 @@ ORGS = ["zhuzhu-team", "cloudbird-software"]
 REPO = "cb-npc-poc"
 JUDGE_SH = os.path.join(_HERE, "cb-judge.sh")
 FAST_PULL = os.path.join(_HERE, "fast-pull.py")
+JUDGE_GATE = os.path.join(_HERE, "judge-deploy-recon-gate.py")
 
 stop_flag = threading.Event()
 judge_q = []                      # [(org, tid)]
@@ -76,6 +80,36 @@ def sh(cmd, timeout=600):
     # stdin=DEVNULL：防子进程吞父进程 stdin 挂起（mingda 实测教训）
     return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout,
                           stdin=subprocess.DEVNULL)
+
+
+def prejudge_gate(tid):
+    """判分步起手硬校验（Q10 修·2026-11-07）：判官件部署面对账门 --pre-judge。
+
+    返回 (ok, reading)。rc=0 绿放行；rc=1 红/rc=2 不可证一律拒判 fail-closed
+    （不猜绿）：判官件部署面 sha 不符（漂移/调包）或判分缓存记录面双 sha 被污染时，
+    判分不得发生——拒判不落结果行、不计判（禁假阴污染成绩单），翻 judge_blocked
+    留人工，清漂移后人工清标记重判。门件缺席/执行异常同样拒判（fail-closed）。
+    注册表单一源=.github/docs/judge-paths.md 的 judge-deploy-registry 段（由门本体
+    按 --fos-root 兄弟 .github 查找；本机克隆缺席⇒门不可证⇒拒判，同 fail-closed）。
+    """
+    if not os.path.exists(JUDGE_GATE):
+        return False, ("判官件部署面对账门缺席（%s 不在）——fail-closed 拒判"
+                       % JUDGE_GATE)
+    cmd = [sys.executable, "-I", JUDGE_GATE, "--pre-judge",
+           "--fos-root", os.path.dirname(_HERE)]
+    cache_dir = os.environ.get("SWEV_JUDGE_V2_CACHE")
+    if cache_dir:
+        cmd += ["--cache-dir", cache_dir]
+    try:
+        r = sh(cmd, timeout=120)
+    except Exception as e:  # noqa: BLE001 - 门执行异常同样拒判，如实回报
+        return False, "对账门执行异常 %s——fail-closed 拒判" % e
+    lines = [l for l in (r.stdout or "").strip().splitlines() if l.strip()]
+    concl = next((l for l in reversed(lines) if l.startswith("结论：")),
+                 "rc=%s（无结论行）" % r.returncode)
+    if r.returncode == 0:
+        return True, concl
+    return False, "对账门 rc=%s %s" % (r.returncode, concl)
 
 
 def update_state(org, mut):
@@ -382,6 +416,15 @@ def judge_worker(wid, tier_of):
                 log(f"judge {tid}: 镜像缺失且补拉失败 → blocked_no_image 留人工（不占槽位）")
                 update_state(org, lambda st: st[tid].__setitem__("judge_blocked", "no_image"))
                 continue  # 不算终态：镜像到位后人工清 blocked 标记即可重判
+            # 判分步起手：判官件部署面对账门（Q10 修·2026-11-07）——active 面 sha 不符
+            # （漂移/调包）或缓存记录面双 sha 被污染 ⇒ 拒判 fail-closed：不落结果行
+            # 不计判（判分未发生，禁假阴污染成绩单），翻 judge_blocked 留人工
+            gate_ok, gate_reading = prejudge_gate(tid)
+            if not gate_ok:
+                log(f"judge {tid}: 拒判——{gate_reading}")
+                update_state(org, lambda st: st[tid].__setitem__(
+                    "judge_blocked", "judge_gate_red"))
+                continue  # 不算终态：清漂移后人工清 blocked 标记即可重判
             task_json = os.path.join(TASKS_DIR, tid + ".json")
             outdir = f"/tmp/bench-fix1-{tier}-deepseek-cb/judge-{tid}"
             t0 = time.time()
