@@ -160,6 +160,9 @@ on:
       JEV:
         description: '唤醒闸 Jev 决策钥匙（真身=repo secret DECISION_API_KEY；缺席 ⇒ 兜底② fail-open 强制 run）'
         required: false
+      MERGE_PAT:
+        description: '合并腿 PAT（真身=repo secret PLANNER_MERGE_PAT；feasy898 repo-only，openBao 同源，入统一轮换批；建/合 PR 鉴权——GITHUB_TOKEN 建/合 PR 平台 403，run 42369941397 实证）'
+        required: false
 
 permissions:
   issues: write          # 按卡建 Issue（状态机起点 state:queued）
@@ -3713,22 +3716,51 @@ jobs:
         env:
           WAVE: ${{ steps.validate.outputs.wave }}
           NEW_CARDS: ${{ steps.validate.outputs.new_cards }}
+          PLANNER_MERGE_PAT: ${{ secrets.MERGE_PAT }}   # 声明名 MERGE_PAT（on.workflow_call.secrets）⇐ repo secret PLANNER_MERGE_PAT；建/合 PR 鉴权（禁回落 GITHUB_TOKEN）
         run: |
           set -euo pipefail
           cd factory-os   # 每步工作目录重置回 runner 根；git 操作须回到账面检出树
           branch="planner/${WAVE}"
           target="${WAVE_DIR}/${WAVE}.json"
+          # ── 合并腿鉴权面（裁 10 · 2026-11-07）：建/合 PR 平台 403
+          #    （run 42369941397 实证 gh: "GitHub Actions is not permitted to
+          #    create or approve pull requests" HTTP 403）⇒ 该两发写 API 改走
+          #    repo secret PLANNER_MERGE_PAT（feasy898 repo-only PAT，openBao
+          #    同源，入统一轮换批）。headerfile 形态：PAT 进 600 临时文件、
+          #    curl -H @file、用后 shred——禁 argv/回显/残留（obs-nightly
+          #    04 步同款纪律）。只读腿（幂等检索/gates 轮询/head.sha）未被拦，
+          #    仍走内置 GH_TOKEN；PAT 缺席 ⇒ fail-closed（禁回落 GITHUB_TOKEN）。
+          if [ -z "${PLANNER_MERGE_PAT:-}" ]; then
+            echo "PLANNER_MERGE_PAT 缺席——建/合 PR 鉴权无从配置，fail-closed 判红（禁回落 GITHUB_TOKEN）" >&2
+            exit 12
+          fi
+          MP_HDR="$(mktemp)"; chmod 600 "$MP_HDR"
+          MP_RESP="$(mktemp)"; chmod 600 "$MP_RESP"
+          trap 'shred -u "$MP_HDR" "$MP_RESP" 2>/dev/null || rm -f "$MP_HDR" "$MP_RESP"' EXIT
+          printf 'Authorization: token %s\nAccept: application/vnd.github+JSON\nX-GitHub-Api-Version: 2022-11-28\n' \
+            "$PLANNER_MERGE_PAT" > "$MP_HDR"
           # 幂等：同分支已有 open PR 则复用（重跑不重复开）
           pr_num=$(gh api "repos/${ORG}/${BOARD_REPO}/pulls?head=${ORG}:${branch}&state=open&per_page=1" \
                    --jq '.[0].number // empty' 2>/dev/null || true)
           if [ -z "$pr_num" ]; then
-            pr_num=$(gh api -X POST "repos/${ORG}/${BOARD_REPO}/pulls" \
-              -f title="planner: ${WAVE} manifest · ${NEW_CARDS} cards" \
-              -f head="$branch" -f base="main" \
-              -f body="P4 规划环自动 PR（run ${GITHUB_RUN_ID} · ${RUN_REASON}）。manifest：\`${target}\`。
+            # 建 PR（PAT 腿）：gh -f 表单语义 ⇏ curl——jq -n 织 JSON（禁手拼转义）；
+            # http 非 201 ⇒ fail-loud 留运营者（禁假绿）
+            pr_body="P4 规划环自动 PR（run ${GITHUB_RUN_ID} · ${RUN_REASON}）。manifest：\`${target}\`。
 
           append-only 只增不改；\`波次清单/wave-*.json\` 为规划产物（非判据件，已移出 CODEOWNERS 判官锁 ⇒ 本 PR 0 批准）。
-          合线条件：required check \`gates\` 绿；未绿则本 PR 留开、run 红，留运营者处置。" --jq '.number')
+          合线条件：required check \`gates\` 绿；未绿则本 PR 留开、run 红，留运营者处置。"
+            pr_json=$(jq -n --arg title "planner: ${WAVE} manifest · ${NEW_CARDS} cards" \
+                            --arg head "$branch" --arg base "main" --arg body "$pr_body" \
+                            '{title:$title,head:$head,base:$base,body:$body}')
+            mp_code=$(curl -s -o "$MP_RESP" -w '%{http_code}' -X POST -H "@$MP_HDR" \
+                      -H 'Content-Type: application/json' --data-binary "$pr_json" \
+                      "https://api.github.com/repos/${ORG}/${BOARD_REPO}/pulls")
+            if [ "$mp_code" != "201" ]; then
+              echo "建 PR 失败 http=${mp_code}——fail-loud 留运营者处置（禁假绿）" >&2
+              head -c 300 "$MP_RESP" >&2; echo >&2
+              exit 13
+            fi
+            pr_num=$(jq -r '.number' "$MP_RESP")
           fi
           echo "PR #${pr_num}（${branch} -> main）"
           head_sha=$(gh api "repos/${ORG}/${BOARD_REPO}/pulls/${pr_num}" --jq '.head.sha')
@@ -3745,11 +3777,19 @@ jobs:
             echo "gates 未绿（verdict=${verdict:-超时}）——PR #${pr_num} 留开不合并；fail-loud 留运营者处置（禁假绿）" >&2
             exit 10
           fi
-          # 合入：squash（分支保护要求 PR；0 批准 + gates 绿即可合）
-          gh api -X PUT "repos/${ORG}/${BOARD_REPO}/pulls/${pr_num}/merge" \
-            -f merge_method="squash" \
-            -f commit_title="planner: ${WAVE} manifest 合线（PR #${pr_num} · gates 绿）" \
-            --jq '{merged, sha}'
+          # 合入：squash（分支保护要求 PR；0 批准 + gates 绿即可合）——PAT 腿
+          # （同建 PR：GITHUB_TOKEN 合线平台 403，run 42369941397 实证）
+          merge_json=$(jq -n --arg t "planner: ${WAVE} manifest 合线（PR #${pr_num} · gates 绿）" \
+                       '{merge_method:"squash",commit_title:$t}')
+          mp_code=$(curl -s -o "$MP_RESP" -w '%{http_code}' -X PUT -H "@$MP_HDR" \
+                    -H 'Content-Type: application/json' --data-binary "$merge_json" \
+                    "https://api.github.com/repos/${ORG}/${BOARD_REPO}/pulls/${pr_num}/merge")
+          if [ "$mp_code" != "200" ]; then
+            echo "合并失败 http=${mp_code}——fail-loud 留运营者处置（禁假绿）" >&2
+            head -c 300 "$MP_RESP" >&2; echo >&2
+            exit 14
+          fi
+          jq '{merged, sha}' "$MP_RESP"
           # 合后核验：manifest 确已入 main HEAD（防「合并 API 200 但内容没进」的假绿）
           git fetch origin main
           if git cat-file -e "FETCH_HEAD:${target}" 2>/dev/null; then
