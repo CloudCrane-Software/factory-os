@@ -1,0 +1,12 @@
+[Unit]
+Description=grok-keepalive 定时器（30 分钟节拍，远小于 6h TTL；Persistent 补跑错过的窗口）
+
+[Timer]
+# 每 30 分钟整点触发一次；工人自身带新鲜度判断（余量 <30min 才真续期）。
+OnCalendar=*:0/30
+Persistent=true
+AccuracySec=30s
+Unit=grok-keepalive.service
+
+[Install]
+WantedBy=timers.target
