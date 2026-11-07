@@ -11,6 +11,11 @@
                或 WS/af-state/orders/ 最近订单 ledger 心跳<72h；空闲=amber 报警不拉起
   mes-ch       mingda MES（mes-host.invalid:15221）查询级连通探活（原 ch-mes-local 探针
                原样复用，仅更名登记）；失联=四类告警码只报警不拉起
+  higress      LLM 网关（higress-host.invalid:8080）HTTP 判活探针（D-114/factory-os#82，
+               夜轨C2 红队分诊 M8 收口批 2026-11-08；GET / 欢迎页 200=活签名，
+               env AF_HIGRESS_TARGET 可覆）；失联=amber higress-down 1800s 去重
+               只报警**不拉起**——gov 保留资产（AGENT.md 纪律 2），重启/改动须
+               30-遗产处置.md 授权面
   self-improve-loop  python3 tools/self-improve-loop.py（自改进循环产线守护，600s 周期；
                判据同 watch 同构：进程在+状态观测/loop-state.json mtime<300s；守护带
                全寿命 60s 心跳重写 state（轮周期 600s>300s 判据，无心跳会被反复误判
@@ -1749,12 +1754,49 @@ def _trigger_inbox_silent_state_raw(pids, home, t, process_alive, healthy, note)
         status, code = "green", None
         msg = (f"收件箱活性正常（最新投递 {silent_s // 60}min 前，阈 {int(thr_min)}min）"
                "——形态B 的健康侧")
+    # ---- D-114（factory-os#82，M5 收口）合成心跳读数（**只增**：状态/码判定逻辑
+    # 零改动，消息注记+快照新键）——「源静默」与「收端侧坏」自此可分辨（探针
+    # 写入方=trigger-inbox 端到端合成心跳，状态件=同 HOME 目录
+    # synthetic-heartbeat.json；探针新鲜=last_ok 距今≤其自报 fresh_window_s）。
+    probe = None
+    try:
+        with open(os.path.join(home, "synthetic-heartbeat.json"), encoding="utf-8") as f:
+            d = json.load(f)
+        if isinstance(d, dict):
+            probe = d
+    except Exception:
+        probe = None
+    probe_fresh = None
+    probe_ok_age_s = None
+    if probe:
+        ok_ep = probe.get("last_ok_epoch")
+        fw = probe.get("fresh_window_s")
+        if isinstance(ok_ep, (int, float)) and ok_ep > 0 \
+                and isinstance(fw, (int, float)) and fw > 0:
+            probe_ok_age_s = max(0, int(t - ok_ep))
+            probe_fresh = probe_ok_age_s <= fw
+    if status in ("amber", "green"):
+        if probe_fresh is True:
+            msg += (f"；合成心跳新鲜（收端自证活，last_ok {probe_ok_age_s}s 前）"
+                    "→ 静默归**上游侧**（Gitea 无事件/发射腿断——发射腿探针属 "
+                    "night-sentinel 哨兵域，卡面交接夜轨B）")
+        elif probe_fresh is False:
+            msg += ("；合成心跳过期/连败（**收端接收链可疑**——比源静默更严重一档，"
+                    "查收件箱 HTTP 面/secret/落盘链；写入方=trigger-inbox 合成心跳）")
+        else:
+            msg += ("；合成心跳读数不可证（探针未在役或状态件缺/坏——"
+                    "收端自证缺失，fail-closed 不当活）")
     snap = {"ts": now_s(), "ts_epoch": int(t), "tool": "factory-keepalive/trigger-inbox",
             "status": status, "alarm_code": code, "message": msg,
             "process_alive": bool(process_alive), "healthy": bool(healthy),
             "silent_s": silent_s,
             "threshold_min": (int(thr_min) if thr_min is not None else None),
             "inbox_dir": inbox_dir, "pids": list(pids or []),
+            # D-114 合成心跳读数（只增键；旧消费方未知键不崩）
+            "probe_status": (probe or {}).get("status"),
+            "probe_fresh": probe_fresh,
+            "probe_ok_age_s": probe_ok_age_s,
+            "probe_consecutive_fail": (probe or {}).get("consecutive_fail"),
             "newest_delivery_epoch": (int(newest) if newest else None),
             "process_started_epoch": (int(proc_started) if proc_started else None),
             "since_epoch": (int(since) if since else None),
@@ -1859,6 +1901,80 @@ def fix_trigger_inbox(dry, t, deb):
     except Exception:
         pass
     mes_event("trigger-inbox", "trigger_inbox_down")
+
+
+# ---------- higress LLM 网关判活（D-114/factory-os#82 · 夜轨C2 红队分诊 M8 收口批） ----------
+# 病灶（分诊 M8 实测，2026-11-07 重跑留证）：higress:8080 TCP 可达（/dev/tcp 实测）
+# 但 keepalive TARGETS（时为 11 对象）/两哨兵/factory-watch 全不含（grep higress=0）
+# ——生产 LLM 网关零判活探针。
+# 判活签名：HTTP GET / → 200 欢迎页（2026-11-08 本机实测 200/0.06s；/healthz 404、
+# /v1/models 404=网关不暴露通用探针端点，欢迎页 200 是唯一稳定活签名——网关路由
+# 配置变动致 200 消失也该被看见，故判据钉 200 不放宽）。
+# 处置：**只报警不拉起**——higress 是 gov 保留资产（AGENT.md 纪律 2：未经
+# 30-遗产处置.md 清单授权不得改动/重启/删除），amber 1800s 去重 + MES 事件；
+# 恢复=运营者按授权面处置。目标地址 env 可覆（AF_HIGRESS_TARGET，沙箱/换址用），
+# 缺省=登记面主机名（仓内面洗名纪律，与 mes-host.invalid 同款）。
+HIGRESS_BASE = os.environ.get("AF_HIGRESS_TARGET", "http://higress-host.invalid:8080")
+HIGRESS_ALARM_DEDUP_S = 1800
+last_higress_alarm = 0.0
+last_higress_detail = ""
+
+
+def _higress_get(url, timeout=6):
+    """GET → (http_ok, status_or_None, detail)。HTTPError=网关应答了非 2xx（探针
+    本身通，但活签名不成立）→ http_ok=True 带 status；连接层异常 → False。"""
+    try:
+        req = urllib.request.Request(url, method="GET")
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return True, r.status, "HTTP 200"
+    except urllib.error.HTTPError as e:
+        return True, e.code, f"HTTP {e.code}（非 2xx）"
+    except Exception as e:
+        return False, None, f"{type(e).__name__}: {e}"
+
+
+def check_higress(t):
+    """higress 判活（HTTP 欢迎页签名）。返回 (alive, detail)。"""
+    global last_higress_detail
+    http_ok, status, detail = _higress_get(HIGRESS_BASE + "/")
+    if http_ok and status == 200:
+        last_higress_detail = f"HTTP 200（{HIGRESS_BASE} 欢迎页活签名）"
+        return True, last_higress_detail
+    last_higress_detail = (f"GET / 活签名不成立（{detail}）" if http_ok
+                           else f"不可达（{detail}）")
+    return False, last_higress_detail
+
+
+def fix_higress(dry, t, deb):
+    """失联处置=只报警不拉起（amber higress-down，1800s 去重 + MES）。
+
+    gov 保留资产（AGENT.md 纪律 2）——本守护**不碰远程容器**（不 ssh 不重启），
+    重启/改动须经 30-遗产处置.md 清单授权由运营者执行；LLM 网关流量面中断时
+    本行保证「有人知道」。"""
+    global last_higress_alarm
+    if dry:
+        klog("higress", f"[dry-run] 判活失败：{last_higress_detail}——将报警"
+                        f"（amber higress-down，{HIGRESS_ALARM_DEDUP_S}s 去重），"
+                        "不拉起（gov 保留资产，授权面处置）")
+        return
+    if t - last_higress_alarm < HIGRESS_ALARM_DEDUP_S:
+        return
+    last_higress_alarm = t
+    klog("higress", f"ALARM higress 判活失败：{last_higress_detail}——不自动处置"
+                    "（gov 保留资产，AGENT.md 纪律 2：重启/改动须 30-遗产处置.md "
+                    "授权面）；LLM 网关流量面可能中断，需人工介入")
+    try:
+        with open(ALARMS_LOG, "a", encoding="utf-8") as f:
+            f.write(json.dumps({
+                "ts": now_s(), "level": "amber", "code": "higress-down",
+                "message": f"higress LLM 网关判活失败：{last_higress_detail}；"
+                           "不自动处置（gov 保留资产，重启/改动须 30-遗产处置.md "
+                           "授权面）",
+                "since": time.strftime("%F %T", time.localtime(t)),
+            }, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+    mes_event("higress", "higress_down")
 
 
 # ---------- gc-watch（补丁③ R2：anolis 镜像池 GC 看护，本地判断+spawn 即返回） ----------
@@ -2116,7 +2232,14 @@ TARGETS = ["watch", "dash", "af-execline", "mes-ch",
             # 常驻单元 af-trigger-inbox.service（Restart=always 自动拉起，本守护不重复管理）；
             # 判据=进程在+inbox 目录可写+段B secret 在役，缺 secret=安全缺省不判活；
             # 失联 amber 报警 1800s 去重，完整论证见文件头「生产接线批」「常驻化批」段）
-            "trigger-inbox"]
+            "trigger-inbox",
+            # 观测补遗批（D-114/factory-os#82，2026-11-08）：higress LLM 网关入 watch
+            # 清单（远程对象；HTTP GET / 欢迎页 200=活签名——分诊 M8 实测 TCP 可达但
+            # keepalive TARGETS/两哨兵/factory-watch 全不含，grep higress=0；只报警
+            # **不拉起**：gov 保留资产，AGENT.md 纪律 2，重启/改动须经
+            # 30-遗产处置.md 授权面；amber 1800s 去重+MES，论证见
+            # check_higress/fix_higress 段头注）
+            "higress"]
 
 # DEB-3：名字 → 守护规格表（供 CHECKS/FIXES 的 lambda 取用，避免重复字面量）
 GUARD_BY_NAME = {g["name"]: g for g in LOCAL_GUARDS}
@@ -2157,9 +2280,9 @@ def one_round(dry=False):
             # （组合补丁③ queue_drained）于 2026-11-01 红队回头批移除——其登记表
             # DRAIN_PROBES 自 2026-10-26 §三-2 起恒空，在役 TARGETS 无可放行对象。
             continue  # 防抖超限已报警
-        if name not in ("af-execline", "mes-ch", "portal", "trigger-inbox"):
-            # af-execline/mes-ch/portal/trigger-inbox 的 fix 自带分支日志（空闲报警/
-            # 去重报警/恢复指引/门户处置明细/收件箱失联报警），通用「失联 → 处置」行
+        if name not in ("af-execline", "mes-ch", "portal", "trigger-inbox", "higress"):
+            # af-execline/mes-ch/portal/trigger-inbox/higress 的 fix 自带分支日志（空闲报警/
+            # 去重报警/恢复指引/门户处置明细/收件箱失联报警/higress 判活失败报警），通用「失联 → 处置」行
             # 会每轮刷屏，豁免
             klog(name, f"失联 → 处置（{detail}）")
         FIXES[name](dry, t, deb)
@@ -2202,6 +2325,9 @@ CHECKS = {
     "portal": check_portal,
     # 生产接线批：trigger-inbox 三件判据（只判活不拉起，fix 只报警——见函数头注释）
     "trigger-inbox": check_trigger_inbox,
+    # 观测补遗批（D-114/#82 M8）：higress 欢迎页签名判活（远程对象，不走
+    # LOCAL_GUARDS/check_guard——guard_pids 是 /proc 本机扫描，网关在 gov 宿主）
+    "higress": check_higress,
 }
 FIXES = {
     "watch": fix_watch,
@@ -2223,6 +2349,9 @@ FIXES = {
     # 生产接线批：trigger-inbox 失联只报警不拉起（拉起闸=systemd 常驻单元
     # af-trigger-inbox.service，Restart=always 自动拉起；见函数头注释）
     "trigger-inbox": fix_trigger_inbox,
+    # 观测补遗批（D-114/#82 M8）：higress 失联只报警不拉起（gov 保留资产，
+    # AGENT.md 纪律 2——本守护不碰远程容器，授权面处置）
+    "higress": fix_higress,
 }
 
 

@@ -95,6 +95,18 @@
             img-gc 路径亦无 recovery 证据行，须人工核定并登记。一次性/episode：
             每个未解释峰值只报一次（闩锁落 watch-state），chronic 真相由快照
             gc_recovery 段每轮承载。H3 实录：93%→70% 回落零留痕。
+  amber A12  订单面心跳停摆（D-114/factory-os#82，夜轨C2 红队分诊 M6；**只增，
+            既有灯判定一律不动**）：订单生产真值根（anolis
+            /data/bench/af-p3-state/orders）最新一单超 72h 无新单。72h=观察期灯
+            原值复核沿用（订单驱动面「空闲≠故障、只报警不拉起」语义，OBS-D2
+            分治④同款）；原灯宿主 bench-retire-obs-review.py 已于 10-29
+            OBS-EXPIRE 停摆，生产面该灯缺位 10 天——本灯回役。数据源=scan_anolis
+            第 5 段；读数 None（ssh 失败/目录缺）⇒ 不判（fail-closed）。现值
+            （最新单名/epoch/龄）嵌快照 anolis.orders_newest 入看板。
+  amber A13  report-feeder STOP 熔断灯位（D-114，M6）：STOP 件
+            （tools/.report-feeder-STOP，report-feeder.py:71 同值）在位 ⇒ 状态灯
+            amber（在位即挂、移除即清）：feeder 停摆此前只进 report-feeder.log、
+            watch 零灯=停而不死盲区；落位时长入文案；恢复=移除 STOP 件。
 
 容错：bench-fix1-* 目录尚未生成/工厂重启后空目录/结果行有空行或坏 JSON（逐行
       try/except 跳过并计数 n_bad_lines，不整文件失败、不漏坏行之后的所有行——
@@ -208,6 +220,25 @@ GC_FALLBACK_CODE = "gc-recovery-fallback-untraced"     # 回落无留痕专码�
 GC_PEAK_WINDOW_S = 7 * 86400        # 峰值回看窗（与 img-gc warm-cache TTL 同源 7 天）
 GC_FALLBACK_MIN_DROP_PP = 5         # 回落幅度阈（百分点；<此值视为正常抖动）
 GC_FALLBACK_LATCH_KEY = "gc_fallback_reported_peak"    # watch-state 闩锁键（一次性/episode）
+
+# ---- D-114 观测补遗批（factory-os#82，夜轨C2 红队分诊 M6 收口，2026-11-08）----
+# 病灶（分诊 M6 实测，全部本机重跑留证）：订单面 72h 心跳 amber 只存在于已停摆
+# 观察期工具（bench-retire-obs-review.py:106-118；其终局复核 2026-10-29 10:20
+# OBS-EXPIRE 自述「定时器已停、不再日报」）⇒ 现行生产面该灯缺位 10 天；feeder
+# STOP 熔断（report-feeder.py:71,801-802）只进 tools/report-feeder.log，
+# factory-watch 全件零 STOP 灯（grep=0）——「停而不死」两类状态无人看得见。
+# 收口（只增不改；判据/判官件零改动；data.json 顶层键集=publish-scrub-gate
+# DATA_TOP 人工审定冻结项，本批禁改该闸 ⇒ 订单心跳读数嵌既有顶层键 anolis 段，
+# 发布面顶层键集零变化）：
+#   ① A12：订单面心跳灯回役（72h amber 阈值复核+现值入看板）——数据源=
+#      scan_anolis 第 5 段（订单真值根最新一单 stat 行，与 D-113/H3 同源口径）；
+#   ② A13：feeder STOP 熔断灯位（状态灯：在位即挂、移除即清）。
+ORDERS_DIR_REMOTE = "/data/bench/af-p3-state/orders"   # 订单生产真值根（anolis 侧）
+ORDER_STALE_S = 72 * 3600           # 订单面心跳停摆阈（72h；阈值复核见 build_alarms A12 注）
+FEEDER_STOP_FILE = f"{WS}/tools/.report-feeder-STOP"   # 与 report-feeder.py:71 同值路径
+                                    # （本件只读消费该口径，不另设闸——D-140 阈值单源
+                                    # 同款「消费面注释口径」；report-feeder.py 本卡
+                                    # allowed_paths 外，路径单源另批收编）
 # img-gc 停手线（apply 现场复核 use_pct≥此值即只 plan 停手回报；第二道闸）——
 # 与 tools/img-gc.py STOP_PCT 同值。本件只读消费该口径，不另设闸。
 STOP_LINE_PCT = 88
@@ -651,12 +682,19 @@ ANOLIS_CMD = (
     "echo ---; docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep -c 'sweb.eval'; "
     "echo ---; curl -s -m 5 http://127.0.0.1:11434/api/tags 2>/dev/null | head -c 2000; "
     "echo; echo ---; cat /proc/loadavg 2>/dev/null"
+    # D-114（factory-os#82，M6）：第 5 段=订单面心跳读数——订单生产真值根最新一单
+    # 「epoch 目录名」行（A12 灯+看板现值数据源；空输出=目录缺/无单，读数 None，
+    # 灯面 fail-closed 不判）。加性段：既有四段与解析零改动。
+    "; echo ---; stat -c '%Y %n' " + ORDERS_DIR_REMOTE + "/* 2>/dev/null | sort -rn | head -1"
 )
 
 
 def scan_anolis(state, t):
     out = {"ok": False, "disk": {}, "sweb_images": None, "image_target": IMAGE_TARGET,
-           "ollama": "unknown", "load": None, "error": None}
+           "ollama": "unknown", "load": None, "error": None,
+           # D-114（M6）：订单面心跳读数（嵌 anolis 段进看板现值面——data.json 顶层
+           # 键集=DATA_TOP 冻结项，本批禁改该闸，故走既有顶层键内加性子键）。
+           "orders_newest": None}
     try:
         r = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
                             "anolis", ANOLIS_CMD],
@@ -680,6 +718,14 @@ def scan_anolis(state, t):
             if len(la) >= 3:
                 out["load"] = {"m1": float(la[0]), "m5": float(la[1]), "m15": float(la[2])}
             out["ok"] = True
+        if len(parts) >= 5:
+            # D-114（M6）加性解析：第 5 段首行=「epoch 目录名」（stat|sort -rn|head -1
+            # =最新一单）；空=目录缺/无单 ⇒ 保持 None（灯面 fail-closed 不判不假绿）。
+            line = parts[4].strip().splitlines()[0] if parts[4].strip() else ""
+            ep, _, nm = line.partition(" ")
+            if ep.isdigit():
+                out["orders_newest"] = {"dir": ORDERS_DIR_REMOTE, "epoch": int(ep),
+                                        "name": nm.strip()}
     except Exception as e:
         out["error"] = str(e)
     return out
@@ -1610,6 +1656,46 @@ def build_alarms(arms, sched, anolis, relay, plan, state, t, extras=None, archiv
                 f"/data 回落无留痕：{gi['a11_why']}。回落来源既非 img-gc 成功 apply "
                 f"亦无 kind=recovery 分级证据行——/data=订单生产真值根，须人工核定"
                 f"回落来源并在变更日志/安灯登记；读数为 img-gc 耐久证据（只读）", t)
+
+    # ---- D-114 观测补遗批（factory-os#82，夜轨C2 红队分诊 M6 收口；只增不改）----
+    # amber A12  订单面心跳停摆（回役灯，M6）：订单生产真值根最新一单超 72h 无新单。
+    #            72h 阈值复核（卡面「72h amber 阈值复核后入 watch」）：沿用
+    #            bench-retire-obs-review.py 观察期灯原值 72h——订单驱动面按设计
+    #            「空闲≠故障、只报警不拉起」（af-execline-idle 预期灯同款语义，
+    #            OBS-D2 分治④），72h≈3 个工作日无任何新单才值得叫人，短于此属
+    #            正常波动窗；原灯宿主已于 10-29 OBS-EXPIRE 停摆（定时器停、不再
+    #            日报），该灯在生产面缺位 10 天，本灯回役。数据源=scan_anolis 第 5
+    #            段（真值根最新单 stat 行）；ssh 失败/目录缺=读数 None ⇒ 本灯不判
+    #            （fail-closed：不假红不假绿），缺数据事实由 anolis.ok=false 可见。
+    #            现值（最新单名/时刻/龄）嵌快照 anolis.orders_newest 进看板
+    #            （本地 latest.json 全量+公网 data.json 同面——顶层键集零变化）。
+    if (anolis.get("ok") and isinstance(anolis.get("orders_newest"), dict)
+            and anolis["orders_newest"].get("epoch")):
+        on = anolis["orders_newest"]
+        age_s = max(0, int(t - on["epoch"]))
+        if age_s > ORDER_STALE_S:
+            add("amber", "A12", "A12:order-heartbeat",
+                f"订单面心跳停摆：{on['dir']} 最新订单 {on['name']} 已 "
+                f"{age_s / 3600:.1f}h 无新单（>{ORDER_STALE_S // 3600}h 阈，"
+                f"bench-retire 观察期灯回役，M6）——订单驱动面按设计空闲≠故障；"
+                f"恢复=经 af-order 正常下单", t)
+
+    # amber A13  report-feeder STOP 熔断灯位（M6）：STOP 件在位 ⇒ feeder 每轮
+    #            「STOP 熔断在位，本轮不跑」只进 tools/report-feeder.log（分诊
+    #            实测 watch 全件零 STOP 灯=停而不死盲区）。本灯=状态灯（在位即挂、
+    #            移除即清，非一次性）：设计性停摆≠故障，amber 叫人复核即可；恢复=
+    #            移除 STOP 件后 feeder 自然复工。STOP 件路径与 report-feeder.py:71
+    #            同值（消费面注释口径，本卡 allowed_paths 外不收编）。
+    try:
+        stop_age_h = max(0.0, (t - os.path.getmtime(FEEDER_STOP_FILE)) / 3600) \
+            if os.path.exists(FEEDER_STOP_FILE) else None
+    except OSError:
+        stop_age_h = None
+    if stop_age_h is not None:
+        add("amber", "A13", "A13:feeder-stop",
+            f"report-feeder STOP 熔断在位（{FEEDER_STOP_FILE}，约 {stop_age_h:.1f}h "
+            f"前落位）——供给暂停（设计性停摆，此前只进 report-feeder.log 不进"
+            f"看板＝M6 病灶，本灯回役）；恢复=移除 STOP 件后 feeder 自然复工", t)
 
     # since 持续性：条件消失即清；持续则沿用首次时刻
     open_keys = {}
@@ -2604,6 +2690,82 @@ def _selftest_d109(PASS, FAIL, check, sandbox, T):
         ALARMS_LOG, probe_local_root, _gh_token, gh_api = (
             saved_log, saved_probe, saved_tok, saved_api)
 
+def _selftest_d114(PASS, FAIL, check, sandbox, T):
+    """D-114（factory-os#82）观测补遗批夹具自检：A12 订单面心跳灯回役 +
+    A13 feeder STOP 灯位 + anolis.orders_newest 看板现值面（嵌 anolis 段、
+    data.json 顶层键集零变化）。零生产副作用：FEEDER_STOP_FILE 重定向沙箱、
+    anolis 读数走夹具 dict（零 ssh、零生产面写）。
+
+    跑法：python3 -I tools/factory-watch.py --selftest（随总自检一起跑）。
+    """
+    global FEEDER_STOP_FILE
+    saved_stop = FEEDER_STOP_FILE
+    st = {"alarm_open": {}, "alarm_logged": {}, "sweb_img_hist": []}
+
+    def ba(anolis_stub):
+        return build_alarms(
+            [], {"status_file_exists": True, "mtime_stale": False,
+                 "proc_confirmed_down": False, "alive": False, "running_arms": []},
+            anolis_stub, {"consecutive_failures": 0, "last_event": "-"}, [],
+            st, T, extras=None, archived=None, portal=None, trigger_liveness=None)
+
+    an_ok_fresh = {"ok": True, "disk": {}, "orders_newest":
+                   {"dir": ORDERS_DIR_REMOTE, "epoch": int(T - 3600),
+                    "name": "A0897-report-glm-cp"}}
+    an_ok_stale = {"ok": True, "disk": {}, "orders_newest":
+                   {"dir": ORDERS_DIR_REMOTE, "epoch": int(T - 73 * 3600),
+                    "name": "A0897-report-glm-cp"}}
+    an_ok_none = {"ok": True, "disk": {}, "orders_newest": None}      # 目录缺/无单
+    an_down = {"ok": False, "error": "ssh fail", "orders_newest": None}  # ssh 断
+    try:
+        # ---- A12 正例：>72h 无新单 ⇒ amber，且阈值边界（恰 72h 整不触发）----
+        a = ba(an_ok_stale)
+        hit = [x for x in a if x["code"] == "A12"]
+        check("D-114 A12 正例：73h 无新单 ⇒ amber A12 在挂且含现值/阈值/回役注记",
+              len(hit) == 1 and hit[0]["level"] == "amber"
+              and "73.0h" in hit[0]["message"] and "72h 阈" in hit[0]["message"]
+              and "A0897-report-glm-cp" in hit[0]["message"],
+              str(hit[0]["message"])[:120] if hit else "no-alarm")
+        a_edge = ba({"ok": True, "disk": {}, "orders_newest":
+                     {"dir": ORDERS_DIR_REMOTE, "epoch": int(T - ORDER_STALE_S),
+                      "name": "x"}})
+        check("D-114 A12 边界：恰 72h 整不触发（> 阈才报）",
+              not [x for x in a_edge if x["code"] == "A12"])
+
+        # ---- A12 负例：新鲜/读数 None/ssh 断 ⇒ 不判（fail-closed 不假红）----
+        check("D-114 A12 负例-新鲜：1h 新单零报警", not [x for x in ba(an_ok_fresh) if x["code"] == "A12"])
+        check("D-114 A12 负例-读数 None：目录缺/无单零报警（不假红）",
+              not [x for x in ba(an_ok_none) if x["code"] == "A12"])
+        check("D-114 A12 负例-ssh 断：anolis.ok=False 零报警",
+              not [x for x in ba(an_down) if x["code"] == "A12"])
+
+        # ---- 看板现值面：orders_newest 嵌 anolis 段，顶层键集零变化 ----
+        snap = build_snapshot([], {"D1": 40, "D2": 40, "D3": 40},
+                              {"status_file_exists": True, "alive": False,
+                               "pids": [], "mtime_age_s": None, "summary": None},
+                              dict(an_ok_fresh),
+                              {"consecutive_failures": 0, "last_event": "-"}, [], "once")
+        check("D-114 看板：anolis.orders_newest 现值入快照（dir/epoch/name）",
+              isinstance(snap["anolis"].get("orders_newest"), dict)
+              and snap["anolis"]["orders_newest"]["name"] == "A0897-report-glm-cp")
+
+        # ---- A13 正例/负例：STOP 件在位 ⇒ amber 状态灯；移除 ⇒ 灯清 ----
+        FEEDER_STOP_FILE = os.path.join(sandbox, ".report-feeder-STOP")
+        with open(FEEDER_STOP_FILE, "w", encoding="utf-8") as _f:
+            _f.write("d114-selftest fixture\n")     # 夹具件：内容随意，mtime=在位起点
+        os.utime(FEEDER_STOP_FILE, (T - 3600, T - 3600))   # 落位 1h（确定性读数）
+        a = ba(an_ok_fresh)
+        hit = [x for x in a if x["code"] == "A13"]
+        check("D-114 A13 正例：STOP 件在位 ⇒ amber 且含落位时长/恢复指引",
+              len(hit) == 1 and hit[0]["level"] == "amber"
+              and "STOP 件" in hit[0]["message"] and "移除 STOP 件" in hit[0]["message"],
+              str(hit[0]["message"])[:120] if hit else "no-alarm")
+        os.remove(FEEDER_STOP_FILE)
+        check("D-114 A13 负例：STOP 件移除 ⇒ 灯清（状态灯在位即挂移除即清）",
+              not [x for x in ba(an_ok_fresh) if x["code"] == "A13"])
+    finally:
+        FEEDER_STOP_FILE = saved_stop
+
 
 def _selftest():
     """D-112（factory-os#80）臂态三态显式化自检：在跑/自然退役/目录消失三态
@@ -2801,6 +2963,8 @@ def _selftest():
         _selftest_d113(PASS, FAIL, check, sandbox, T)
         # ---- D-109 安灯出带批夹具（同沙箱：升级腿桩化 GitHub 零网络 / fail-loud / A4R）----
         _selftest_d109(PASS, FAIL, check, sandbox, T)
+        # ---- D-114 观测补遗批夹具（同沙箱：A12/A13 灯+看板现值面；零 ssh 零生产写）----
+        _selftest_d114(PASS, FAIL, check, sandbox, T)
     finally:
         shutil.rmtree(sandbox, ignore_errors=True)
 
@@ -2811,8 +2975,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--once", action="store_true", help="单轮扫描并打印巡检报告")
     ap.add_argument("--selftest", action="store_true",
-                    help="夹具自检（D-112 臂态三态/D-113 恢复腿/D-109 出带批；"
-                         "零生产副作用，沙箱内跑，GitHub 面全桩化）")
+                    help="夹具自检（D-112 臂态三态/D-113 恢复腿/D-109 出带批/"
+                         "D-114 观测补遗批；零生产副作用，沙箱内跑，GitHub 面全桩化）")
     args = ap.parse_args()
     if args.selftest:
         sys.exit(_selftest())

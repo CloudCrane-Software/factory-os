@@ -114,7 +114,7 @@
   {
     "pattern": "G-13",
     "file": "tools/factory-keepalive.py",
-    "line": 110,
+    "line": 115,
     "reason": "误报（键名/判据文字撞车）：L110/1614/2082/2117 探活判据注释引用环境变量名 AF_TRIGGER_SECRET_GITEA_WEBHOOK 及「缺 secret=安全缺省不判活」表述——键名与中文判据文字，值侧无凭据。",
     "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
     "expires": "2026-12-05"
@@ -122,7 +122,7 @@
   {
     "pattern": "G-13",
     "file": "tools/factory-keepalive.py",
-    "line": 1614,
+    "line": 1619,
     "reason": "误报（键名/判据文字撞车）：L110/1614/2082/2117 探活判据注释引用环境变量名 AF_TRIGGER_SECRET_GITEA_WEBHOOK 及「缺 secret=安全缺省不判活」表述——键名与中文判据文字，值侧无凭据。",
     "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
     "expires": "2026-12-05"
@@ -130,7 +130,7 @@
   {
     "pattern": "G-13",
     "file": "tools/factory-keepalive.py",
-    "line": 2082,
+    "line": 2198,
     "reason": "误报（键名/判据文字撞车）：L110/1614/2082/2117 探活判据注释引用环境变量名 AF_TRIGGER_SECRET_GITEA_WEBHOOK 及「缺 secret=安全缺省不判活」表述——键名与中文判据文字，值侧无凭据。",
     "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
     "expires": "2026-12-05"
@@ -138,7 +138,7 @@
   {
     "pattern": "G-13",
     "file": "tools/factory-keepalive.py",
-    "line": 2117,
+    "line": 2233,
     "reason": "误报（键名/判据文字撞车）：L110/1614/2082/2117 探活判据注释引用环境变量名 AF_TRIGGER_SECRET_GITEA_WEBHOOK 及「缺 secret=安全缺省不判活」表述——键名与中文判据文字，值侧无凭据。",
     "approved_by": "清障员·factory-os 脱敏 adjudication（2026-11-06；判据：11-04 盘点纪律——探测串/夹具/机制代码非凭据）",
     "expires": "2026-12-05"
