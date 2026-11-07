@@ -1,0 +1,43 @@
+# 夹具态：low —— CNB-1 dev 余量 8.33 核时 < 阈值 50 ⇒ 该账号 reroute；
+# CNB-2 余 1600 核时达标 ⇒ 总体 reroute（rc=3 fail-closed 禁派原账号），
+# 建议改路由 CNB-2（zhuzhu-team）。禁「额度不足任务立即终止」式闷死。
+#
+# 口径：total=5,760,000 核秒=1600 核时；CNB-1 合成消耗 5,730,000 核秒
+# ⇒ 余 30,000 核秒=8.33 核时（合成态，非真读）。本件零网络零 token。
+schema: cnb-quota-precheck.fixture/1
+state: reroute
+accounts:
+  CNB-1:
+    org: Cloudbird-Software
+    token_key: CNB-1-all-privilege
+    quota:
+      http: 200
+      body:
+        dev_in_sec:
+          total: 5760000
+          free: 5760000
+        ci_in_sec:
+          total: 576000
+          free: 576000
+    volume:
+      http: 200
+      body:
+        dev_in_sec: 5730000
+        ci_in_sec: 70000
+  CNB-2:
+    org: zhuzhu-team
+    token_key: CNB-2-all-privilege
+    quota:
+      http: 200
+      body:
+        dev_in_sec:
+          total: 5760000
+          free: 5760000
+        ci_in_sec:
+          total: 576000
+          free: 576000
+    volume:
+      http: 200
+      body:
+        dev_in_sec: 0
+        ci_in_sec: 0
