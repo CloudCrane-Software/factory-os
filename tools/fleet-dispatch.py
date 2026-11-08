@@ -11,6 +11,10 @@
             insert_text 后校验字符数再 Enter
   cnb       复用 tools/cb-dispatch.py 形制：建 issue ＋ work_mode 评论派发 NPC，
             状态 = build/logs ＋ 评论轮询，回传 = 末条他人评论
+  kimi      Kimi OK Computer（D-188·运营者 2026-11-08 晚二次交付）：调 pandev 侧
+            scripts/kimi_dispatch.py（自定义 RPC 帧 connect+json，页内 fetch 现取
+            localStorage token）；仅沙箱模型（k28-agent-preview/k3d1-agent）可承载
+            施工派发；Code 7d 额度 98.79% 首测点——轻探针放行、重施工暂缓
   local     记录派发意图 ＋ 生成工人简报（状态/回传 = 简报件与状态文件读回）
 
 凭据纪律（最高）：全部登录态（StepFun cookie / 各平台 profile / relay 路径令牌 /
@@ -30,6 +34,7 @@ pricing.observe 接线：每次 dispatch 收尾自动记 平台×模型×消耗 
 """
 import argparse
 import hashlib
+import subprocess
 import json
 import os
 import re
@@ -64,7 +69,7 @@ CDP_PORT = os.environ.get("AF_FLEET_CDP", "")  # 缺省从 accounts.json 现读
 CNB_API = "https://api.cnb.cool"
 CNB_TOKEN_FILE = os.path.expanduser("~/.config/cnb/relay-tokens.json")
 OBSERVE_LOG = os.path.join(FLEET_HOME, "out", "fleet-pricing-observe.jsonl")
-PLATFORMS = ("stepfun", "codao", "workbuddy", "cnb", "local")
+PLATFORMS = ("stepfun", "codao", "workbuddy", "cnb", "kimi", "local")
 UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36")
 WAKE_MSG = ("请运行一次 python3 /tmp/relay_worker.py（从自有域名拉取一条任务对象，"
@@ -460,6 +465,36 @@ def cmd_dispatch(a):
         rec["pricing"] = observe("cnb", a.model or "deepseek-v4.1-flash", 0,
                                  "NPC 口径实测 0 扣费（cb-dispatch 同口径）",
                                  "AI token/NPC")
+    elif a.platform == "kimi":
+        # D-188：Kimi OK Computer 第六通道。执行体=pandev 侧 kimi_dispatch.py
+        # （FLEET_HOME/scripts/，运营者逆向交付·页内 fetch 现取 token 零落地）。
+        model = a.model or "k28-agent-preview"
+        if model == "k28-instant":
+            save_state(rec)
+            fail(2, "kimi 通道禁派无沙箱模型 k28-instant（施工派发须 OK Computer 沙箱）")
+        args = [sys.executable, os.path.join(FLEET_HOME, "scripts",
+                                             "kimi_dispatch.py"), a.text,
+                "--model", model, "--max-wait", str(a.wait or 180)]
+        if getattr(a, "cluster", None):
+            args.append("--cluster")
+        if getattr(a, "goal", None):
+            args.append("--goal")
+        env = {k: v for k, v in os.environ.items()}
+        pr = subprocess.run(args, capture_output=True, text=True,
+                            timeout=(a.wait or 180) + 60, env=env, cwd=FLEET_HOME)
+        rec.update({"kimi_exit": pr.returncode,
+                    "stdout_head": pr.stdout[-1200:], "stderr_head": pr.stderr[-400:]})
+        m = re.search(r'"http":\s*(\d+)', pr.stdout)
+        rec["http"] = int(m.group(1)) if m else None
+        rec["ok"] = pr.returncode == 0 and rec.get("http") == 200
+        if not rec["ok"]:
+            save_state(rec)
+            fail(3, "kimi 派发失败（exit=%s http=%s）：%.200s"
+                 % (pr.returncode, rec.get("http"), pr.stderr or pr.stdout))
+        rec["pricing"] = observe(
+            "kimi", model, None,
+            "GetSubscriptionStats 双层（订阅＋Code 5h/7d 独立限流）——credits 接线 "
+            "todo-discover；首测点 Code 7d 98.79%（重施工暂缓）", "ratio%")
     else:  # local
         p = local_brief(did, a.text, a.local_dir or STATE_DIR)
         rec.update({"brief": p, "brief_sha256":
@@ -617,6 +652,10 @@ def main():
     d.add_argument("--wait", type=int, default=240,
                    help="workbuddy 读态等待秒 / codao 收回传等待秒")
     d.add_argument("--local-dir", default="", help="local: 简报输出目录")
+    d.add_argument("--cluster", action="store_true",
+                   help="kimi: SCENARIO_OK_COMPUTER_SWARM 蜂群批量语义")
+    d.add_argument("--goal", action="store_true",
+                   help="kimi: is_goal 持续任务语义")
 
     s = sub.add_parser("status", help="状态查询")
     s.add_argument("--platform", choices=PLATFORMS)
