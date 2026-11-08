@@ -1326,6 +1326,42 @@ jobs:
               "4. 「→ rc=N」尾标硬形制与 §3.2/M-1 不变；本区是模板好例（软指引），禁当新\n"
               "   机检项——step 08/08b/08c 校验集零改动。\n"
           )
+
+          # ── D-173（factory-os#205）：生成面三纪律段（done 锚过滤 · 禁独立 closeout
+          # 卡 · 台账卡 depends_on）——append-only 注入（D-171 同形：母本
+          # planner-prompt.md 在治理仓不在本卡 allowed_paths ⇒ 组装面注入）。
+          # 红案=run 42435229215（2026-11-08T01:40Z）08c 实质质量门 red：SUB-2
+          # w11-d172-anchor-recon 为 D-172 再产卡（factory-os#198 近 7 天已合线，
+          # 其 debt 锚=done）；SUB-3 台账路径（账本/阶段欠账台账.md）与在飞
+          # #199/#201 交集非空且未声明续作。门拦得对（判定面零改动），修生成面：
+          # 让 planner 不再产这类卡。台账回填正形=PR #161 先例（施工工人随合线
+          # PR 同树 append 收卷对账段，diff 单件）。判定面零改动：08/08b/08c
+          # 校验集一字不动，本段只进提示词（软指引，§四.4/D-171 同族，禁当新
+          # 机检项）。
+          prompt += (
+              "\n\n## 八、生成面三纪律：done 锚过滤 · 禁独立 closeout 卡 · 台账卡 "
+              "depends_on（D-173 · factory-os#205；台账回填先例=PR #161 收卷对账段）\n"
+              "\n"
+              "组 manifest 前对每张候选卡逐条过下列三纪律，违者该卡不产；候选全违\n"
+              "⇒ 空波合法（cards=[] 须附 preflight 缺口说明，既有形制不变）：\n"
+              "1. done 锚过滤：近 7 天已合线（state:merged）卡的 debt 锚一律视为\n"
+              "   done——禁为其再产任何形态卡（含 closeout/收卷/recon/复盘/backfill/\n"
+              "   台账回填/观察类）。台账行状态列滞后不是新卡理由。红案：run\n"
+              "   42435229215 08c SUB-2（w11-d172-anchor-recon 为 D-172 再产卡，\n"
+              "   factory-os#198 近 7 天已合线）。\n"
+              "2. 禁独立 closeout 卡：账本/阶段欠账台账.md 的行回填/收卷对账，由施\n"
+              "   工工人随自己卡的合线 PR 同树完成（先例=PR #161：diff 单件，仅台账\n"
+              "   行 append 收卷对账段，不另开卡）。planner 禁产 task_id 含\n"
+              "   closeout/ledger-close/收卷 类的独立卡。\n"
+              "3. 台账卡 depends_on 纪律：allowed_paths 含 账本/阶段欠账台账.md 的\n"
+              "   卡，同波 manifest 至多一张；确需多张时，每张须在 depends_on 显式\n"
+              "   声明链（三形之一：repo#issue 号／台账锚号／同波 task_id）。红案：\n"
+              "   run 42435229215 08c SUB-3（台账路径与在飞 #199/#201 交集非空且未\n"
+              "   声明续作）。\n"
+              "4. 本段是生成面软指引（§四.4/D-171 同族），禁当新机检项——step\n"
+              "   08/08b/08c 判定面零改动（SUB-2/SUB-3 拦得对，本纪律是让生成端少\n"
+              "   产违卡、不是放松门）；manifest M-1 形制与既有字段集零增减。\n"
+          )
           with open("planner-inputs.json", encoding="utf-8") as f:
               inputs = json.load(f)
 
@@ -3867,6 +3903,7 @@ jobs:
         if: steps.quota.outputs.plan_allowed == 'true' && steps.validate.outputs.outcome == 'plan' && !inputs.dry_run
         env:
           WAVE: ${{ steps.validate.outputs.wave }}
+          PLANNER_MERGE_PAT: ${{ secrets.MERGE_PAT }}   # 建卡腿 PAT（D-172）：POST /issues 鉴权（声明名 MERGE_PAT ⇐ repo secret PLANNER_MERGE_PAT，同 09b 合并腿一源；禁回落 GITHUB_TOKEN）
         run: |
           set -euo pipefail
           mkdir -p issues-out
@@ -3964,12 +4001,45 @@ jobs:
             fi
           done
 
+          # ── 建卡腿鉴权面（D-172 · 2026-11-08）：POST /issues 改走 repo
+          #    secret PLANNER_MERGE_PAT（feasy898 repo-only PAT，openBao 同源），
+          #    headerfile 形态=裁 10 09b 段同款：PAT 进 600 临时文件、curl
+          #    -H @file、用后 shred——禁 argv/回显/残留。PAT 缺席 ⇒ fail-closed
+          #    （禁回落 GITHUB_TOKEN）；http 非 201 ⇒ fail-loud 留运营者（禁假绿）。
+          #    待建=0 时零写 API，无需钥匙即诚实绿（板已在飞跳过语义不受影响）。
+          #    证据：run 42430785779 待建 3 → 已建 0 且 success——jq 顶层数组
+          #    直索引错误发生在 process substitution 内被吞，循环空转零建
+          #    （fail-open 本体）；下方 created<待建 硬红即兜此链。──
+          todo_n=$(jq 'length' issues-todo.json)
           : > issues-created.log
-          while IFS=$'\t' read -r tid ttl bf; do
-            url=$(gh issue create --repo "${ORG}/${BOARD_REPO}" --title "$ttl" --body-file "$bf" \
-                    --label wave --label state:queued)
-            echo -e "${tid}\t${url}" >> issues-created.log
-          done < <(jq -r '[.task_id, .title, .body_file] | @tsv' issues-todo.json)
+          if [ "${todo_n}" -gt 0 ]; then
+            if [ -z "${PLANNER_MERGE_PAT:-}" ]; then
+              echo "PLANNER_MERGE_PAT 缺席而待建=${todo_n}——建卡鉴权无从配置，fail-closed 判红（禁回落 GITHUB_TOKEN）" >&2
+              exit 12
+            fi
+            IC_HDR="$(mktemp)"; chmod 600 "$IC_HDR"
+            IC_RESP="$(mktemp)"; chmod 600 "$IC_RESP"
+            trap 'shred -u "$IC_HDR" "$IC_RESP" 2>/dev/null || rm -f "$IC_HDR" "$IC_RESP"' EXIT
+            printf 'Authorization: token %s\nAccept: application/vnd.github+JSON\nX-GitHub-Api-Version: 2022-11-28\n' \
+              "$PLANNER_MERGE_PAT" > "$IC_HDR"
+            # jq 顶层数组须显式 .[] 迭代（run 42430785779 实证直索引报错被吞）
+            while IFS=$'\t' read -r tid ttl bf; do
+              # gh -f 表单语义 ⇏ curl——jq -n 织 JSON（禁手拼转义）；同 09b
+              issue_json=$(jq -n --arg title "$ttl" --arg body "$(cat "$bf")" \
+                            '{title:$title,body:$body,labels:["wave","state:queued"]}')
+              ic_code=$(curl -s -o "$IC_RESP" -w '%{http_code}' -X POST -H "@$IC_HDR" \
+                        -H 'Content-Type: application/json' --data-binary "$issue_json" \
+                        "https://api.github.com/repos/${ORG}/${BOARD_REPO}/issues")
+              if [ "$ic_code" != "201" ]; then
+                echo "建卡失败（task_id=${tid}）http=${ic_code}——fail-loud 留运营者处置（禁假绿）" >&2
+                head -c 300 "$IC_RESP" >&2; echo >&2
+                exit 13
+              fi
+              echo -e "${tid}\t$(jq -r '.html_url' "$IC_RESP")" >> issues-created.log
+            done < <(jq -r '.[] | [.task_id, .title, .body_file] | @tsv' issues-todo.json)
+          else
+            echo "待建=0——零写 API，无建卡动作（诚实绿）"
+          fi
 
           python3 -I - <<'PY'
           import json, os
@@ -3983,6 +4053,14 @@ jobs:
               json.dump(created, f, ensure_ascii=False, indent=1)
           print("已建 Issue：%d" % len(created))
           PY
+
+          # 零假绿硬红（D-172）：created<待建 ⇒ 建卡腿未全成 ⇒ 本步判红。
+          # run 42430785779「待建 3 → 已建 0 且 success」即本检查要堵的假绿。
+          created_n=$(grep -c . issues-created.log || true)
+          if [ "${created_n}" -lt "${todo_n}" ]; then
+            echo "已建=${created_n} < 待建=${todo_n}——建卡腿未全成，硬红（零假绿）" >&2
+            exit 15
+          fi
 
       # ── 运行摘要：进 Actions Summary + artifact（禁含密钥）──
       - name: '11 · run 摘要（Actions Summary）'
