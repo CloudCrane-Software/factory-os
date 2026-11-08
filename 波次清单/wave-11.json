@@ -1,0 +1,100 @@
+{
+ "schema": "af.wave-manifest.v1",
+ "wave": "wave-11",
+ "created": "2026-11-08T12:00:23+0800",
+ "policy": "30-工件/波次自转器-20261106/制度-v1.md",
+ "budgets": {
+  "anolis_mem_cap_g": 45,
+  "local_mem_cap_g": 3,
+  "anolis_concurrency": 4
+ },
+ "base_sha": "f6ee30d6d34022b6de9d213229101b8e7770880e",
+ "preflight": [
+  "占用核：in_flight=['portal']；非终态 16 卡占用锚（RT-E138/RT-E117/RT-E94/RT-E32/D-104/D-98/D-99/D-109/D-111/D-114/D-115/D-116/D-118/D-68/OBS-D7/RT-E228-M）与板面开卡 D-123(#135) 全部回避；本波 D-157/D-150/D-165 均未被占、均不在板面 open 卡。",
+  "终态过滤（§八.1）：RT-E94 等近 7 天已合线/已 ✅ 锚视为 done，本波零立项；不产独立 closeout/ledger-close 卡（§八.2），台账行回填随各自施工卡同 PR。",
+  "08b 干跑兼容（§七.3）：acceptance 全部按 pinned base f6ee30d6d340 可满足形制书写——既有件用 py_compile 语法核，新增件一律用「test ! -e 新件 || 校验」条件式；无「终态先行」断言（不写 grep ✅ / state:merged 之类施工后才成立的命令）。",
+  "factory_obs 消化（advisory）：amber×5＝planner-run-failing(run#248)/planner_quality_stale(2048s)/anolis-root-disk 86%×2/gh-projection-stale(352s)；stalled=0；planner 失败与质量滞后挂 D-171（已锁 wave-12）修复后复评，磁盘与投影滞后留运营者窗观测项——本波不改判据、不产观测改判类卡。",
+  "质量回流自检（§3.8）：逐卡对照 top_failure_modes——→ rc=N 尾标全覆盖、allowed_paths 全在场、ledger 坐标全来自输入、depends_on 无悬空引用；不引用 quality 评级、不进机检面。",
+  "配平核：local-api Σ=2G≤3G（D-157 1G＋D-150 1G）、bot-lane 1 卡 D-165 mem=0 且 async=true、无 anolis-build 卡（本波无 cargo 需求）。",
+  "路线互斥：D-169/D-170/D-171/D-160 已锁 wave-12、D-172/D-173/D-174 已锁 wave-13~15，本波不重复立项；D-124（改 gates.yml 门禁件，受只读约束）与 D-125/D-127（factory-os 仓内无此件）本波不选。"
+ ],
+ "cards": [
+  {
+   "task_id": "w11-d157-negctrl-gate",
+   "title": "D-157 负控件存在性门：tools/negative-controls.list 登记册＋tools/negative-control-recon-gate.py 起手对账（缺席点名而非裸 FAIL）＋tools/test-quota-gate-criteria-parity.py G 段改读册（只许变严；现势实例 90-归档 缺 quota-governor.py.20261031-pre-RT-quotagate-dead.bak）",
+   "debt": "D-157",
+   "async": false,
+   "channel": "local-api",
+   "allowed_paths": [
+    "tools/negative-controls.list",
+    "tools/negative-control-recon-gate.py",
+    "tools/test-quota-gate-criteria-parity.py"
+   ],
+   "acceptance": [
+    "python3 -m py_compile tools/test-quota-gate-criteria-parity.py → rc=0",
+    "test ! -e tools/negative-controls.list || grep -q . tools/negative-controls.list → rc=0",
+    "test ! -e tools/negative-control-recon-gate.py || python3 -I tools/negative-control-recon-gate.py --selftest → rc=0"
+   ],
+   "merge_policy": "单件直推（tools/ 既有件改前 .bak＋钉桩重锚；判据只许变严，禁放宽既有判定）",
+   "ledger": "账本/阶段欠账台账.md D-157 行",
+   "mem_budget_g": 1,
+   "state": "queued",
+   "depends_on": [],
+   "fast_tests": [
+    "test-quota-gate-criteria-parity.py"
+   ],
+   "env_precondition": "python3≥3.10；local-api 轨禁 cargo；selftest 走夹具不触网"
+  },
+  {
+   "task_id": "w11-d150-bao-token-ttl",
+   "title": "D-150 openBao token TTL 面扫描门：tools/bao-token-ttl-recon-gate.py＋tools/bao-token-ttl-allowlist.json（expiry 形制；explicit_max_ttl=0 且非 root/escrow 白名单⇒红；现势 7+1 件 scoped token 与 broker 身份在册，轮换批清偿后转绿）",
+   "debt": "D-150",
+   "async": false,
+   "channel": "local-api",
+   "allowed_paths": [
+    "tools/bao-token-ttl-recon-gate.py",
+    "tools/bao-token-ttl-allowlist.json"
+   ],
+   "acceptance": [
+    "test ! -e tools/bao-token-ttl-recon-gate.py || python3 -m py_compile tools/bao-token-ttl-recon-gate.py → rc=0",
+    "test ! -e tools/bao-token-ttl-recon-gate.py || python3 -I tools/bao-token-ttl-recon-gate.py --selftest → rc=0",
+    "test ! -e tools/bao-token-ttl-allowlist.json || jq -e . tools/bao-token-ttl-allowlist.json → rc=0"
+   ],
+   "merge_policy": "单件直推（tools/ 新增件：零撞号已核；判据只增拦截，禁放宽）",
+   "ledger": "账本/阶段欠账台账.md D-150 行",
+   "mem_budget_g": 1,
+   "state": "queued",
+   "depends_on": [],
+   "env_precondition": "python3≥3.10；selftest 走夹具不触网、不读活体 token"
+  },
+  {
+   "task_id": "w11-d165-timer-active-gate",
+   "title": "D-165 机制激活态门：tools/timer-active-recon-gate.py＋tools/timer-expected-state.json（systemctl is-enabled/is-active 实读≡册，不符⇒红点名；disabled 须带 reason+expiry 登记；现势实例 jit-broker-renew.timer 在码 disabled——启用决策属运营者窗，本锚只登记门本体）",
+   "debt": "D-165",
+   "async": true,
+   "channel": "bot-lane",
+   "allowed_paths": [
+    "tools/timer-active-recon-gate.py",
+    "tools/timer-expected-state.json"
+   ],
+   "acceptance": [
+    "test ! -e tools/timer-active-recon-gate.py || python3 -m py_compile tools/timer-active-recon-gate.py → rc=0",
+    "test ! -e tools/timer-active-recon-gate.py || python3 -I tools/timer-active-recon-gate.py --selftest → rc=0",
+    "test ! -e tools/timer-expected-state.json || jq -e . tools/timer-expected-state.json → rc=0"
+   ],
+   "merge_policy": "单件直推（tools/ 新增件：零撞号已核；判据只增拦截）",
+   "ledger": "账本/阶段欠账台账.md D-165 行",
+   "mem_budget_g": 0,
+   "state": "queued",
+   "depends_on": [],
+   "env_precondition": "沙箱机舱：bash＋python3＋systemctl 夹具；selftest 不触活体 gov"
+  }
+ ],
+ "next_wave_seed": [
+  "D-168 豁免锚内容指纹升级（tools/mirror-scan-allowlist.json 增内容指纹列＋tools/mirror-disclose.sh 行号+指纹双判；对齐 #2 2026-12-05 到期复审）",
+  "D-153 公开面全量复扫排程腿（tools/mirror-disclose.sh --full＋tools/mirror-rescan-recon-gate.py 新鲜度断言；2026-12-05 硬期限）",
+  "D-142 sync 新鲜度腿（tools/sync-fresh-recon-gate.py＋tools/factory-watch.py 增 sync 段；factory_obs 投影滞后信号）",
+  "D-148 recon 门三向逐行 diff 常驻腿（tools/ledger-face-recon-gate.py 扩腿；与 #135 D-123 owner 窗联动，仓本滞后腿不重复登记）",
+  "D-171/D-173/D-174 已锁 wave-12/13-15 勿重复立项；planner-run-failing(run#248)/quality_stale 待在 D-171 修复后复评"
+ ]
+}
