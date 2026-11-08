@@ -1326,6 +1326,42 @@ jobs:
               "4. 「→ rc=N」尾标硬形制与 §3.2/M-1 不变；本区是模板好例（软指引），禁当新\n"
               "   机检项——step 08/08b/08c 校验集零改动。\n"
           )
+
+          # ── D-173（factory-os#205）：生成面三纪律段（done 锚过滤 · 禁独立 closeout
+          # 卡 · 台账卡 depends_on）——append-only 注入（D-171 同形：母本
+          # planner-prompt.md 在治理仓不在本卡 allowed_paths ⇒ 组装面注入）。
+          # 红案=run 42435229215（2026-11-08T01:40Z）08c 实质质量门 red：SUB-2
+          # w11-d172-anchor-recon 为 D-172 再产卡（factory-os#198 近 7 天已合线，
+          # 其 debt 锚=done）；SUB-3 台账路径（账本/阶段欠账台账.md）与在飞
+          # #199/#201 交集非空且未声明续作。门拦得对（判定面零改动），修生成面：
+          # 让 planner 不再产这类卡。台账回填正形=PR #161 先例（施工工人随合线
+          # PR 同树 append 收卷对账段，diff 单件）。判定面零改动：08/08b/08c
+          # 校验集一字不动，本段只进提示词（软指引，§四.4/D-171 同族，禁当新
+          # 机检项）。
+          prompt += (
+              "\n\n## 八、生成面三纪律：done 锚过滤 · 禁独立 closeout 卡 · 台账卡 "
+              "depends_on（D-173 · factory-os#205；台账回填先例=PR #161 收卷对账段）\n"
+              "\n"
+              "组 manifest 前对每张候选卡逐条过下列三纪律，违者该卡不产；候选全违\n"
+              "⇒ 空波合法（cards=[] 须附 preflight 缺口说明，既有形制不变）：\n"
+              "1. done 锚过滤：近 7 天已合线（state:merged）卡的 debt 锚一律视为\n"
+              "   done——禁为其再产任何形态卡（含 closeout/收卷/recon/复盘/backfill/\n"
+              "   台账回填/观察类）。台账行状态列滞后不是新卡理由。红案：run\n"
+              "   42435229215 08c SUB-2（w11-d172-anchor-recon 为 D-172 再产卡，\n"
+              "   factory-os#198 近 7 天已合线）。\n"
+              "2. 禁独立 closeout 卡：账本/阶段欠账台账.md 的行回填/收卷对账，由施\n"
+              "   工工人随自己卡的合线 PR 同树完成（先例=PR #161：diff 单件，仅台账\n"
+              "   行 append 收卷对账段，不另开卡）。planner 禁产 task_id 含\n"
+              "   closeout/ledger-close/收卷 类的独立卡。\n"
+              "3. 台账卡 depends_on 纪律：allowed_paths 含 账本/阶段欠账台账.md 的\n"
+              "   卡，同波 manifest 至多一张；确需多张时，每张须在 depends_on 显式\n"
+              "   声明链（三形之一：repo#issue 号／台账锚号／同波 task_id）。红案：\n"
+              "   run 42435229215 08c SUB-3（台账路径与在飞 #199/#201 交集非空且未\n"
+              "   声明续作）。\n"
+              "4. 本段是生成面软指引（§四.4/D-171 同族），禁当新机检项——step\n"
+              "   08/08b/08c 判定面零改动（SUB-2/SUB-3 拦得对，本纪律是让生成端少\n"
+              "   产违卡、不是放松门）；manifest M-1 形制与既有字段集零增减。\n"
+          )
           with open("planner-inputs.json", encoding="utf-8") as f:
               inputs = json.load(f)
 
