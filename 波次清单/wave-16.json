@@ -1,0 +1,102 @@
+{
+ "schema": "af.wave-manifest.v1",
+ "wave": "wave-16",
+ "created": "2026-11-09T01:45:44+0800",
+ "policy": "30-工件/波次自转器-20261106/制度-v1.md",
+ "budgets": {
+  "anolis_mem_cap_g": 45,
+  "local_mem_cap_g": 3,
+  "anolis_concurrency": 4
+ },
+ "base_sha": "327ed120e870119b5ccc893a3d267c1975f7e45c",
+ "preflight": [
+  "占用核：D-145 / D-151 / D-153 均不在板 open 卡（occupied_debt_anchors）与历史非终态卡（non_terminal_cards）内，且台账锚 done=false——三锚可立项，无重复立项。",
+  "依赖串行：D-145 与在飞历史卡 D-157（w11-d157-negctrl-gate）文件集相交于 tools/test-quota-gate-criteria-parity.py，与 w12 历史卡 D-154 / D-155（w12-d154-quota-fresh-gate、w12-d155-projection-segments）相交于 tools/factory-status-push.py——已以 depends_on 显式串行，禁同路径并发。",
+  "基线核：base_sha 取 allowed_base_shas 唯一值 327ed120e870119b5ccc893a3d267c1975f7e45c；本波三卡验收命令全部为钉桩树上开工前即成立形态（既有件存在断言／新建件缺席断言），施工后自检（selftest/夹具/负例）的 rc 读数要求写入合并条件，留 PR 证据面（D-189）。",
+  "范围核：本波无卡片触及 all-gates.sh / gate-pins.list / 判据钉桩 / CODEOWNERS 锁定路径；无判官/门禁/判据件的修改类卡。D-151 为新增件，按 D-186 以 negtest- 前缀命名（避让 M-4 判官关键词族），涉判官邻接，合线前需判官面复核。",
+  "积压核：在飞 6（portal + wave-13/15 五卡），历史非终态 queued 卡 30+ 张（wave-10..15 未派发）——本波只产 3 张孤立新增件卡，不重复已占锚、不加剧积压；本波选锚无 cargo 需求，故无 anolis-build 卡（anolis 容量 0/45，local-api 2/3，bot-lane 1 卡 0G）。",
+  "观测面登记：factory_obs 告警均落在执行器/宿主面（runner 在线性、磁盘水位、代理探活、planner 跑批），无仓内债锚可承接——留观测项由运营者窗处理，不硬凑卡；观测读数不入 manifest 字段（advisory 边界）。"
+ ],
+ "cards": [
+  {
+   "task_id": "w16-d145-step-leg-parity",
+   "title": "D-145 step 腿判定同源化＋resource-rules 注册表（判据=资源负载均衡与调度域-SOTA宪章-v1.md:168 R-10②③④、:171；只许变严）",
+   "debt": "D-145",
+   "async": false,
+   "channel": "local-api",
+   "allowed_paths": [
+    "tools/test-quota-gate-criteria-parity.py",
+    "tools/factory-status-push.py",
+    "账本/resource-rules.jsonl"
+   ],
+   "acceptance": [
+    "test -f tools/test-quota-gate-criteria-parity.py → rc=0",
+    "test -f tools/factory-status-push.py → rc=0",
+    "test -d 账本 → rc=0",
+    "test ! -f 账本/resource-rules.jsonl → rc=0"
+   ],
+   "merge_policy": "单件直推（tools/ 两件扩腿＋账本注册表新增随 PR 同树；只许变严；合线前施工后 parity/投影夹具 rc 读数留 PR 证据面）",
+   "ledger": "账本/阶段欠账台账.md D-145 行",
+   "mem_budget_g": 1,
+   "depends_on": [
+    "D-154",
+    "D-155",
+    "D-157"
+   ],
+   "state": "queued",
+   "repo": "CloudCrane-Software/factory-os",
+   "env_precondition": "本机 API 轨；禁 cargo；仅 shell 断言与 Python 夹具",
+   "fast_tests": [
+    "test-quota-gate-criteria-parity.py"
+   ]
+  },
+  {
+   "task_id": "w16-d151-negtest-chain-suite",
+   "title": "D-151 判分链负例套件阶段一·套件本体（ESC-13；六例素材取重考 Q10；新件按 D-186 以 negtest- 前缀命名，涉判官邻接，合线前需判官面复核）",
+   "debt": "D-151",
+   "async": true,
+   "channel": "bot-lane",
+   "allowed_paths": [
+    "tools/negtest-chain-suite.py"
+   ],
+   "acceptance": [
+    "test ! -f tools/negtest-chain-suite.py → rc=0",
+    "test -d tools → rc=0"
+   ],
+   "merge_policy": "单件直推（tools/ 新增件；合线前施工后 selftest＋六例负例逐例 rc 读数留 PR 证据面；涉判官邻接需判官面复核）",
+   "ledger": "账本/阶段欠账台账.md D-151 行",
+   "mem_budget_g": 0,
+   "depends_on": [],
+   "state": "queued",
+   "repo": "CloudCrane-Software/factory-os",
+   "env_precondition": "外部沙箱；仓内全量 clone；判官件只读引用不修改；活体零触碰（临时副本）"
+  },
+  {
+   "task_id": "w16-d153-mirror-rescan-gate",
+   "title": "D-153 公开面全量复扫新鲜度门阶段一·门本体（ESC-15；豁免首硬期限 2026-12-05，关联 issue #2；mirror-disclose.sh --full 扩展另卡）",
+   "debt": "D-153",
+   "async": false,
+   "channel": "local-api",
+   "allowed_paths": [
+    "tools/mirror-rescan-recon-gate.py"
+   ],
+   "acceptance": [
+    "test ! -f tools/mirror-rescan-recon-gate.py → rc=0",
+    "test -d tools → rc=0"
+   ],
+   "merge_policy": "单件直推（tools/ 新增门本体；不触 mirror-disclose.sh 门禁扫描件；合线前施工后 fresh/age>7d/临期三态夹具 rc 读数留 PR 证据面）",
+   "ledger": "账本/阶段欠账台账.md D-153 行",
+   "mem_budget_g": 1,
+   "depends_on": [],
+   "state": "queued",
+   "repo": "CloudCrane-Software/factory-os",
+   "env_precondition": "本机 API 轨；禁 cargo；夹具三态自检在施工后证据段执行"
+  }
+ ],
+ "next_wave_seed": [
+  "D-153 阶段二：tools/mirror-disclose.sh --full 模式与读数件落地（门禁扫描件修改，需判官面复核路径后立卡）",
+  "D-169/D-170 bench 多角色布局对账与派发面留痕（先核 impl-notes.md 与派发面路径现势、按 D-186 避让判官面命名后立卡）",
+  "D-143 gov 宿主垫片 fail-loud（运营者部署窗；仓内正本缺位，先定镜像件形态）",
+  "D-124 三级克隆兜底 composite action（涉 .github/workflows/gates.yml 门禁件，需判官面复核路径后立卡）"
+ ]
+}
