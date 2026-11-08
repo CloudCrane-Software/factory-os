@@ -1,0 +1,105 @@
+{
+ "schema": "af.wave-manifest.v1",
+ "wave": "wave-15",
+ "created": "2026-11-09T01:22:00+0800",
+ "policy": "30-工件/波次自转器-20261106/制度-v1.md",
+ "budgets": {
+  "anolis_mem_cap_g": 45,
+  "local_mem_cap_g": 3,
+  "anolis_concurrency": 4
+ },
+ "base_sha": "bbb5f6e0579e24035a8cd04c4d60550753a677e0",
+ "preflight": [
+  "占用核：本波四债号（D-128/D-146/D-149/D-156）逐卡对照板面已占锚与历史非终态卡，均未被占用，且台账 waves 为空——无锚复解、无 done 锚重开。",
+  "通道核：local-api 2 卡 Σmem=2G ≤3G；bot-lane 2 卡 async=true 且 mem=0；本波无 anolis-build 卡（并发占用 0/4）。",
+  "基线核：base_sha 取 allowed_base_shas 唯一值；本波全部卡 allowed_paths 为 tools/ 下基线树缺席的新件，验收按创建卡口径取「目标确系待建」＋「工具体/台账正本在场」事实系，全部命令在钉桩树上开工前即可判定。",
+  "观测面（advisory）：已过一遍，运行面与机器面缺口无对应开放债锚，本波不立观测修复卡，留运营者窗处理，禁因观测缺席或在场改变本波输出形态。",
+  "缺口说明：本波不产独立收卷/台账回填卡（台账行随各卡合线 PR 同树完成）；未取锚中 D-127 须随在飞门户批顺带、D-143 属 gov 宿主面、D-151 族涉邻接命名纪律，均本波不取。",
+  "台账面：本波无卡 allowed_paths 含 账本/阶段欠账台账.md，不存在同波台账路径交集。"
+ ],
+ "cards": [
+  {
+   "task_id": "w15-d146-telemetry-fresh-gate",
+   "title": "D-146 telemetry push 新鲜度门（阶段一·门本体）：新增 tools/telemetry-fresh-recon-gate.py，fresh/amber/red 三态夹具；哨兵接线随下一批",
+   "debt": "D-146",
+   "async": false,
+   "channel": "local-api",
+   "allowed_paths": [
+    "tools/telemetry-fresh-recon-gate.py"
+   ],
+   "acceptance": [
+    "test ! -f tools/telemetry-fresh-recon-gate.py → rc=0",
+    "test -d tools → rc=0",
+    "test -f 账本/阶段欠账台账.md → rc=0"
+   ],
+   "merge_policy": "单件直推（新增 tools/ 件，门禁面与判据件零改动）；施工后须跑 python3 -I tools/telemetry-fresh-recon-gate.py --selftest 三态夹具并在 PR 证据面留逐条 rc 读数，收卷评分消费之",
+   "ledger": "台账 D-146 行（账本/阶段欠账台账.md，锚补全段：新鲜度门本体；哨兵 telemetry 段接线另立跟进卡）",
+   "mem_budget_g": 1,
+   "depends_on": [],
+   "state": "queued"
+  },
+  {
+   "task_id": "w15-d149-netmap-assert-gate",
+   "title": "D-149 第三腿 netmap 断言门（阶段一·门本体）：新增 tools/netmap-assert-recon-gate.py，一致→rc=0／分叉→rc=1／第三腿缺席→rc=2 带注记禁裸绿",
+   "debt": "D-149",
+   "async": true,
+   "channel": "bot-lane",
+   "allowed_paths": [
+    "tools/netmap-assert-recon-gate.py"
+   ],
+   "acceptance": [
+    "test ! -f tools/netmap-assert-recon-gate.py → rc=0",
+    "test -d tools → rc=0"
+   ],
+   "merge_policy": "单件直推（新增 tools/ 件；在役检测件零触碰）；施工后须跑 python3 -I tools/netmap-assert-recon-gate.py --selftest 三态夹具（缺席腿禁裸绿）并在 PR 证据面留逐条 rc 读数；gov cron 消费接线属宿主面留运营者窗",
+   "ledger": "台账 D-149 行（账本/阶段欠账台账.md，锚补全段：第三腿 netmap 断言；判据件与检测件盘面正本在宿主侧）",
+   "mem_budget_g": 0,
+   "depends_on": [],
+   "state": "queued"
+  },
+  {
+   "task_id": "w15-d156-enforced-limit-gate",
+   "title": "D-156 enforced-limit 断言门（阶段一·门本体；判据=资源负载均衡与调度域-SOTA宪章-v1.md:136 R-05 与 :177-178②「降规格的规格必须是 enforced limit」）：新增 tools/enforced-limit-recon-gate.py",
+   "debt": "D-156",
+   "async": true,
+   "channel": "bot-lane",
+   "allowed_paths": [
+    "tools/enforced-limit-recon-gate.py"
+   ],
+   "acceptance": [
+    "test ! -f tools/enforced-limit-recon-gate.py → rc=0",
+    "test -d tools → rc=0"
+   ],
+   "merge_policy": "单件直推（新增 tools/ 件）；施工后须跑 python3 -I tools/enforced-limit-recon-gate.py --selftest（一致→rc=0／失配→rc=1／不可证→rc=2 fail-closed）并在 PR 证据面留逐条 rc 读数；计费档真读腿随批接线，与余量预检卡分属两事不并吞",
+   "ledger": "台账 D-156 行（账本/阶段欠账台账.md，锚补全段；判据锚=资源负载均衡与调度域-SOTA宪章-v1.md:136、:177-178②）",
+   "mem_budget_g": 0,
+   "depends_on": [],
+   "state": "queued"
+  },
+  {
+   "task_id": "w15-d128-sentinel-common",
+   "title": "D-128 哨兵公共件抽取（阶段一·单源件落盘）：新增 tools/sentinel-common.py，六函数 selftest；两哨兵改 import 待双读一致后另卡",
+   "debt": "D-128",
+   "async": false,
+   "channel": "local-api",
+   "allowed_paths": [
+    "tools/sentinel-common.py"
+   ],
+   "acceptance": [
+    "test ! -f tools/sentinel-common.py → rc=0",
+    "test -d tools → rc=0",
+    "test -f 账本/阶段欠账台账.md → rc=0"
+   ],
+   "merge_policy": "单件直推（新增 tools/ 件；在役哨兵件零改动，禁在飞直改）；施工后须跑 python3 -I tools/sentinel-common.py --selftest 并在 PR 证据面留逐条 rc 读数；切换两哨兵 import 另立跟进卡（depends_on 本卡，先双读读数一致）",
+   "ledger": "台账 D-128 行（账本/阶段欠账台账.md，锚补全段：公共件单源抽取阶段一，切换阶段二另卡）",
+   "mem_budget_g": 1,
+   "depends_on": [],
+   "state": "queued"
+  }
+ ],
+ "next_wave_seed": [
+  "D-128 阶段二：两哨兵改 import 切公共件（须先满足双读读数一致，另立跟进卡 depends_on 本波阶段一卡）。",
+  "D-153 全量复扫排程腿：mirror-disclose.sh 增 --full 与新鲜度读数件同波并批（须核与在飞 D-164/D-166 文件集交集，入 depends_on 串行）。",
+  "D-145 step 腿判定同源化：先复核 tools/test-quota-gate-criteria-parity.py 与 factory-status-push.py 现势，再按改造类卡另立（验收取现势可证形态）。"
+ ]
+}
