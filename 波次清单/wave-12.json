@@ -1,0 +1,180 @@
+{
+ "schema": "af.wave-manifest.v1",
+ "wave": "wave-12",
+ "created": "2026-11-08T17:33:30+0800",
+ "policy": "30-工件/波次自转器-20261106/制度-v1.md",
+ "budgets": {
+  "anolis_mem_cap_g": 45,
+  "local_mem_cap_g": 3,
+  "anolis_concurrency": 4
+ },
+ "base_sha": "aab807339268b4a983546eff4262d05cae887cd7",
+ "preflight": [
+  "占用核：D-142/D-154/D-155/D-163/D-167 均不在 occupied_debt_anchors（空）与 non_terminal_cards；板面 in_flight_task_ids=['portal'] 无撞号",
+  "钉桩基线：base_sha=aab807339268b4a983546eff4262d05cae887cd7（allowed_base_shas 唯一值，逐字照抄）",
+  "factory_obs red：sentinel:anolis:runner-offline（Runner.Listener 缺席：gpu，连续 12 轮）＋sentinel:benji-obs:runner-offline——本波不派 anolis-build 卡（0 张），待 runner 恢复复核",
+  "factory_obs red：sentinel:benji-obs:planner-starved（streak=0 last_success=None）——规划环主通道按 quota_status=tokenrhythm/deepseek-v4.1-flash-1017；GLM-5.3/MiniMax-M3.1-Flash 仍禁、start-plan/offpeak/highspeed 账户不派",
+  "factory_obs amber：anolis-root-disk / 86%>80%、gh_rate_low remaining=0、gh-projection-stale——避免 anolis 重件；板面/配额读数按派发时点复核，D-154/D-155 直接消化投影滞后信号",
+  "文件交核：D-154 与 D-155 同触 tools/factory-status-push.py，已用 depends_on 串行（w12-d154-quota-fresh-gate → w12-d155-projection-segments）；其余卡文件集无交",
+  "台账/收卷纪律：本波无 allowed_paths 含 账本/阶段欠账台账.md 的卡；无 task_id 含 closeout/ledger-close/收卷 的独立卡",
+  "quality 回流自检（advisory）：全卡 acceptance 均带 → rc=N、allowed_paths 非空、depends_on 仅引同波 task_id、标题带 file:line/节证据锚；不复现 top_failure_modes"
+ ],
+ "cards": [
+  {
+   "task_id": "w12-d155-projection-segments",
+   "title": "[/factory 投影分段门] tools/factory-status-push.py 增 coverage/forecast 段（宪章资源域 v1 R-21②③④ :253 / R-22④⑤ :259/:262；forecast 未建显 unknown 禁数值结论）",
+   "repo": "CloudCrane-Software/factory-os",
+   "debt": "D-155",
+   "async": false,
+   "channel": "local-api",
+   "allowed_paths": [
+    "tools/factory-status-push.py"
+   ],
+   "acceptance": [
+    "python3 -m py_compile tools/factory-status-push.py → rc=0",
+    "python3 -I tools/factory-status-push.py --selftest → rc=0",
+    "python3 -I tools/factory-status-push.py --selftest --forecast-numeric-neg → rc=1"
+   ],
+   "env_precondition": "本机 API 轨：python3 ≥3.11；无 cargo；仅写 tools/factory-status-push.py；代理环境变量不注入",
+   "merge_policy": "merge-check 范式（显式 refspec 取回；tools/ 生产件改前 .bak＋钉桩重锚）",
+   "ledger": {
+    "rows": [
+     {
+      "file": "账本/阶段欠账台账.md",
+      "row_key": "D-155",
+      "evidence": "锚补全：/factory 投影 coverage/forecast 分段门（R-21②③④ :253；R-22④⑤ :259/:262）"
+     }
+    ]
+   },
+   "mem_budget_g": 1,
+   "state": "queued"
+  },
+  {
+   "task_id": "w12-d154-quota-fresh-gate",
+   "title": "[/factory 配额断供灯] tools/quota-fresh-recon-gate.py 新增＋tools/factory-status-push.py 投影段（宪章资源域 v1 R-23③ :265、差距 B :266；quota.json mtime>600s⇒红禁显零/沿用旧值）",
+   "repo": "CloudCrane-Software/factory-os",
+   "debt": "D-154",
+   "async": false,
+   "channel": "local-api",
+   "allowed_paths": [
+    "tools/quota-fresh-recon-gate.py",
+    "tools/factory-status-push.py"
+   ],
+   "acceptance": [
+    "python3 -m py_compile tools/factory-status-push.py → rc=0",
+    "python3 -I tools/quota-fresh-recon-gate.py --selftest → rc=0",
+    "python3 -I tools/quota-fresh-recon-gate.py --selftest --stale-600s → rc=1"
+   ],
+   "env_precondition": "本机 API 轨：python3 ≥3.11；无 cargo；读 quota.json 新鲜度；不派 anolis",
+   "merge_policy": "merge-check 范式（显式 refspec 取回；依赖 w12-d155 合线后 rebase；改前 .bak）",
+   "ledger": {
+    "rows": [
+     {
+      "file": "账本/阶段欠账台账.md",
+      "row_key": "D-154",
+      "evidence": "锚补全：quota.json mtime>600s 显红不显零（R-23③ :265；差距 B :266）"
+     }
+    ]
+   },
+   "mem_budget_g": 1,
+   "depends_on": [
+    "w12-d155-projection-segments"
+   ],
+   "state": "queued"
+  },
+  {
+   "task_id": "w12-d163-bao-policy-inventory",
+   "title": "[bao 策略面 inventory 门] tools/bao-policy-inventory-recon-gate.py 新增（bao policy list 实读集≡登记册；差集点名；状态/openBao.md §7 登记权威面只登记不改）",
+   "repo": "CloudCrane-Software/factory-os",
+   "debt": "D-163",
+   "async": false,
+   "channel": "local-api",
+   "allowed_paths": [
+    "tools/bao-policy-inventory-recon-gate.py"
+   ],
+   "acceptance": [
+    "python3 -I tools/bao-policy-inventory-recon-gate.py --selftest → rc=0",
+    "python3 -I tools/bao-policy-inventory-recon-gate.py --selftest --diff-fixture → rc=1",
+    "python3 -I tools/bao-policy-inventory-recon-gate.py --live → rc=1"
+   ],
+   "env_precondition": "gov 宿主后端手术：python3 ≥3.11；只读 bao policy list；单卡 ≤2G；不写登记权威面",
+   "merge_policy": "单件直推（新增 tools/ 件；改前零撞号核；无既有门禁件改动）",
+   "ledger": {
+    "rows": [
+     {
+      "file": "账本/阶段欠账台账.md",
+      "row_key": "D-163",
+      "evidence": "锚补全：bao policy list 实读 32 vs 登记 26、六条差集点名；权威面=状态/openBao.md §7"
+     }
+    ]
+   },
+   "mem_budget_g": 1,
+   "state": "queued"
+  },
+  {
+   "task_id": "w12-d142-sync-fresh-gate",
+   "title": "[sync 新鲜度腿] tools/sync-fresh-recon-gate.py 新增＋tools/factory-watch.py 增 sync 段（sync-log 末次成功拍 age>40min⇒amber / >2h⇒red；阈值沿用 40min/2h 先例）",
+   "repo": "CloudCrane-Software/factory-os",
+   "debt": "D-142",
+   "async": true,
+   "channel": "bot-lane",
+   "allowed_paths": [
+    "tools/sync-fresh-recon-gate.py",
+    "tools/factory-watch.py"
+   ],
+   "acceptance": [
+    "python3 -m py_compile tools/factory-watch.py → rc=0",
+    "python3 -I tools/sync-fresh-recon-gate.py --selftest → rc=0",
+    "python3 -I tools/sync-fresh-recon-gate.py --selftest --age-2h → rc=1"
+   ],
+   "env_precondition": "外部沙箱 bot-lane：python3 ≥3.11；可读仓内 30-工件/夜轨C3-20261107/sync-log.md；无本机 cargo 依赖",
+   "merge_policy": "单件直推（新增 gate 件＋tools/factory-watch.py 改前 .bak；沙箱内跑夹具）",
+   "ledger": {
+    "rows": [
+     {
+      "file": "账本/阶段欠账台账.md",
+      "row_key": "D-142",
+      "evidence": "锚补全：sync-log 末次成功拍 age>40min⇒amber、>2h⇒red；cron.log ledger-sync FAIL 行⇒当拍升级行"
+     }
+    ]
+   },
+   "mem_budget_g": 0,
+   "state": "queued"
+  },
+  {
+   "task_id": "w12-d167-stdin-contract-gate",
+   "title": "[运维封装件 stdin 契约门] tools/wrapper-stdin-recon-gate.py 新增（垫片/ssh 非交互调用显式关闭 stdin；附录 B 规避形态；reaper.sh ssh 无 -n 吞账本第二行前史）",
+   "repo": "CloudCrane-Software/factory-os",
+   "debt": "D-167",
+   "async": true,
+   "channel": "bot-lane",
+   "allowed_paths": [
+    "tools/wrapper-stdin-recon-gate.py"
+   ],
+   "acceptance": [
+    "python3 -I tools/wrapper-stdin-recon-gate.py --selftest → rc=0",
+    "python3 -I tools/wrapper-stdin-recon-gate.py --selftest --swallow-stdin → rc=1"
+   ],
+   "env_precondition": "外部沙箱 bot-lane：python3 ≥3.11；bash；只读 tools/ 与 gov 垫片静态件；不执行生产脚本",
+   "merge_policy": "单件直推（新增 tools/ 件；改前零撞号核）",
+   "ledger": {
+    "rows": [
+     {
+      "file": "账本/阶段欠账台账.md",
+      "row_key": "D-167",
+      "evidence": "锚补全：垫片/ssh 循环族非交互调用显式关闭 stdin；heredoc 管道冒烟剩余行完整执行"
+     }
+    ]
+   },
+   "mem_budget_g": 0,
+   "state": "queued"
+  }
+ ],
+ "next_wave_seed": [
+  "D-162 登记面↔盘面对账巡检（/etc/bao/root-token 簿记漂移）——与本波 D-163 同族",
+  "D-164 token 文件全集对账门（/etc/opch-gov/bao-issuer.token 清册外第 8 件）",
+  "D-146 telemetry push 新鲜度门＋本波 D-142 sync 新鲜度门合流校准（40min/2h 阈值统一）",
+  "D-169/D-170 bench 多角色契约与泄题门（SPEC §二布局对账、派发相 dispatch-trace）",
+  "D-160（台账 wave-12 归属）待内容复核后拆卡——本波不凭印象立项"
+ ]
+}
