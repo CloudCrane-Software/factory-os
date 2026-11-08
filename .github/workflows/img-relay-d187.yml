@@ -1,0 +1,46 @@
+# D-187 镜像预拉中继腿（2026-11-08 · 裁决 #41）
+# 背景：swev astropy 六实例判分镜像 anolis 不在盘 5 件；DaoCloud 白名单拒拉（ESC-41）、
+#       1ms.run 匿名 blob 通道收口（UNAUTHORIZED）、本网双 mihomo 机场订阅全灭（#39 系）。
+# 路线：GitHub 托管 runner 有国际出口 ⇒ 从 Docker Hub 正源拉取（docker pull 自带
+#       digest 校验）→ docker save | zstd → artifact；anolis 经 GitHub CDN 直收（runner
+#       通道已证可达）。溯源链=正源拉取＋逐腿 image Id 留档＋anolis 侧 load 后 Id 比对。
+# 形制：workflow_dispatch 专用（禁自动触发）；公开仓 included 配额（运营者 2026-11-08 确认）。
+name: img-relay-d187
+on:
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  relay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        inst: ['14539', '14508', '14598', '14369', '14309']
+    steps:
+      - name: 拉取判分镜像（Docker Hub 正源）
+        run: |
+          set -euo pipefail
+          IMG="swebench/sweb.eval.x86_64.astropy_1776_astropy-${{ matrix.inst }}:latest"
+          docker pull "$IMG"
+          docker image inspect --format '{{.Id}}' "$IMG" > /tmp/id.txt
+          docker image inspect --format 'arch={{.Architecture}} size={{.Size}}' "$IMG" >> /tmp/id.txt
+          cat /tmp/id.txt
+      - name: save｜zstd
+        run: |
+          set -euo pipefail
+          IMG="swebench/sweb.eval.x86_64.astropy_1776_astropy-${{ matrix.inst }}:latest"
+          docker save "$IMG" | zstd -T0 -6 -q -o /tmp/img.tar.zst
+          ls -l /tmp/img.tar.zst
+          sha256sum /tmp/img.tar.zst > /tmp/img.tar.zst.sha256
+      - name: 上传（留存 3 天，中继即弃）
+        uses: actions/upload-artifact@v4
+        with:
+          name: img-relay-d187-${{ matrix.inst }}
+          path: |
+            /tmp/img.tar.zst
+            /tmp/img.tar.zst.sha256
+            /tmp/id.txt
+          retention-days: 3
+          if-no-files-found: error
