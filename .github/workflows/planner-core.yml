@@ -3867,6 +3867,7 @@ jobs:
         if: steps.quota.outputs.plan_allowed == 'true' && steps.validate.outputs.outcome == 'plan' && !inputs.dry_run
         env:
           WAVE: ${{ steps.validate.outputs.wave }}
+          PLANNER_MERGE_PAT: ${{ secrets.MERGE_PAT }}   # 建卡腿 PAT（D-172）：POST /issues 鉴权（声明名 MERGE_PAT ⇐ repo secret PLANNER_MERGE_PAT，同 09b 合并腿一源；禁回落 GITHUB_TOKEN）
         run: |
           set -euo pipefail
           mkdir -p issues-out
@@ -3964,12 +3965,45 @@ jobs:
             fi
           done
 
+          # ── 建卡腿鉴权面（D-172 · 2026-11-08）：POST /issues 改走 repo
+          #    secret PLANNER_MERGE_PAT（feasy898 repo-only PAT，openBao 同源），
+          #    headerfile 形态=裁 10 09b 段同款：PAT 进 600 临时文件、curl
+          #    -H @file、用后 shred——禁 argv/回显/残留。PAT 缺席 ⇒ fail-closed
+          #    （禁回落 GITHUB_TOKEN）；http 非 201 ⇒ fail-loud 留运营者（禁假绿）。
+          #    待建=0 时零写 API，无需钥匙即诚实绿（板已在飞跳过语义不受影响）。
+          #    证据：run 42430785779 待建 3 → 已建 0 且 success——jq 顶层数组
+          #    直索引错误发生在 process substitution 内被吞，循环空转零建
+          #    （fail-open 本体）；下方 created<待建 硬红即兜此链。──
+          todo_n=$(jq 'length' issues-todo.json)
           : > issues-created.log
-          while IFS=$'\t' read -r tid ttl bf; do
-            url=$(gh issue create --repo "${ORG}/${BOARD_REPO}" --title "$ttl" --body-file "$bf" \
-                    --label wave --label state:queued)
-            echo -e "${tid}\t${url}" >> issues-created.log
-          done < <(jq -r '[.task_id, .title, .body_file] | @tsv' issues-todo.json)
+          if [ "${todo_n}" -gt 0 ]; then
+            if [ -z "${PLANNER_MERGE_PAT:-}" ]; then
+              echo "PLANNER_MERGE_PAT 缺席而待建=${todo_n}——建卡鉴权无从配置，fail-closed 判红（禁回落 GITHUB_TOKEN）" >&2
+              exit 12
+            fi
+            IC_HDR="$(mktemp)"; chmod 600 "$IC_HDR"
+            IC_RESP="$(mktemp)"; chmod 600 "$IC_RESP"
+            trap 'shred -u "$IC_HDR" "$IC_RESP" 2>/dev/null || rm -f "$IC_HDR" "$IC_RESP"' EXIT
+            printf 'Authorization: token %s\nAccept: application/vnd.github+JSON\nX-GitHub-Api-Version: 2022-11-28\n' \
+              "$PLANNER_MERGE_PAT" > "$IC_HDR"
+            # jq 顶层数组须显式 .[] 迭代（run 42430785779 实证直索引报错被吞）
+            while IFS=$'\t' read -r tid ttl bf; do
+              # gh -f 表单语义 ⇏ curl——jq -n 织 JSON（禁手拼转义）；同 09b
+              issue_json=$(jq -n --arg title "$ttl" --arg body "$(cat "$bf")" \
+                            '{title:$title,body:$body,labels:["wave","state:queued"]}')
+              ic_code=$(curl -s -o "$IC_RESP" -w '%{http_code}' -X POST -H "@$IC_HDR" \
+                        -H 'Content-Type: application/json' --data-binary "$issue_json" \
+                        "https://api.github.com/repos/${ORG}/${BOARD_REPO}/issues")
+              if [ "$ic_code" != "201" ]; then
+                echo "建卡失败（task_id=${tid}）http=${ic_code}——fail-loud 留运营者处置（禁假绿）" >&2
+                head -c 300 "$IC_RESP" >&2; echo >&2
+                exit 13
+              fi
+              echo -e "${tid}\t$(jq -r '.html_url' "$IC_RESP")" >> issues-created.log
+            done < <(jq -r '.[] | [.task_id, .title, .body_file] | @tsv' issues-todo.json)
+          else
+            echo "待建=0——零写 API，无建卡动作（诚实绿）"
+          fi
 
           python3 -I - <<'PY'
           import json, os
@@ -3983,6 +4017,14 @@ jobs:
               json.dump(created, f, ensure_ascii=False, indent=1)
           print("已建 Issue：%d" % len(created))
           PY
+
+          # 零假绿硬红（D-172）：created<待建 ⇒ 建卡腿未全成 ⇒ 本步判红。
+          # run 42430785779「待建 3 → 已建 0 且 success」即本检查要堵的假绿。
+          created_n=$(grep -c . issues-created.log || true)
+          if [ "${created_n}" -lt "${todo_n}" ]; then
+            echo "已建=${created_n} < 待建=${todo_n}——建卡腿未全成，硬红（零假绿）" >&2
+            exit 15
+          fi
 
       # ── 运行摘要：进 Actions Summary + artifact（禁含密钥）──
       - name: '11 · run 摘要（Actions Summary）'
