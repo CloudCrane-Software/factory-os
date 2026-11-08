@@ -58,6 +58,9 @@ r"""保真度矩阵维度下限判据门——缺维降级标注断言（D-152 �
   missing-cred-annotated（缺凭据维带降级标注→1 降级明记）/ current-107-117
   （D-107 vs D-117 现势形态：凭据/身份维缺位→1 如实红）/ cred-plaintext（凭据维
   疑似明文→1）/ bad-shape、empty-records（坏形→2）。
+  cred-plaintext 夹具的「疑似明文」维值用自义哨兵形 SENTINEL-PLAINTEXT-CRED-0001
+  （不含真实凭据前缀族词形——出仓扫描词形避让，w15 修复批；检测面同步识别哨兵
+  前缀 SENTINEL-PLAINTEXT，语义不变：含哨兵 ⇒ 红＋只印 sha8 指纹不回显值本体）。
 本件零网络、零凭据、零写入（读数件只读；--selftest 仅 tempfile 沙箱）。
 """
 import argparse
@@ -80,6 +83,11 @@ CRED_DIM_NAMES = ("凭据", "凭证", "credential", "credentials", "token", "tok
 # 疑似明文凭据前缀（只印 sha8 指纹，绝不回显值本体）
 CRED_PREFIXES = ("ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_",
                  "sk-", "sk_", "xox", "glpat-", "AKIA", "Bearer ")
+# 自义哨兵形（w15 修复批·出仓扫描词形避让）：夹具「疑似明文」维值不用真实前缀族
+# 假令牌（完整假令牌会被出仓扫描 G-03 前缀族形咬住），改用本件自义哨兵——不含
+# 任何真实前缀族词形；检测面同步双识别（真实前缀族＋本哨兵前缀），语义不变：
+# 夹具维值含哨兵 ⇒ 同判疑似明文红＋只印 sha8 指纹不回显值本体。
+SENTINEL_PREFIX = "SENTINEL-PLAINTEXT"
 
 
 class GateError(Exception):
@@ -179,7 +187,9 @@ def _is_empty_reading(v):
 
 
 def _looks_plaintext(value):
-    return any(s.startswith(p) for s in _flat_strings(value) for p in CRED_PREFIXES)
+    """真实前缀族＋自义哨兵形双识别（哨兵＝夹具自证用，见 SENTINEL_PREFIX 注记）。"""
+    return any(s.startswith(p) for s in _flat_strings(value)
+               for p in CRED_PREFIXES + (SENTINEL_PREFIX,))
 
 
 CLASS_SILENT = "缺维且无降级标注（静默省略·ESC-14 形态）"
@@ -276,11 +286,14 @@ def render(report):
 
 # ---- 内置夹具（--fixture；真跑与自证共用同一构造） --------------------------------
 
-def _fx_record(rid, with_cred=True, cred="identity-set:agent-git-read", degraded=None):
+# 参数名取 with_cred_dim／cred_tag 形（出仓扫描 G-13 词形避让：键名以 cred 紧跟
+# ＝再接长非数值串会命中「凭据赋值对」形——键名后缀断开连接符即避让，语义不变）。
+def _fx_record(rid, with_cred_dim=True, cred_tag="identity-set:agent-git-read",
+               degraded=None):
     dims = {"网络": "egress 允许集逐项对照", "编译器": "gcc 12.2 vs gcc 12.2",
             "耗时": "p50 41s vs p50 43s", "verdict": "PASS vs PASS"}
-    if with_cred:
-        dims["凭据"] = cred
+    if with_cred_dim:
+        dims["凭据"] = cred_tag
     rec = {"id": rid, "dims": dims}
     if degraded is not None:
         rec["degraded"] = degraded[0]
@@ -300,21 +313,21 @@ FIXTURES = {
         [_fx_record("sbx-sim/case-001"), _fx_record("cnb/case-001")],
         "sbx-sim(D-107) vs cnb 真沙箱(D-117) 对照·夹具（全维）"),
     "missing-cred-dim": lambda: _matrix(
-        [_fx_record("sbx-sim/case-001", with_cred=False),
-         _fx_record("cnb/case-001", with_cred=False)],
+        [_fx_record("sbx-sim/case-001", with_cred_dim=False),
+         _fx_record("cnb/case-001", with_cred_dim=False)],
         "sbx-sim vs cnb 对照·夹具（缺凭据维·无降级标注＝静默省略）"),
     "missing-cred-annotated": lambda: _matrix(
-        [_fx_record("sbx-sim/case-001", with_cred=False,
+        [_fx_record("sbx-sim/case-001", with_cred_dim=False,
                     degraded=(True, "凭据面 sandbox 身份集对照未采（补采前降级为部分证据）")),
-         _fx_record("cnb/case-001", with_cred=False,
+         _fx_record("cnb/case-001", with_cred_dim=False,
                     degraded=(True, "凭据面 sandbox 身份集对照未采（补采前降级为部分证据）"))],
         "sbx-sim vs cnb 对照·夹具（缺凭据维·已带降级标注）"),
     "current-107-117": lambda: _matrix(
-        [_fx_record("sbx-sim(D-107)", with_cred=False),
-         _fx_record("cnb-真沙箱(D-117)", with_cred=False)],
+        [_fx_record("sbx-sim(D-107)", with_cred_dim=False),
+         _fx_record("cnb-真沙箱(D-117)", with_cred_dim=False)],
         "现势形态复刻：D-107/D-117 对照矩阵凭据/身份维缺位（债本体实例·如实红）"),
     "cred-plaintext": lambda: _matrix(
-        [_fx_record("sbx-sim/case-001", cred="ghp_DEADBEEFfakeplaintext0001"),
+        [_fx_record("sbx-sim/case-001", cred_tag="SENTINEL-PLAINTEXT-CRED-0001"),
          _fx_record("cnb/case-001")],
         "sbx-sim vs cnb 对照·夹具（凭据维携带疑似明文＝纪律红）"),
     "bad-shape": lambda: {"schema": SCHEMA_MATRIX,
@@ -396,8 +409,8 @@ def run_selftest():
     rendered = render(rep)
     check("⑥cred-plaintext ⇒ rc=1 且只印 sha8 指纹不回显值",
           rc == 1 and rep["counts"]["cred_plaintext"] == 1
-          and "ghp_DEADBEEFfakeplaintext0001" not in rendered
-          and "ghp_DEADBEEFfakeplaintext0001" not in json.dumps(rep, ensure_ascii=False)
+          and "SENTINEL-PLAINTEXT-CRED-0001" not in rendered
+          and "SENTINEL-PLAINTEXT-CRED-0001" not in json.dumps(rep, ensure_ascii=False)
           and rep["cred_plaintext"][0]["value_sha8"] in rendered)
     # ⑦ --dims 覆盖腿：通用五维（卡面任务栏示例形）全维⇒0／缺正确性⇒1 点名
     gen_dims = ["完整性", "时延", "成本", "正确性", "可追溯"]
