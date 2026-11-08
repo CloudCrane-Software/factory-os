@@ -1,0 +1,51 @@
+{
+ "schema": "af.wave-manifest.v1",
+ "wave": "wave-17",
+ "created": "2026-11-09T04:45:00+0800",
+ "policy": "30-工件/波次自转器-20261106/制度-v1.md",
+ "budgets": {
+  "anolis_mem_cap_g": 45,
+  "local_mem_cap_g": 3,
+  "anolis_concurrency": 4
+ },
+ "base_sha": "0bece8956a439b13f5887f0342281b838514cf5b",
+ "preflight": [
+  "占用核：板 open 卡债号（occupied_debt_anchors=[D-145]，在飞 #247）与历史非终态 39 张卡所占债号，本波一律不再立项；唯一选锚 D-148 在两集中均不出现（§3.5.1）。",
+  "done 过滤（§八.1 从严）：wave 归属非空且已退出 non_terminal 的锚（D-160/D-169/D-170/D-171/D-172/D-173/D-174）疑似近 7 天已合线，视同 done，本波不产任何形态卡（含收卷/对账/复盘/回填）。",
+  "活口核：板 14 张 open、7 张 state:queued、5 张带 wave 标签；gh 投影剩余额度偏低（remaining=3，04:40 观测）——板面近况按低置信读，防把「投影滞后」当「板空」。",
+  "观测 red：anolis gpu Runner.Listener 缺席（连续 144/145 轮，runner_containers=0）⇒ anolis-build 派发容量受阻；本波 0 张 anolis-build 卡，D-148 走 local-api（mem=1G，单卡≤2G、Σlocal=1G≤3G 双闸内）。",
+  "观测 red/amber 留观不立项（无对应债锚）：benji-obs/anolis root 盘 86%>80%、egress-gw 认证探活异常、planner run 连续 3 次失败（streak=3）、planner 质量读数滞后 902s。",
+  "观测 stalled：factory-os#236（w13-d152-fidelity-matrix-gate，state:verifying 静默 4.5h）由既有卡续跑，同锚禁新开（§3.5.1 / §八.2）。",
+  "缺口不立项说明：D-129–D-141、D-176–D-182 与 RT-C4/RT-C7/OPS-1/DEB-8/RT-E31/RT-E32-ADMIT/RT-E204-M1/OBS-D5 在台账末 80 行无任务内容/期望件/验收口径补全段，按「宁可空转不可造假」不产卡；D-124 需改 .github/workflows 门禁面（只许只读核）、D-144/D-170 期望件落判官目录、D-127 锚内明示随 D-111 批勿单开、D-143 为 gov 宿主件且无对应通道、D-175 期望件为占位名，本波均不立项。",
+  "回评回流自检：逐卡对照近波高频失败模式（缺「→ rc=N」尾标 / 无证据锚 / depends_on 悬引用 / allowed_paths 缺席 / 无钉桩基线）——本波卡两条 acceptance 均带 rc 尾标、带 ESC-08① 锚与期望件坐标、allowed_paths 非空、depends_on 空数组、base_sha 取白名单唯一值。"
+ ],
+ "cards": [
+  {
+   "task_id": "w17-d148-ledger-threeway-leg",
+   "title": "[wave-17] D-148 ledger-face 三向逐行 diff 常驻腿：正本/仓本/规划环三本实读 sha256＋hunk 机器归因（ESC-08①；设计内投影入白名单，非白名单 hunk>0⇒红；仓本滞后腿仍由 D-123 #135 承载不并吞）——既有件 tools/ledger-face-recon-gate.py 扩腿（或与已落 tools/ledger-row-integrity-recon-gate.py 全行对账腿合流，卡面定）；完工须跑 --selftest（含白名单投影夹具）与注入差异负例（预期 rc=1 归因点名），逐条 rc 读数留 PR 证据面",
+   "debt": "D-148",
+   "async": false,
+   "channel": "local-api",
+   "allowed_paths": [
+    "tools/ledger-face-recon-gate.py",
+    "tools/ledger-row-integrity-recon-gate.py"
+   ],
+   "acceptance": [
+    "python3 -m py_compile tools/ledger-row-integrity-recon-gate.py → rc=0",
+    "grep -n 'D-148' 账本/阶段欠账台账.md → rc=0"
+   ],
+   "merge_policy": "单件直推（既有件扩腿；改前 .bak＋钉桩重锚；判据只许变严，禁放宽既有判定）",
+   "ledger": "账本/阶段欠账台账.md · D-148 行",
+   "mem_budget_g": 1,
+   "depends_on": [],
+   "state": "queued"
+  }
+ ],
+ "next_wave_seed": [
+  "anolis runner 恢复（ALERT #224 收口）后，wave-18 优先清 w11–w16 积压的 23 张排队卡（D-150/D-154/D-155/D-157/D-161–D-168 族），本波不重复立项。",
+  "D-124（gates.yml 内联兜底抽 composite action）须改门禁面，属 owner/判官批窗，planner 侧不产修改卡；D-171（planner closeout 验收模板）目标在治理母本仓，建议走治理仓 PR 而非波次卡。",
+  "若 D-169 经核确认尚未合线（本波按已合线从严过滤），可拆「SPEC §二 布局表↔编排器实盘名对账扫描件」独立创建卡，候选路径 tools/bench-layout-recon.py（开工前须核零撞号），判分相二选一收敛（F1）属设计裁定需运营者拍。",
+  "D-148 完工后三向 diff 白名单扩张须判官批 PR（先例 PR #121/#156 形制）；ESC-08② 仓本滞后腿仍归 D-123 #135。",
+  "观测面 runner-offline / root 盘 86% / planner-run-failing streak=3 属宿主与调度面，无债锚可立项；待 #224 收口后复评是否需要新立债行再排卡。"
+ ]
+}
