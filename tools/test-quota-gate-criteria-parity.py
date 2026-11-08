@@ -381,8 +381,31 @@ def main():
                 fail(f"G5b 调度器源码仍引用死面 {m}（调度侧不得依赖零消费者的本地闸/槽面）")
 
         # G6 负控（判别力自证）：修前快照必须违反 G1/G2/G4 的判据——否则本段是瞎的。
-        if not os.path.exists(_GOV_PRE_FIX):
-            fail(f"G6 负控件缺失 {_GOV_PRE_FIX}（闸面唯一性段失去判别力自证）")
+        # 件位解析改读登记册（D-157/ESC-19；登记册全文头注与解析门 docstring 为
+        # 权威说明：tools/negative-controls.list + tools/negative-control-recon-gate.py。
+        # 形制注记：本块以上区域对 2026-11-06 脱敏裁决钉桩（mirror-scan-allowlist
+        # 行钉 L210/L335）零行移——改动全部收在本块内，判官面行钉不漂）。
+        # 只许变严：旧判据=tools/ 具名件缺席即红；新增红面=册缺失/册不可解析/册无
+        # 该条目/任一现势位 sha256 失配；唯一新增绿面=在役位缺席而登记归档位在场且
+        # sha256 对账一致（ESC-19 正解：负控件被归档≠判别力丢失）。
+        ncrg = _load(os.path.join(_TOOLS, "negative-control-recon-gate.py"),
+                     "negative_control_recon_gate")
+        neg_list = os.path.join(_TOOLS, "negative-controls.list")
+        neg_name = "quota-governor.py.20261031-pre-RT-quotagate-dead.bak"
+        try:
+            neg_reg = ncrg.load_register(neg_list)
+        except ncrg.RegisterError as e:
+            fail(f"G6 负控件登记册不可证：{e}（fail-closed——判据只许变严，不因册缺而放行）")
+        neg_entry = next((e for e in neg_reg if e["name"] == neg_name), None)
+        if neg_entry is None:
+            fail(f"G6 负控件 {neg_name} 不在登记册 {neg_list}（册内 {len(neg_reg)} 条"
+                 "皆非本夹具依赖件——归档改名须同批更册，ESC-19 归档面规矩）")
+        neg_res = ncrg.resolve_entry(neg_entry, os.path.dirname(_TOOLS),
+                                     ncrg.ws_root_candidates(os.path.dirname(_TOOLS)))
+        if neg_res["verdict"] == "FOUND":
+            _GOV_PRE_FIX = neg_res["path"]
+        else:
+            fail(f"G6 负控件缺席点名：{neg_res['detail']}（闸面唯一性段失去判别力自证）")
         try:
             pre = _load(_GOV_PRE_FIX, "quota_governor_pre_fix")
         except Exception as e:  # noqa: BLE001
