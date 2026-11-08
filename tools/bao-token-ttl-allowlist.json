@@ -1,0 +1,142 @@
+{
+  "schema": "af.bao-token-ttl-allowlist.v1",
+  "updated": "2026-11-08",
+  "source": {
+    "card": "factory-os issue #216（wave-11 · D-150 openBao token TTL 面扫描门）",
+    "debt_row": "账本/阶段欠账台账.md D-150 行（2026-11-08 锚补全三要件）",
+    "escape_ledger": "30-工件/逃逸问题台账-20261108.md ESC-12（新门设计）＋ESC-36/D-164（第 8 件·串联注记）",
+    "inventory": "状态/openBao.md §6（2026-10-10 权威底本·7 件表）；rotation=裁19（裁决日志:24 轮换批，挂账运营者窗）"
+  },
+  "criterion": "explicit_max_ttl=0 且非 root/escrow 白名单 ⇒ 红（卡面判据正本，只增拦截禁放宽）。",
+  "semantics": {
+    "exempt": "class∈{root,escrow} 且 exempt=true 且未过 expires ⇒ 豁免（限时：expires=复审窗，过期即豁免失效须判官批 PR 重批）。",
+    "register_only": "class=scoped ⇒ 登记不豁免：在册件现势 explicit_max_ttl=0 仍逐条红点名（如实红）；绿只能来自轮换批逐件设 explicit_max_ttl>0（裁19 清偿）。expires=登记复审日（非轮换承诺日），过期点名升级『轮换登记逾期』，红绿判据不变。",
+    "out_of_register": "扫描命中而登记册无唯一同策略集（去 default）件 ⇒ 红点名『册外未登记』（D-164 文件全集对账门串联面）。",
+    "join_key": "policies_hint（去 default 排序）＝扫描件 policies 去 default 排序，精确相等且唯一才对上；display_name 仅作展示佐证。"
+  },
+  "notes": [
+    "sha8=token 值 sha256 前 8 位指纹（状态/openBao.md §6 在案），非凭据本身；accessor 指纹仅出现在扫描输出。",
+    "bao-issuer-token 系 gov 盘面件（/etc/opch-gov/bao-issuer.token），本批不取值不记指纹——sha8 如实留空，D-164 对账门串联补证。",
+    "jit-broker 的 9 条 jit/* 逐条名目系 2026-11-08 现盘实测补全（openBao.md §6 原记『jit-broker + 9 条 jit/*（共 10）』未枚举）。",
+    "本册只增登记/只收紧豁免：新增豁免（exempt=true）=放宽，须判官批 PR；scoped 转 escrow 类同宽，禁。"
+  ],
+  "entries": [
+    {
+      "name": "root-token",
+      "class": "root",
+      "kind": "root-token",
+      "exempt": true,
+      "path": "/opt/opch/secrets/root-token.age（age 密文）＋openbao-key-escrow.zip vault/root-token.age（gov 盘+本机双备份）",
+      "policies_hint": ["root"],
+      "sha8": null,
+      "sha8_note": "root 值 escrow 托管，本批不取值不记指纹（盘面无常驻 root 明文，状态/openBao.md §3）",
+      "reason": "root 永生为设计（escrow age 托管、无 TTL 自灭预期）——判据明文 root/escrow 白名单面；现盘另见第 2 件 root 面永生 token 时由扫描输出点名注记（对账缺口留痕，不判红）。",
+      "approved_by": "裁19（裁决日志:24）＋卡 #216（D-150 门件落地批 2026-11-08）",
+      "expires": "2027-02-08"
+    },
+    {
+      "name": "jit-broker-token",
+      "class": "scoped",
+      "kind": "broker-identity",
+      "exempt": false,
+      "path": "/opt/opch/secrets/jit-broker-token",
+      "policies_hint": ["jit-broker", "jit/bailian-cred", "jit/bill-pull", "jit/gate-decide", "jit/kv-read-credentials", "jit/meter-read", "jit/mq-gitea-cred", "jit/mq-write", "jit/session-write", "jit/zcode-obs"],
+      "sha8": "45c481e6",
+      "sha8_note": null,
+      "reason": "broker 身份 explicit_max_ttl=0 现势在册（openBao.md §6 行 1）；轮换批（裁19）批内设 TTL+轮换——登记不豁免，现势如实红，清偿后转绿。",
+      "approved_by": "裁19 挂账（运营者窗）；登记留痕=卡 #216（2026-11-08）",
+      "expires": "2026-12-08"
+    },
+    {
+      "name": "gate-decide-token",
+      "class": "scoped",
+      "kind": "scoped-token",
+      "exempt": false,
+      "path": "/opt/opch/secrets/gate-decide-token",
+      "policies_hint": ["jit/gate-decide"],
+      "sha8": "992dc764",
+      "sha8_note": null,
+      "reason": "在役 scoped token explicit_max_ttl=0 现势在册（openBao.md §6）；同上登记不豁免，轮换批清偿后转绿。",
+      "approved_by": "裁19 挂账（运营者窗）；登记留痕=卡 #216（2026-11-08）",
+      "expires": "2026-12-08"
+    },
+    {
+      "name": "kv-read-credentials-token",
+      "class": "scoped",
+      "kind": "scoped-token",
+      "exempt": false,
+      "path": "/opt/opch/secrets/kv-read-credentials-token",
+      "policies_hint": ["jit/kv-read-credentials"],
+      "sha8": "7520538c",
+      "sha8_note": null,
+      "reason": "在役 scoped token explicit_max_ttl=0 现势在册（openBao.md §6）；同上登记不豁免，轮换批清偿后转绿。",
+      "approved_by": "裁19 挂账（运营者窗）；登记留痕=卡 #216（2026-11-08）",
+      "expires": "2026-12-08"
+    },
+    {
+      "name": "meters-token",
+      "class": "scoped",
+      "kind": "scoped-token",
+      "exempt": false,
+      "path": "/opt/opch/secrets/meters-token",
+      "policies_hint": ["gov-meters-readonly"],
+      "sha8": "f073388b",
+      "sha8_note": null,
+      "reason": "在役 scoped token explicit_max_ttl=0 现势在册（openBao.md §6）；同上登记不豁免，轮换批清偿后转绿。",
+      "approved_by": "裁19 挂账（运营者窗）；登记留痕=卡 #216（2026-11-08）",
+      "expires": "2026-12-08"
+    },
+    {
+      "name": "mq-write-token",
+      "class": "scoped",
+      "kind": "scoped-token",
+      "exempt": false,
+      "path": "/opt/opch/secrets/mq-write-token",
+      "policies_hint": ["jit/mq-write"],
+      "sha8": "e57b94da",
+      "sha8_note": null,
+      "reason": "在役 scoped token explicit_max_ttl=0 现势在册（openBao.md §6）；同上登记不豁免，轮换批清偿后转绿。",
+      "approved_by": "裁19 挂账（运营者窗）；登记留痕=卡 #216（2026-11-08）",
+      "expires": "2026-12-08"
+    },
+    {
+      "name": "session-write-token",
+      "class": "scoped",
+      "kind": "scoped-token",
+      "exempt": false,
+      "path": "/opt/opch/secrets/session-write-token",
+      "policies_hint": ["jit/session-write"],
+      "sha8": "3b73682e",
+      "sha8_note": null,
+      "reason": "在役 scoped token explicit_max_ttl=0 现势在册（openBao.md §6）；同上登记不豁免，轮换批清偿后转绿。",
+      "approved_by": "裁19 挂账（运营者窗）；登记留痕=卡 #216（2026-11-08）",
+      "expires": "2026-12-08"
+    },
+    {
+      "name": "git-read-token",
+      "class": "scoped",
+      "kind": "scoped-token",
+      "exempt": false,
+      "path": "/opt/opch/secrets/git-read-token",
+      "policies_hint": ["agent-git-read"],
+      "sha8": "0e9d0f26",
+      "sha8_note": null,
+      "reason": "在役 scoped token explicit_max_ttl=0 现势在册（openBao.md §6；授权面=kv/ 挂载）；同上登记不豁免，轮换批清偿后转绿。",
+      "approved_by": "裁19 挂账（运营者窗）；登记留痕=卡 #216（2026-11-08）",
+      "expires": "2026-12-08"
+    },
+    {
+      "name": "bao-issuer-token",
+      "class": "scoped",
+      "kind": "scoped-token",
+      "exempt": false,
+      "path": "/etc/opch-gov/bao-issuer.token",
+      "policies_hint": ["opch-task-issuer"],
+      "sha8": null,
+      "sha8_note": "gov 盘面件，本批不取值不记指纹——如实缺口，D-164（token 文件全集对账门）串联补证（ESC-36 裁24 簿记）",
+      "reason": "第 8 件长命 token（ESC-36/D-164·opch-gov-bao-renew.timer 6h 续期）explicit_max_ttl=0 现势在册；同上登记不豁免，轮换批清偿后转绿。",
+      "approved_by": "裁19 挂账（运营者窗）＋ESC-36 登记（裁24 簿记）；登记留痕=卡 #216（2026-11-08）",
+      "expires": "2026-12-08"
+    }
+  ]
+}
