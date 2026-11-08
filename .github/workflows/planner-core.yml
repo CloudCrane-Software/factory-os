@@ -958,6 +958,22 @@ jobs:
 
           # 欠账台账行级启发式摘要（单元格内含 | ，不做结构化切分；判双解以板+波次状态机为准）
           anchors, rows_total, done_rows = [], 0, 0
+          # ── D-174（factory-os#211）：第 6 格〔锚补全〕块扩读（输入面 · append-only ·
+          #    形制先例=PR #144 M-6 输入面修正）——preflight run 42439499002 实证：开放锚
+          #    「仅有锚号，无台账行描述/file:line/验收面」——wave-13 补全块已落台账第 6 格
+          #    审计格（〔…锚补全（…）：任务内容=…；期望件路径=…；验收口径=…〕，origin/main
+          #    台账现势 32 行任务型），既有提取面不读 ⇒ 规划输入宇宙缺三要件（manifest
+          #    candidate preflight 缺口行 §六.9 实证）。本段在既有三键（id/done/waves 逐字节
+          #    不动）外解析标记块，三要件以台账契约同形键（锚补全/任务内容/期望件路径/验收
+          #    口径）并入该锚 dict；无块行／收卷报告型块（现状=… 头，无 任务内容=）不命中
+          #    ⇒ 提取输出零变化。语义只扩不缩：判定面（step 08/08b/08c/08d · M-6/SUB-5）
+          #    零改动，本步只扩 ledger summary fields（同 PR #144 输入面修正先例，非判据
+          #    修正）；承载格=第 6 格审计格（规范承载格，行内任意格命中等同——显式契约标记
+          #    不会被 prose 子串误伤，同 PR #144 SUB-5 切格口径；块行单行无换行，字段值内
+          #    全角分号不撞字段锚〔实测 32/32 全配·收卷型 0 误配〕）。
+          COMPLETION_RE = re.compile(
+              r"〔[^〕]*锚补全（[^〕]*）：任务内容=(?P<task>.*?)；期望件路径=(?P<paths>.*?)"
+              r"；验收口径=(?P<acc>[^〕]*)〕")
           if os.path.exists(ledger_path):
               with open(ledger_path, encoding="utf-8") as f:
                   for line in f:
@@ -968,10 +984,18 @@ jobs:
                       done = "\u2705" in line   # 台账完成态标记
                       if done:
                           done_rows += 1
-                      anchors.append({"id": m.group(1), "done": done,
-                                      "waves": sorted(set(re.findall(r"wave-\d+", line)))})
+                      a = {"id": m.group(1), "done": done,
+                                      "waves": sorted(set(re.findall(r"wave-\d+", line)))}
+                      comp = COMPLETION_RE.search(line)
+                      if comp:
+                          a["锚补全"] = {"任务内容": comp.group("task").strip(),
+                                      "期望件路径": comp.group("paths").strip(),
+                                      "验收口径": comp.group("acc").strip()}
+                      anchors.append(a)
           else:
               warnings.append("欠账台账不在场：%s" % os.environ["LEDGER_FILE"])
+          print("ledger-completion: rows=%d · completion_rows=%d"
+                % (rows_total, sum(1 for a in anchors if "锚补全" in a)))
 
           open_anchors = [a["id"] for a in anchors if not a["done"]]
           # ── M-6 锚宇宙全量化（宪章裁定 2026-11-07 · 裁决日志第 4 条）：
