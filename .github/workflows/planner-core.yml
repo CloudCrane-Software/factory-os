@@ -1363,7 +1363,12 @@ jobs:
           # 校验集一字不动，本段只进提示词（软指引，§四.4/D-171 同族，禁当新
           # 机检项）。
           prompt += (
-              "\n\n## 八、生成面三纪律：done 锚过滤 · 禁独立 closeout 卡 · 台账卡 "
+              "\n\n## 八·补、allowed_paths 命名纪律（D-186·2026-11-08）
+- allowed_paths 文件名禁含判官关键词族（judge/判官/判据/judge-paths 族——M-4 按名 fail-closed 拦截，实测 run 42470976474 card[2] tools/judge-negtest-suite.py 被拒）。
+- 锚的期望件涉判官测试/判据校验类工具：以非判官族命名（如 negtest-/verify- 前缀）＋卡面注明「涉判官邻接，合线前需判官面复核」。
+- 同族引申：门禁关键词（gates.yml/CODEOWNERS 面）命名同理避让。
+
+## 八、生成面三纪律：done 锚过滤 · 禁独立 closeout 卡 · 台账卡 "
               "depends_on（D-173 · factory-os#205；台账回填先例=PR #161 收卷对账段）\n"
               "\n"
               "组 manifest 前对每张候选卡逐条过下列三纪律，违者该卡不产；候选全违\n"
