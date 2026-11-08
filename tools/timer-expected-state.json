@@ -1,0 +1,23 @@
+{
+  "schema": "timer-expected-state/v1",
+  "updated": "2026-11-08",
+  "purpose": "机制激活态门登记册（逃逸台账 ESC-37 · 账本 D-165 行 · 卡 w11-d165-timer-active-gate #217）：关键自轮换/自愈 timer 件名+期望 is-enabled/is-active 态成册；对账门=tools/timer-active-recon-gate.py，systemctl is-enabled/is-active 实读≡册（不符⇒红点名）。",
+  "discipline": [
+    "只增不减：删行/缩窄对账面视同改判据，须运营者裁决批（判据只许变严）。",
+    "expected_enabled ∈ {disabled,masked,masked-runtime} 的登记必须带非空 reason+approved_by+expires（比照 tools/publish-allowlist.json 形制；expires 过期⇒红=登记失效，须运营者重登记）。",
+    "启用/停用/触发类活体动作属运营者窗口——本门只读对账，绝不执行 systemctl enable/disable/start/stop。",
+    "hosts 未登记的行默认对每台跑门主机生效（机上无此单元⇒红）；跨机巡检用 --host 显式对位。"
+  ],
+  "timers": [
+    {
+      "unit": "jit-broker-renew.timer",
+      "hosts": ["company-bao-1", "gov"],
+      "role": "broker 日自轮换先例件（renew-broker.sh：签后继→原子写回→撤旧）——重叠双钥窗口生产先例（重叠轮换演练-20261108.md §6.2d + T1 行；执行面=gov company-bao-1，坐标见该演练件）",
+      "expected_enabled": "disabled",
+      "expected_active": "inactive",
+      "reason": "现势在码 disabled（演练 T1 行「timer 已 disabled」）：broker 自轮换链停摆，「在码」被当「在役」无巡检——启用属凭据面活体动作，须运营者窗口（裁决日志:29「统一轮换批前评估启用」）；本锚只登记门本体，启用决策未开窗。",
+      "approved_by": "裁24 登记（逃逸台账 ESC-37 · 裁决日志:29）+ 卡 #217 卡面（现势 disabled 如实入册）；启用决策窗待运营者 @feasy898 开启",
+      "expires": "2027-02-06"
+    }
+  ]
+}
