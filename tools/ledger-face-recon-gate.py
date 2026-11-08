@@ -1,7 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""账本面对账门（账本面八笔：RT-E76 / RT-E101 / RT-E92 / RT-E29 / RT-E27〔首批五笔〕
-＋ RT-E109 / RT-E110 / RT-E111〔2026-11-05 波次B·B1 批新增三笔〕）。
+"""账本面对账门（账本面九腿：RT-E76 / RT-E101 / RT-E92 / RT-E29 / RT-E27〔首批五腿〕
+＋ RT-E109 / RT-E110 / RT-E111〔2026-11-05 波次B·B1 批新增三腿〕
+＋ D-148〔2026-11-09 wave-17 批新增一腿：三本账三向逐行 diff 常驻腿〕）。
+
+【D-148 批（2026-11-09 wave-17）新增一腿摘要——为什么加】
+  台账 D-148（factory-os#257 · 逃逸台账-20261108 ESC-08①）：Q20 三本账（正本/仓本/
+  规划环）非严格逐行一致——实例差虽经裁15/裁21 手术＋重考一次性三向机核闭合，但常驻
+  机制腿未落：八腿判据均不含「三副本严格逐行一致」，三本间内容漂移在门绿下不可见。
+  leg-D148 ＝ 三本实读 sha256＋两两逐行 diff＋逐 hunk 机器归因（设计内投影入白名单；
+  滞后形态归因 D-123 不并吞；其余一切 hunk ⇒ 红）。
 
 【B1 批（2026-11-05）新增三腿摘要——为什么加】
   RT-E109（台账:14 ← 逃逸台账:883）：台账行态与实盘**零对账**——「未开始」无验证命令
@@ -127,16 +135,46 @@
       ④逃逸源口径同源复用 tools/test-ledger-migration-recon.py；
       ⑤G5 验收门格若声明多源而与源清单不一致 ⇒ 红（半声明＝假多源化）；若完全未
       声明多源 ⇒ 记为已登记缺口 E111-G1（登记腿：绿但逐次打印并给出清偿路径）。
+  leg-D148【严格·白名单投影】三本账三向逐行 diff 常驻腿（ESC-08① / 台账 D-148）
+    · 三本 ＝ 正本 A=计划/阶段欠账台账.md；仓本 B=repos/factory-os/账本/阶段欠账台账.md；
+      规划环实读 C=ledger-sync 克隆 账本/阶段欠账台账.md（路径解析序：AF_LEDGER_SYNC_CLONE
+      env 覆盖 → 工作区内 ledger-sync-clone/（沙箱位）→ 生产位 ~/ledger-sync/factory-os-clone；
+      缺任一本 ⇒ 不可证 fail-closed 不猜绿）。三本实读 sha256/行数入读数面。
+    · 两两（A↔C / A↔B / B↔C）逐行 diff，逐 hunk 机器归因；**非白名单且非滞后形态的
+      hunk>0 ⇒ 红**（逐 hunk 点名：书对/行号/首格 id/首异摘录/归因失败原因）。
+    · W1 白名单＝设计内投影（当前一员：D-114 P-04 脱敏——`[内网地址P-04已脱敏]` 标记
+      与对侧同序内网地址字面（CGNAT 100.64.0.0/10＋10.0.0.0/8）**一一可逆替换后相等**；
+      标记数≠地址数、或替换后不等〔地址↔异地址〕⇒ 非白名单 ⇒ 红）。白名单扩张须
+      判官批 PR（先例 PR #121/#156 形制），施工不得自扩。
+    · W2 滞后形态 ⇒ **不判红**、响亮归因 D-123（卡 factory-os#135 承载仓本滞后腿，本腿
+      不并吞；逐 hunk 点名＋滞后锚数读数，**不得读作已消**）：
+      (a) 尾行滞后——领先本文件末尾的连续锚行（| 起头）在滞后本整行缺失（A 参与的书对
+          只认 B/C 作滞后侧；B↔C 双向皆可＝本地检出 currency）；
+      (b) 行尾 append 滞后——同首格 id 行，滞后本整行（去尾 `|`/空白）为领先本行的
+          前缀（append-only 合法演化「翻状态格＋行尾 append」的在途形态；可与 W1 投影
+          复合同行）。
+    · 其余一切 hunk（中段行内联改写／中段整锚行增删／行序漂移／非尾插入／状态格分叉／
+      领先方向违例〔B、C 多出 A 无的内容〕）⇒ 红。
+    · 边界（如实登记）：滞后形态判据是 D-123 域的**窄门**（只放行「尾行缺失」与「行尾
+      前缀 append」两形）；状态格分叉（同 id 行中段内容不同）不在窄门内 ⇒ 红——同步
+      在途窗（*/20 cadence）造成的瞬时红属如实红；断腿型持续红归 ESC-09/D-142 域。
 
 模式：
   （无参）      对真盘面判账。exit 0=绿；1=红（逐腿逐条点名）；2=不可证（缺件/坏件/
                 环境错，fail-closed 不猜绿）。
-  --selftest   内嵌夹具自测（零网络、零真盘面写入；只在临时目录造副本）：八腿各造
-                「改动该面 ⇒ 判据红」负例（现 18 例）＋「未改动 ⇒ 绿」对照，全过 exit 0。
+  --selftest   内嵌夹具自测（零网络、零真盘面写入；只在临时目录造副本）：九腿各造
+                「改动该面 ⇒ 判据红」负例（现 24 例，含 D-148 批 6 例＝4 负例＋白名单
+                投影/滞后形态正控 2 例）＋「未改动 ⇒ 绿」对照，全过 exit 0。
                 ★ 沙箱基线归一（B1 批）：alarms.log 的「台账尚未补登」ordinal 在沙箱台账行
                   上补登（模拟「台账已补登」）⇒ 对照组不被事件驱动的台账补登义务污染
                   （真盘面 leg-E101 的红见证据文 §五；该腿负例仍由夹具自造）。
+                ★ 三本账沙箱合成（D-148 批）：仓本 B/规划环 C **不复制真件**（真 C 每
+                  20 分钟随 ledger-sync 漂移，对照须确定性），由沙箱正本 A 派生——C＝P-04
+                  全量投影（白名单夹具实装于对照），B＝C 再退两步（撤尾两锚行＋撤一行
+                  行尾 append；滞后形态夹具实装于对照）；两形态对照绿、负例各自咬人。
   --ws <root>  指定工作区根（沙箱负控用；缺省=本脚本上级目录）。
+  --leg <名>   只跑指定腿（可重复；名＝腿名如 RT-E76 / D-148——三向 diff 注入差异负例
+                的独立 rc 读数用；缺省＝全腿，全腿行为与既有版一致只增一腿）。
   --snapshot   把登记清单内各件的 birth/mtime/ino/sha256 追加进快照面（append-only，
                 只追加，不改历史行）。
   --write-registry  写 gate-registry.json（登记清单 + 未核基线 + 已登记缺口）。
@@ -155,6 +193,7 @@
 """
 
 import argparse
+import difflib
 import hashlib
 import json
 import os
@@ -185,6 +224,15 @@ P_TECH_DEBT = "计划/技术债登记.md"            # RT-E111 三源之一：�
 P_TOTAL_TABLE = "30-工件/剩余欠账总表-20261104/剩余欠账总表.md"  # RT-E111 三源之一：总表
 P_MIGRECON = "tools/test-ledger-migration-recon.py"  # RT-E111 逃逸源口径（同源复用）
 P_WRITEBACK = "tools/writeback-check.py"       # RT-E109 行态验证命令（writeback 门）
+# --- D-148 批（2026-11-09 wave-17）新增面：三本账三向逐行 diff ---
+P_REPO_LEDGER = "repos/factory-os/账本/阶段欠账台账.md"        # 仓本 B（gov 检出树）
+P_PLANC_SB_LEDGER = "ledger-sync-clone/账本/阶段欠账台账.md"   # 规划环 C：ws 内沙箱位
+DEF_PLANC_CLONE = Path("/home/pan-ding/ledger-sync/factory-os-clone")  # C：生产位克隆
+P04_MARK = "[内网地址P-04已脱敏]"   # D-114 P-04 机械脱敏标记（ledger-sync.sh SCRUB 同源）
+MARK_RE = re.compile(re.escape(P04_MARK))
+INTADDR_RE = re.compile(r"(?<![0-9.])(?:100\.(?:6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])"
+                        r"\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3})(?![0-9.])")
+# ↑ CGNAT 100.64.0.0/10（100.64–100.127）＋10.0.0.0/8——四段完整 IPv4 字面
 
 GENESIS = "0" * 64
 GID_RE = re.compile(r"^G(?:\d{1,2}|-SIL)$")
@@ -1199,13 +1247,246 @@ def check_e111(ws, reg):
     return True, red, gaps, note
 
 
+# ---------------------------------------------------------------- leg-D148（三本账三向逐行 diff · ESC-08①/台账 D-148）
+
+def scrub_p04(text):
+    """P-04 机械脱敏（整段替换；与 ledger-sync.sh SCRUB 的 span 投影同形——沙箱合成用）。"""
+    return INTADDR_RE.sub(P04_MARK, text)
+
+
+def cell_id(line):
+    """锚行首格 id（未转义竖线界；无第二枚竖线取行首格尾；非 | 起头 ⇒ None）。"""
+    if not line.startswith("|"):
+        return None
+    idx, esc = [], False
+    for i, ch in enumerate(line):
+        if esc:
+            esc = False
+            continue
+        if ch == "\\":
+            esc = True
+            continue
+        if ch == "|":
+            idx.append(i)
+            if len(idx) == 2:
+                return line[idx[0] + 1:idx[1]].strip() or None
+    return line[1:].strip() or None
+
+
+def resolve_planc_ledger(ws):
+    """规划环实读 C 的台账路径（AF_LEDGER_SYNC_CLONE env → ws 内沙箱位 → 生产位克隆）。"""
+    env = os.environ.get("AF_LEDGER_SYNC_CLONE")
+    if env:
+        return Path(env) / "账本" / "阶段欠账台账.md"
+    sb = ws / P_PLANC_SB_LEDGER
+    if sb.is_file():
+        return sb
+    return DEF_PLANC_CLONE / "账本" / "阶段欠账台账.md"
+
+
+def _tail_core(line):
+    s = line.rstrip()
+    if s.endswith("|"):
+        s = s[:-1].rstrip()
+    return s
+
+
+def _p04_unmark(x, y):
+    """x 内脱敏标记以 y 内同序内网地址一一回代 ⇒ 回代后文本；不可逆（计数不匹配）⇒ None。"""
+    marks = list(MARK_RE.finditer(x))
+    if not marks:
+        return None
+    addrs = INTADDR_RE.findall(y)
+    if len(marks) != len(addrs):
+        return None
+    out, last = [], 0
+    for m, a in zip(marks, addrs):
+        out.append(x[last:m.start()])
+        out.append(a)
+        last = m.end()
+    out.append(x[last:])
+    return "".join(out)
+
+
+def _canon_pair(x, y):
+    """两侧各归到「地址形」（各自标记以对侧同序地址回代；数不匹配 ⇒ None＝不可归一）。"""
+    def one(a, b):
+        if MARK_RE.search(a):
+            return _p04_unmark(a, b)
+        return a
+    cx = one(x, y)
+    if cx is None:
+        return None
+    cy = one(y, x)
+    if cy is None:
+        return None
+    return cx, cy
+
+
+def _first_diff(x, y):
+    n = min(len(x), len(y))
+    i = 0
+    while i < n and x[i] == y[i]:
+        i += 1
+    return i
+
+
+def _classify_line_pair(xl, yl, lag_side):
+    """单行对判定 ⇒ (cls, desc)。cls ∈ {"equal","p04","lag","red"}。
+    lag_side：允许作滞后侧的方向（"x"/"y"/"both"——A 参与的书对只认 B/C 滞后）。
+    滞后两径：①投影可逆归一后的前缀（标记↔地址值对得上）；②字节级前缀（公共区逐字节
+    同 ⇒ 分歧必然全在领先侧 append 尾内——投影×滞后复合：滞后本未收含地址的 append
+    时无地址可回代，①不可用而②成立）。公共区内值变（地址↔异地址）两径皆败 ⇒ 红。"""
+    cp = _canon_pair(xl, yl)
+    had_mark = bool(MARK_RE.search(xl) or MARK_RE.search(yl))
+    if cp is not None and cp[0] == cp[1]:
+        return ("p04" if had_mark else "equal"), ""
+    if cp is not None:
+        tcx, tcy = _tail_core(cp[0]), _tail_core(cp[1])
+        if lag_side in ("y", "both") and tcy and tcx.startswith(tcy):
+            return "lag", "行尾 append 滞后（复合投影）"
+        if lag_side in ("x", "both") and tcx and tcy.startswith(tcx):
+            return "lag", "行尾 append 滞后（复合投影）"
+    rx, ry = _tail_core(xl), _tail_core(yl)
+    if lag_side in ("y", "both") and ry and rx.startswith(ry):
+        return "lag", "行尾 append 滞后"
+    if lag_side in ("x", "both") and rx and ry.startswith(rx):
+        return "lag", "行尾 append 滞后"
+    bx, by = cp if cp is not None else (xl, yl)
+    i = _first_diff(bx, by)
+    if cp is None:
+        return "red", "投影不可逆（P-04 标记/内网地址计数不匹配）⇒ 非白名单"
+    return "red", "行内分叉（%s）首异@%d「%s」→「%s」" % (
+        "投影不可逆·非白名单" if had_mark else "非投影·非滞后形态",
+        i, bx[max(0, i - 18):i + 22], by[max(0, i - 18):i + 22])
+
+
+def _tail_anchor_block(all_lines, left):
+    """残行组是否为「文件末尾连续锚行块」（滞后尾行形态的形状门）。"""
+    if not left:
+        return False
+    nums = [n for n, _l in left]
+    if nums != list(range(nums[0], nums[-1] + 1)):
+        return False
+    if nums[-1] != len(all_lines):
+        return False
+    return all(l.startswith("|") for _n, l in left)
+
+
+def check_e148(ws):
+    """【严格·白名单投影】三本账三向逐行 diff 常驻腿（ESC-08① / 台账 D-148）。"""
+    red, note = [], []
+    books = [("A", ws / P_LEDGER), ("B", ws / P_REPO_LEDGER),
+             ("C", resolve_planc_ledger(ws))]
+    texts, lines = {}, {}
+    for tag, p in books:
+        if not p.is_file():
+            return None, [], [], ["缺件：三本账之%s（%s）不可读——fail-closed 不猜绿" % (tag, p)]
+        try:
+            texts[tag] = read_text(p)
+        except Exception as e:  # noqa: BLE001
+            return None, [], [], ["坏件：三本账之%s 读失败：%s" % (tag, e)]
+    for tag, txt in texts.items():
+        ls = txt.split("\n")
+        while ls and not ls[-1].strip():
+            ls.pop()
+        lines[tag] = ls
+    for tag, p in books:
+        note.append("三本实读 %s=%s 行=%d sha256=%s" % (tag, p, len(lines[tag]), sha256_file(p)[:12]))
+    idsets = {t: set(i for i in (cell_id(l) for l in ls) if i)
+              for t, ls in lines.items()}
+    stat = {}
+    for xt, yt in (("A", "C"), ("A", "B"), ("B", "C")):
+        pair = "%s↔%s" % (xt, yt)
+        xa, ya = lines[xt], lines[yt]
+        lag_side = "both" if {xt, yt} == {"B", "C"} else ("y" if yt in ("B", "C") else "x")
+        p04r, lagtail, lagapp = [], [], []
+        sm = difflib.SequenceMatcher(None, xa, ya, autojunk=False)
+        for _tag, i1, i2, j1, j2 in sm.get_opcodes():
+            if _tag == "equal":
+                continue
+            xr, yr = xa[i1:i2], ya[j1:j2]
+            if len(xr) == len(yr):
+                for k in range(len(xr)):
+                    cls, desc = _classify_line_pair(xr[k], yr[k], lag_side)
+                    ln, cid = i1 + k + 1, cell_id(xr[k]) or "?"
+                    if cls == "p04":
+                        p04r.append((ln, cid))
+                    elif cls == "lag":
+                        lagapp.append((ln, cid))
+                    elif cls == "red":
+                        red.append("%s L%d「%s」%s" % (pair, ln, cid, desc))
+                continue
+            # 行数不等：同首格 id 配对；残行按「尾行滞后 / 红」分派
+            ymap = {}
+            for k, l in enumerate(yr):
+                cid = cell_id(l)
+                if cid and cid not in ymap:
+                    ymap[cid] = k
+            taken, xleft = set(), []
+            for k, l in enumerate(xr):
+                cid = cell_id(l)
+                if cid and cid in ymap and ymap[cid] not in taken:
+                    taken.add(ymap[cid])
+                    cls, desc = _classify_line_pair(l, yr[ymap[cid]], lag_side)
+                    ln, rid = i1 + k + 1, cid
+                    if cls == "p04":
+                        p04r.append((ln, rid))
+                    elif cls == "lag":
+                        lagapp.append((ln, rid))
+                    elif cls == "red":
+                        red.append("%s L%d「%s」%s" % (pair, ln, rid, desc))
+                else:
+                    xleft.append((i1 + k + 1, l))
+            yleft = [(j1 + k + 1, l) for k, l in enumerate(yr) if k not in taken]
+            for left, lls, side_ok, other_ids, lead_tag, lag_tag in (
+                    (xleft, xa, lag_side in ("y", "both"), idsets[yt], xt, yt),
+                    (yleft, ya, lag_side in ("x", "both"), idsets[xt], yt, xt)):
+                if not left:
+                    continue
+                ok_tail = _tail_anchor_block(lls, left)
+                no_reorder = all((cell_id(l) or "?") not in other_ids for _n, l in left)
+                if ok_tail and no_reorder and side_ok:
+                    ids_ = [cell_id(l) or "?" for _n, l in left]
+                    lagtail.extend((n, i) for (n, _l), i in zip(left, ids_))
+                elif ok_tail and no_reorder:
+                    red.append("%s 尾行 %d 行为%s 侧独有而领先方向不获准（%s 多出 %s 无的内容，"
+                               "方向违例）⇒ 非白名单 hunk" % (pair, len(left), lead_tag, lead_tag, lag_tag))
+                else:
+                    for n, l in left:
+                        cid = cell_id(l) or "?"
+                        why = ("行序漂移（id 在对侧他处出现）" if cid in other_ids
+                               else ("非锚行残差" if not l.startswith("|") else "中段行增删（非尾行滞后形态）"))
+                        red.append("%s L%d「%s」%s ⇒ 非白名单 hunk" % (pair, n, cid, why))
+        stat[pair] = (p04r, lagtail, lagapp)
+    nlag = 0
+    for pair, (p04r, lagtail, lagapp) in stat.items():
+        if p04r:
+            note.append("%s 设计内投影（P-04 脱敏，D-114）%d 行（%s）→ 白名单；白名单扩张须判官批 PR"
+                        % (pair, len(p04r), "、".join("L%d「%s」" % (n, c) for n, c in p04r[:5])))
+        if lagtail or lagapp:
+            nlag += len(lagtail) + len(lagapp)
+            note.append("%s 滞后 hunk＝尾行 %d 行（%s）＋行尾 append %d 行（%s）→ 归因 D-123 滞后腿"
+                        "（factory-os#135 承载·本腿不并吞不判红；不得读作已消）"
+                        % (pair, len(lagtail), "、".join(c for _n, c in lagtail[:6]) or "-",
+                           len(lagapp), "、".join(c for _n, c in lagapp[:6]) or "-"))
+    a, b, c = idsets["A"], idsets["B"], idsets["C"]
+    note.append("滞后锚数（D-123 读数面）：A−B=%d A−C=%d C−B=%d" % (len(a - b), len(a - c), len(c - b)))
+    note.append("hunk 归因计数：非白名单=%d（⇒红）；P-04 投影=%d 行；滞后（归因 D-123）=%d 行"
+                % (len(red), sum(len(s[0]) for s in stat.values()), nlag))
+    return True, red, [], note
+
+
 # ---------------------------------------------------------------- 编排
 
-def run_all(ws, reg):
+def run_all(ws, reg, only=None):
     results = []
     for name, fn in (("RT-E76", check_e76), ("RT-E101", check_e101),
                      ("RT-E92", check_e92), ("RT-E29", check_e29), ("RT-E27", check_e27),
-                     ("RT-E109", check_e109), ("RT-E110", check_e110), ("RT-E111", check_e111)):
+                     ("RT-E109", check_e109), ("RT-E110", check_e110), ("RT-E111", check_e111),
+                     ("D-148", check_e148)):
+        if only and name not in only:
+            continue
         try:
             if name in ("RT-E92", "RT-E29", "RT-E109", "RT-E110", "RT-E111", "RT-E27"):
                 ok, red, gaps, note = fn(ws, reg)
@@ -1461,6 +1742,29 @@ def build_sandbox(ws, tmp):
                     lines[idx] = l + add
             break
         led_p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    # ★ 三本账沙箱合成（D-148 批）：B/C 不复制真件（真 C 每 20 分钟随 ledger-sync 漂移，
+    #   对照须确定性），由沙箱正本 A（含上方基线归一补登）派生——
+    #   C＝A 的 P-04 全量投影（白名单投影夹具实装于对照）；
+    #   B＝C 再退两步：撤尾两锚行（尾行滞后形态）＋撤一行行尾 append（前缀滞后形态）。
+    a_p = sb / P_LEDGER
+    if a_p.is_file():
+        a_txt = read_text(a_p)
+        c_p = sb / P_PLANC_SB_LEDGER
+        c_p.parent.mkdir(parents=True, exist_ok=True)
+        c_p.write_text(scrub_p04(a_txt), encoding="utf-8")
+        blines = scrub_p04(a_txt).split("\n")
+        aidx = [i for i, l in enumerate(blines) if l.startswith("|")]
+        drop = set(aidx[-2:]) if len(aidx) >= 2 else set()
+        blines = [l for i, l in enumerate(blines) if i not in drop]
+        for i in reversed([i for i, l in enumerate(blines) if l.startswith("|")]):
+            k = blines[i].rfind("〔")
+            if k > 0:
+                body = _tail_core(blines[i])
+                blines[i] = body[:k].rstrip() + " |"
+                break
+        b_p = sb / P_REPO_LEDGER
+        b_p.parent.mkdir(parents=True, exist_ok=True)
+        b_p.write_text("\n".join(blines), encoding="utf-8")
     return sb
 
 
@@ -1479,7 +1783,7 @@ def selftest(ws, out=sys.stdout):
         if nb[0] != 0 or nb[1] != 0:
             out.write("SELFTEST_RESULT: FAIL（对照组非全绿：红=%d 不可证=%d）\n" % nb)
             return 1
-        out.write("对照组：八腿全绿 ✔\n")
+        out.write("对照组：%d 腿全绿 ✔\n" % len(base))
 
         def mutate(fn):
             t2 = tempfile.mkdtemp(prefix="ledger-face-recon-case.")
@@ -1502,6 +1806,20 @@ def selftest(ws, out=sys.stdout):
                 return bool(red)
             return False
 
+        def leg_green(sb2, leg):
+            """正控（D-148 批）：该腿须保持绿（白名单投影/滞后形态不得误红）。"""
+            r2, e2 = load_registry(sb2)
+            if e2:
+                return False
+            for name, ok, red, gaps, _n in run_all(sb2, r2):
+                if name != leg:
+                    continue
+                if ok is not True:
+                    return False
+                keys = registered_keys(r2)
+                return (not red) and all(g["key"] in keys for g in gaps)
+            return False
+
         # ---- E76 负例：台账行标 ✅ 而映射判「未达」
         def m76(sb2):
             p = sb2 / P_TARGET
@@ -1516,13 +1834,16 @@ def selftest(ws, out=sys.stdout):
         cases.append(("E76 台账✅行↔映射判定不一致⇒红", lambda sb=sb2: leg_red(sb, "RT-E76")))
 
         # ---- E101 负例①：新增一条未登记的「判不准类」事件
+        # 2026-11-09 夹具修复（D-148 批顺手修复·判据零改动）：OBS-D4 行的持续分支签名
+        # 已扩长为「af 执行面空闲：无 af-order/af-execline 进程且…」，旧报文含签名前缀
+        # ⇒ 被分支覆盖类吸收永不红；改为不含签名的判不准类报文，恢复负例咬合力。
         def m101a(sb2):
             p = sb2 / P_ALARMS
             with open(p, "a", encoding="utf-8") as f:
                 f.write(json.dumps({"ts": "2026-11-05 00:00:00", "level": "amber",
                                     "code": "af-execline-idle",
-                                    "message": "af 执行面空闲：无 af-order/af-execline 进程且生产订单 "
-                                               "ledger 真值根不可达/读取失败（夹具新增未登记事件）"},
+                                    "message": "夹具：判不准即报警类未登记事件（ledger 真值根"
+                                               "读取失败复现形态·不含持续分支签名）"},
                                    ensure_ascii=False) + "\n")
         sb2 = mutate(m101a)
         cases.append(("E101 新增未登记事件⇒红", lambda sb=sb2: leg_red(sb, "RT-E101")))
@@ -1647,16 +1968,36 @@ def selftest(ws, out=sys.stdout):
         cases.append(("E109 行态验证命令绑定缺失⇒红", lambda sb=sb2: leg_red(sb, "RT-E109")))
 
         # ---- E109 负例③：下游引用对账（台账行态与被引面声明不一致）
+        # 2026-11-09 夹具修复（D-148 批顺手修复·判据零改动）：RT-PP3 末格已翻 ✅（2026-11-06
+        # 核销回写），旧夹具替换「部分（」成空操作永不红；改为末格首状态符号外科翻转
+        # （仅动 1 字符，行字节布局不变），制造「台账行态 ≠ 被引面声明」的真实分叉。
         def m109c(sb2):
             p = sb2 / P_LEDGER
             lines = p.read_text(encoding="utf-8").splitlines()
             hit = False
             for i, l in enumerate(lines):
-                if l.startswith("| RT-PP3 |"):
-                    cells = table_cells(l)
-                    cells[-1] = cells[-1].replace("部分（", "未开始（", 1)
-                    lines[i] = "| " + " | ".join(cells) + " |"
-                    hit = True
+                if not l.startswith("| RT-PP3 |"):
+                    continue
+                idx, esc = [], False
+                for ci, ch in enumerate(l):
+                    if esc:
+                        esc = False
+                        continue
+                    if ch == "\\":
+                        esc = True
+                        continue
+                    if ch == "|":
+                        idx.append(ci)
+                if not idx:
+                    raise AssertionError("夹具前提失效：RT-PP3 行无竖线")
+                j = idx[-1]
+                cell = l[j + 1:]          # 末格（状态列）＝最后未转义竖线后至行尾（行可无收尾 |）
+                ms = re.match(r"\s*([✅❌🔄])", cell)
+                if not ms:
+                    raise AssertionError("夹具前提失效：RT-PP3 末格首部无状态符号")
+                flipped = "❌" if ms.group(1) == "✅" else "✅"
+                lines[i] = l[:j + 1] + cell[:ms.start(1)] + flipped + cell[ms.end(1):]
+                hit = True
             if not hit:
                 raise AssertionError("夹具前提失效：台账无 RT-PP3 行")
             p.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -1746,7 +2087,111 @@ def selftest(ws, out=sys.stdout):
         sb2 = mutate(m27c)
         cases.append(("E27 自称判据先行但时序声明被摘⇒红", lambda sb=sb2: leg_red(sb, "RT-E27")))
 
-        out.write("\n=== 逐笔「自证会咬人」负例（改动该面 ⇒ 判据必须红）===\n")
+        # ================= D-148 批（2026-11-09 wave-17）三向逐行 diff 夹具 =================
+        # ---- D-148 负例①：仓本 B 中段行内联改写（非投影·非前缀滞后）⇒ 必红
+        def m148a(sb2):
+            p = sb2 / P_REPO_LEDGER
+            lines = p.read_text(encoding="utf-8").split("\n")
+            hit = False
+            for i, l in enumerate(lines):
+                if l.startswith("|") and len(l) > 120:
+                    lines[i] = l[:80] + "（夹具：中段行内联改写）" + l[80:]
+                    hit = True
+                    break
+            if not hit:
+                raise AssertionError("夹具前提失效：沙箱仓本无长锚行")
+            p.write_text("\n".join(lines), encoding="utf-8")
+        sb2 = mutate(m148a)
+        cases.append(("D-148 仓本中段行内联改写⇒红（归因点名 A↔B）",
+                      lambda sb=sb2: leg_red(sb, "D-148")))
+
+        # ---- D-148 负例②：规划环 C 投影不可逆（标记↔异地址）⇒ 必红（白名单窄门证明）
+        def m148b(sb2):
+            p = sb2 / P_PLANC_SB_LEDGER
+            txt = p.read_text(encoding="utf-8")
+            if P04_MARK not in txt:
+                raise AssertionError("夹具前提失效：沙箱规划环无 P-04 投影（正本无内网地址字面）")
+            p.write_text(txt.replace(P04_MARK, "10.99.99.99", 1), encoding="utf-8")
+        sb2 = mutate(m148b)
+        cases.append(("D-148 投影不可逆（脱敏标记↔异内网地址）⇒红（非白名单）",
+                      lambda sb=sb2: leg_red(sb, "D-148")))
+
+        # ---- D-148 负例③：仓本 B 中段整锚行蒸发（非尾行滞后形态）⇒ 必红
+        def m148c(sb2):
+            p = sb2 / P_REPO_LEDGER
+            lines = p.read_text(encoding="utf-8").split("\n")
+            aidx = [i for i, l in enumerate(lines) if l.startswith("|")]
+            if len(aidx) < 8:
+                raise AssertionError("夹具前提失效：沙箱仓本锚行不足")
+            k = aidx[4]                      # 第 5 条锚行＝中段（远离文件尾）
+            del lines[k]
+            p.write_text("\n".join(lines), encoding="utf-8")
+        sb2 = mutate(m148c)
+        cases.append(("D-148 仓本中段整锚行蒸发⇒红（append-only 破坏形态）",
+                      lambda sb=sb2: leg_red(sb, "D-148")))
+
+        # ---- D-148 负例④：仓本 B 状态格首符号翻转（中段分叉·非前缀滞后）⇒ 必红
+        def m148d(sb2):
+            p = sb2 / P_REPO_LEDGER
+            lines = p.read_text(encoding="utf-8").split("\n")
+            hit = False
+            for i, l in enumerate(lines):
+                if not l.startswith("|") or ("✅" not in l and "❌" not in l):
+                    continue
+                lines[i] = l.replace("✅", "❌", 1) if "✅" in l else l.replace("❌", "✅", 1)
+                hit = True
+                break
+            if not hit:
+                raise AssertionError("夹具前提失效：沙箱仓本无状态符号行")
+            p.write_text("\n".join(lines), encoding="utf-8")
+        sb2 = mutate(m148d)
+        cases.append(("D-148 仓本状态格首符号翻转⇒红（同步在途窗外分叉）",
+                      lambda sb=sb2: leg_red(sb, "D-148")))
+
+        # ---- D-148 正控①：新增一处合法 P-04 投影（A 加地址·C 同位加标记）⇒ 必不红
+        def m148p(sb2):
+            pa = sb2 / P_LEDGER
+            pc = sb2 / P_PLANC_SB_LEDGER
+            la = pa.read_text(encoding="utf-8").split("\n")
+            lc = pc.read_text(encoding="utf-8").split("\n")
+            hit = False
+            for i in range(min(len(la), len(lc))):
+                if (la[i] == lc[i] and la[i].startswith("|") and len(la[i]) > 100
+                        and not la[i].startswith("| OBS-D4 |")
+                        and not la[i].startswith("| RT-PP3 |")):
+                    la[i] = _tail_core(la[i]) + "（探针坐标 10.20.30.40 夹具） |"
+                    lc[i] = _tail_core(lc[i]) + "（探针坐标 %s 夹具） |" % P04_MARK
+                    hit = True
+                    break
+            if not hit:
+                raise AssertionError("夹具前提失效：沙箱无 A/C 同文长锚行")
+            pa.write_text("\n".join(la), encoding="utf-8")
+            pc.write_text("\n".join(lc), encoding="utf-8")
+        sb2 = mutate(m148p)
+        cases.append(("D-148 合法 P-04 投影同位增量⇒不红（白名单归因正控）",
+                      lambda sb=sb2: leg_green(sb, "D-148")))
+
+        # ---- D-148 正控②：滞后形态加深（再撤 B 三尾行＋再撤一行行尾 append）⇒ 必不红
+        def m148q(sb2):
+            p = sb2 / P_REPO_LEDGER
+            lines = p.read_text(encoding="utf-8").split("\n")
+            aidx = [i for i, l in enumerate(lines) if l.startswith("|")]
+            if len(aidx) < 6:
+                raise AssertionError("夹具前提失效：沙箱仓本锚行不足")
+            drop = set(aidx[-3:])
+            lines = [l for i, l in enumerate(lines) if i not in drop]
+            for i in reversed([i for i, l in enumerate(lines) if l.startswith("|")]):
+                k = lines[i].rfind("〔")
+                if k > 0:
+                    body = _tail_core(lines[i])
+                    lines[i] = body[:k].rstrip() + " |"
+                    break
+            p.write_text("\n".join(lines), encoding="utf-8")
+        sb2 = mutate(m148q)
+        cases.append(("D-148 滞后形态加深（尾行/行尾 append）⇒不红（归因 D-123 不并吞正控）",
+                      lambda sb=sb2: leg_green(sb, "D-148")))
+
+        out.write("\n=== 逐笔「自证会咬人」夹具（负例 ⇒ 必红；正控 ⇒ 必不红）===\n")
         nfail = 0
         for name, fn in cases:
             try:
@@ -1755,14 +2200,14 @@ def selftest(ws, out=sys.stdout):
                 ok = False
                 out.write("  [FAIL] %s（自测执行错：%s）\n" % (name, e))
             if ok:
-                out.write("  [OK  ] %s ⇒ 判据红 ✔\n" % name)
+                out.write("  [OK  ] %s ✔\n" % name)
             else:
                 nfail += 1
-                out.write("  [FAIL] %s ⇒ 判据未红 ✘\n" % name)
+                out.write("  [FAIL] %s ✘（未如判）\n" % name)
         if nfail:
-            out.write("SELFTEST_RESULT: FAIL（%d 个负例未红）\n" % nfail)
+            out.write("SELFTEST_RESULT: FAIL（%d 例未如判）\n" % nfail)
             return 1
-        out.write("SELFTEST_RESULT: PASS（对照组全绿 + %d 个负例逐个红）\n" % len(cases))
+        out.write("SELFTEST_RESULT: PASS（对照组全绿 ＋ %d 例负例/正控全如判）\n" % len(cases))
         return 0
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -1774,6 +2219,8 @@ def main(argv):
     ap = argparse.ArgumentParser(add_help=True)
     ap.add_argument("--selftest", action="store_true")
     ap.add_argument("--ws", default=None)
+    ap.add_argument("--leg", action="append", default=None,
+                    help="只跑指定腿（可重复；腿名如 RT-E76 / D-148；缺省=全腿）")
     ap.add_argument("--snapshot", action="store_true")
     ap.add_argument("--write-registry", action="store_true")
     ap.add_argument("--baseline", type=int, default=None)
@@ -1785,13 +2232,23 @@ def main(argv):
         return write_registry(ws, a.baseline if a.baseline is not None else 0)
     if a.snapshot:
         return write_snapshot(ws)
-    print("=== 账本面对账门（五笔：RT-E76 / RT-E101 / RT-E92 / RT-E29 / RT-E27）===")
-    print("工作区：%s" % ws)
-    reg, err = load_registry(ws)
-    if reg is None:
-        print("结论：不可证 —— %s（fail-closed，不猜绿）" % err)
+    all_legs = ("RT-E76", "RT-E101", "RT-E92", "RT-E29", "RT-E27",
+                "RT-E109", "RT-E110", "RT-E111", "D-148")
+    want = list(dict.fromkeys(a.leg)) if a.leg else list(all_legs)
+    bad = [w for w in want if w not in all_legs]
+    if bad:
+        print("结论：参数错 —— 未知腿名 %s（在役腿：%s）" % ("、".join(bad), "、".join(all_legs)))
         return 2
-    res = run_all(ws, reg)
+    print("=== 账本面对账门（九腿：%s）===" % "、".join(all_legs))
+    print("工作区：%s｜本次跑腿：%s" % (ws, "、".join(want)))
+    reg = None
+    reg_legs = {"RT-E92", "RT-E29", "RT-E109", "RT-E110", "RT-E111", "RT-E27"}
+    if any(w in reg_legs for w in want):
+        reg, err = load_registry(ws)
+        if reg is None:
+            print("结论：不可证 —— %s（fail-closed，不猜绿）" % err)
+            return 2
+    res = run_all(ws, reg, only=want)
     nred, ninf = report(res, reg)
     if ninf:
         print("结论：不可证（%d 腿）——缺件/坏件 fail-closed，不猜绿" % ninf)
@@ -1799,7 +2256,7 @@ def main(argv):
     if nred:
         print("结论：红（%d 腿有红项，见上）" % nred)
         return 1
-    print("结论：绿（五腿全绿；已登记缺口见各腿「已登记缺口」行——账实未清，勿读作已消）")
+    print("结论：绿（%d 腿全绿；已登记缺口见各腿「已登记缺口」行——账实未清，勿读作已消）" % len(res))
     return 0
 
 
