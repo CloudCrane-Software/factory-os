@@ -1,0 +1,31 @@
+# tools/negative-controls.list — 负控件登记册（件名+sha256+现势位）
+#
+# 为什么有这份文件（D-157 / 逃逸台账 ESC-19，2026-11-08）：
+#   回归门判据依赖具名负控件文件（修前快照 .bak），而该件此前**无存在性/命名
+#   对账门**——归档/改名（tools/ 归档面动作，在门管辖域外）即令守门件自身红：
+#   tools/test-quota-gate-criteria-parity.py G6 实跑 FAIL「负控件缺失」在案（90-归档/20261106-tools-bak/ 仅有近似名件）。
+#   故登记成册：夹具改读册解析件位（在役位 → 归档位），起手对账由 tools/negative-control-recon-gate.py
+#   单一实现提供；缺席 ⇒ 红并**点名缺哪件、登记在哪、现势近似名件是什么**
+#   （缺席点名，非裸 FAIL）。
+# 归档面规矩（ESC-19 新门设计，先例=裁决日志 #23 重锚同树形制）：
+#   tools/ 归档改名/迁移负控件 ⇒ **同批**更新本册（件名/现势位/sha256 三处对齐）；
+#   只挪件不更册 ⇒ 对账门红（sha 失配或缺席点名），属预期红、不是误报。
+# 与判据面的关系（只许变严）：夹具 G6 旧行为=tools/ 具名件缺席即红；改读册后新增
+#   红面=册缺失/册不可解析/册无该条目/任一现势位 sha256 失配——无任何放宽面；
+#   唯一新增绿面=「在役位缺席但登记归档位在场且 sha256 对账一致」（这正是 ESC-19
+#   的正解：负控件被归档 ≠ 判别力丢失）。
+#
+# 格式（解析器=tools/negative-control-recon-gate.py parse_register；必填键缺失/未认键/未认行 ⇒ fail-closed 红）：
+#   CTRL <件名>            —— 开一条登记（件名为精确名，唯一键）
+#     sha256=<64位小写hex>   （必填，改件必改此行）
+#     loc_repo=<相对repo根>  （在役位检索目录，可多行；在该目录下找 <件名>）
+#     loc_ws=<相对工作区根>  （归档位检索目录，可多行；工作区根候选顺序见门本体）
+#     fixture=<依赖夹具件>   （必填，消费者对账用）
+#     source=<来源债号/条目> （必填，溯源用）
+#   以 # 开头的行为注释；空行忽略；其余未认行=解析错（fail-closed）。
+CTRL quota-governor.py.20261031-pre-RT-quotagate-dead.bak
+  sha256=9107b7877ace06690b4efb6135ff37f9e4e0b04032403fbc6dd31c2cf1abb940
+  loc_repo=tools
+  loc_ws=90-归档/20261106-tools-bak
+  fixture=tools/test-quota-gate-criteria-parity.py（G6 负控）
+  source=D-157 / 逃逸台账 ESC-19
