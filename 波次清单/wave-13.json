@@ -1,0 +1,98 @@
+{
+ "schema": "af.wave-manifest.v1",
+ "wave": "wave-13",
+ "created": "2026-11-08T23:55:00+0800",
+ "policy": "30-工件/波次自转器-20261106/制度-v1.md",
+ "budgets": {
+  "anolis_mem_cap_g": 45,
+  "local_mem_cap_g": 3,
+  "anolis_concurrency": 4
+ },
+ "base_sha": "29230b05ddac4cf90d8264bf793614ab0b695408",
+ "preflight": [
+  "占用核：本波 3 个债号 D-161 / D-162 / D-152 均不在 occupied_debt_anchors（输入为空数组），也不在 non_terminal_cards（24 张）之列；task_id w13-d161-failure-rate-gate / w13-d162-credential-ledger-gate / w13-d152-fidelity-matrix-gate 与在飞 task_id（portal）无撞，波内唯一",
+  "积压与活口：wave-08..wave-12 尚有 24 张非终态卡（其中 wave-11/wave-12 建件卡 8 张仍 queued）；factory_obs 记 planner 近 5 跑 5 败、anolis/gpu runner-offline 连续 87 轮——本波刻意只立 3 张单件新建卡，不铺量、不复产已占锚",
+  "观测项登记（factory_obs advisory，禁入闸面）：red 3 = anolis/gpu runner-offline（容器态 runner_containers=0，连续 86/87 轮）、planner-starved streak=10 last_success=None；amber 9 = / 盘 86%、egress-gw 7890 探活失败、planner-run-failing、#199 ci-gates-org queued 76.8min、gh 投影滞后 301s 等——均属宿主/运维面，无对应台账锚，本波不立卡，留运营者窗与 wave-14 观测",
+  "done 锚过滤（§八 纪律 1）：D-172（factory-os#198 近 7 天已合线，run 42435229215 08c SUB-2 红案）本波不产任何形态卡（含 recon/复盘/回填类）；D-173 面（§八 纪律本体）不立卡；D-174（waves 归属含 wave-13/14/15，输入无锚补全内容）本波不臆造立项——台账行状态列滞后不构成立项理由",
+  "禁独立 closeout 卡（§八 纪律 2）：本波 0 张 task_id 含 closeout / ledger-close / 收卷；账本行回填与收卷对账随各施工卡合线 PR 同树完成",
+  "台账路径纪律（§八 纪律 3）：本波 0 张 allowed_paths 含 账本/阶段欠账台账.md——账本仅作只读验收证据出现（grep -n 债号 / sha256sum）",
+  "创建卡验收纪律（§八·补二 / D-189）：3 卡目标件在钉桩基线树上缺席（锚记「零撞号已核」），acceptance 全为基线现值可证形态（test ! -f 目标件、test -d tools、grep -n 债号在账、sha256sum 账本）；selftest 与真跑类施工后验收写入 merge_policy 施工须知，完工随 PR 证据面留逐条 rc 读数",
+  "命名避让（§八·补 / D-186）：3 件均不含 judge / 判官 / 判据 / judge-paths 词族；D-151（原件名 judge-negtest-suite.py）本波不产，留 next_wave_seed 并须改 negtest-/verify- 前缀",
+  "回评回流自检（§3.8）：对照 planner_quality_recent.top_failure_modes 逐卡核——acceptance 每条带「→ rc=N」尾标、10 必备字段齐、allowed_paths 非空、ledger 指向账本真行、depends_on 无悬引用（本波全空数组）；quality 仅作输入不作门",
+  "钉桩与预算：base_sha=29230b05ddac4cf90d8264bf793614ab0b695408（allowed_base_shas 唯一值逐字复制）；budgets 45/3/4 照抄；通道集 anolis-build / local-api / bot-lane（本波 anolis-build 0 卡、local-api Σ=1G≤3G、bot-lane 2 卡 mem=0 且 async=true）",
+  "派发前置（bot-lane）：2 张 async 卡须先 dispatch-registry add --state queued 登记再 bot-bridge 发布；占用闸如实拦就换锚或登记新债行，禁 --force；活口未恢复（runner-offline / planner-starved）则本波停滞在 queued，不视作失败"
+ ],
+ "cards": [
+  {
+   "task_id": "w13-d161-failure-rate-gate",
+   "title": "失败率/重试率聚合口径门：n 与窗口标注断言（新建 tools/failure-rate-recon-gate.py）",
+   "debt": "D-161",
+   "async": false,
+   "channel": "local-api",
+   "allowed_paths": [
+    "tools/failure-rate-recon-gate.py"
+   ],
+   "acceptance": [
+    "test ! -f tools/failure-rate-recon-gate.py → rc=0",
+    "test -d tools → rc=0",
+    "grep -n 'D-161' 账本/阶段欠账台账.md → rc=0",
+    "sha256sum 账本/阶段欠账台账.md → rc=0"
+   ],
+   "merge_policy": "单件直推（tools/ 新增件；本机 API 轨禁 cargo）；施工后验收随 PR 证据面留逐条 rc 读数：python3 -I tools/failure-rate-recon-gate.py --selftest → rc=0（n=1 标「单跑级」负例、n≥20 通过、缺 n/窗口标注 → rc=1）；须留消费者侧证据（调用点行号或真调用一次），禁以本件自述当在役证据（§四.7 C-5）",
+   "ledger": "账本/阶段欠账台账.md D-161 行",
+   "mem_budget_g": 1,
+   "state": "queued",
+   "depends_on": [],
+   "env_precondition": "python3 stdlib；只读 run artifact 读数件；无网络、无 cargo（本机轨）"
+  },
+  {
+   "task_id": "w13-d162-credential-ledger-gate",
+   "title": "登记面↔盘面对账巡检门：权威凭据登记册逐条实读比对（新建 tools/credential-ledger-recon-gate.py）",
+   "debt": "D-162",
+   "async": true,
+   "channel": "bot-lane",
+   "allowed_paths": [
+    "tools/credential-ledger-recon-gate.py"
+   ],
+   "acceptance": [
+    "test ! -f tools/credential-ledger-recon-gate.py → rc=0",
+    "test -d tools → rc=0",
+    "grep -n 'D-162' 账本/阶段欠账台账.md → rc=0"
+   ],
+   "merge_policy": "单件直推（沙箱内建件，随 PR 回厂）；施工后验收随 PR 证据面留逐条 rc：python3 -I tools/credential-ledger-recon-gate.py --selftest → rc=0（登记面≡盘面→rc=0、漂移→rc=1 点名），真跑现势 → rc=1 点名漂移件（如实红，登记册补登后 → rc=0）；读数只取路径存在性/mtime/指纹前 8，禁复述明文；须留消费者侧证据（调用点行号或真调用一次）",
+   "ledger": "账本/阶段欠账台账.md D-162 行",
+   "mem_budget_g": 0,
+   "state": "queued",
+   "depends_on": [],
+   "env_precondition": "沙箱内只读宿主登记面投影；输出仅路径+mtime+指纹前 8；禁明文、禁 secret 入库（只记指纹+路径）"
+  },
+  {
+   "task_id": "w13-d152-fidelity-matrix-gate",
+   "title": "保真度矩阵维度下限判据门：缺维降级标注（新建 tools/fidelity-matrix-recon-gate.py）",
+   "debt": "D-152",
+   "async": true,
+   "channel": "bot-lane",
+   "allowed_paths": [
+    "tools/fidelity-matrix-recon-gate.py"
+   ],
+   "acceptance": [
+    "test ! -f tools/fidelity-matrix-recon-gate.py → rc=0",
+    "test -d tools → rc=0",
+    "grep -n 'D-152' 账本/阶段欠账台账.md → rc=0"
+   ],
+   "merge_policy": "单件直推（沙箱内建件，随 PR 回厂）；施工后验收随 PR 证据面留逐条 rc：python3 -I tools/fidelity-matrix-recon-gate.py --selftest → rc=0（全维→rc=0、缺凭据维→rc=1 点名并标降级），现势矩阵复检 → rc=1 缺维降级（如实红，补维后 → rc=0）；矩阵读数件只读、凭据维只取身份集名不取明文；须留消费者侧证据（调用点行号或真调用一次）",
+   "ledger": "账本/阶段欠账台账.md D-152 行",
+   "mem_budget_g": 0,
+   "state": "queued",
+   "depends_on": [],
+   "env_precondition": "python3 stdlib；只读矩阵读数件；无网络"
+  }
+ ],
+ "next_wave_seed": [
+  "D-146 telemetry push 新鲜度门（新建 tools/telemetry-fresh-recon-gate.py）：与 D-161 同族读数新鲜度，建议 wave-14 立项并显式绑定消费者（哨兵 telemetry 段，30-工件/夜轨B-20261106/ 在役件双读后切，忌在飞直改）",
+  "D-151 判官负例套件：按 D-186 改名非判官族（negtest-/verify- 前缀）＋卡面注明「涉判官邻接，合线前需判官面复核」；活体判官件 sha256 前后一致断言不可省",
+  "D-153 公开面全量复扫排程：首个硬期限 2026-12-05（板面 legacy #2 在同题），到期前 7d 生成复核清单行——建议 wave-14 立项，禁整批落地",
+  "D-164 / D-166 凭据全集对账与最小授权断言：与 D-162 同域，建议串行 depends_on w13-d162-credential-ledger-gate，防同族并发改登记面",
+  "运维 red（anolis/gpu runner-offline 连续 87 轮、planner-starved streak=10）需运营者窗与宿主处置，非 planner 可立项范围——观测项已在 preflight 登记，wave-14 复评"
+ ]
+}
