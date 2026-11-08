@@ -1,0 +1,135 @@
+{
+ "schema": "af.wave-manifest.v1",
+ "wave": "wave-14",
+ "created": "2026-11-09T00:00:21+0800",
+ "policy": "30-工件/波次自转器-20261106/制度-v1.md",
+ "budgets": {
+  "anolis_mem_cap_g": 45,
+  "local_mem_cap_g": 3,
+  "anolis_concurrency": 4
+ },
+ "base_sha": "2d9f15611c522fa426bddd3a58d7a911d9ddc3fe",
+ "preflight": [
+  "占用核：in_flight_task_ids（portal、w13-d152-fidelity-matrix-gate、w13-d161-failure-rate-gate、w13-d162-credential-ledger-gate）与 occupied_debt_anchors（D-152/D-161/D-162）逐条避让——本波 5 卡 task_id 与 debt 均不在在飞清单与历史非终态卡内（防双解）。",
+  "活口核（factory_obs red）：anolis/gpu Runner.Listener 缺席连续 88/89 轮、runner_containers=0 ⇒ anolis-build 派出去只能停滞，本波 0 张 anolis-build 卡，全走 local-api（2 卡×1G）＋bot-lane（3 卡×0G，async=true）。",
+  "观测项留档（advisory，不改任何判据）：/ 86%>80%、egress-gw 7890 探活失败、gh_quota_raw 超时、gh 投影滞后、planner 近 5 跑 4 败——留运营者窗处置，本波不据此改门、不复述进卡面字段。",
+  "台账行在位核：5 卡 debt 锚（D-147/D-158/D-159/D-164/D-166）在 账本/阶段欠账台账.md 有行（占用闸 fail-closed 前置）；本波无任何卡的 allowed_paths 含该台账件（D-173.3）。",
+  "质量回流自检（§3.8，advisory）：对照 top_failure_modes 逐卡核——acceptance 每条带「→ rc=N」尾标、allowed_paths 非空、depends_on 只引同波或留空、卡面注件名:行证据锚；quality 评级不复述进输出。",
+  "创建卡形制（D-189）：5 卡 allowed_paths 目标均在钉桩基线树缺席（锚面均标「新增，零撞号已核」），acceptance 只含开工前可证命令（test ! -f / 台账行 grep / test -d）；施工后 selftest 族写入 env_precondition 施工须知，不入 acceptance。",
+  "判据面零触碰：本波不产改 .github/、tools/judge-*、all-gates.sh、gate-pins.list、CODEOWNERS 锁定路径的卡；亦不产独立 closeout/收卷/台账回填卡（D-173.1/D-173.2；D-172/D-173/D-174 不取）。"
+ ],
+ "cards": [
+  {
+   "task_id": "w14-d158-key-health-gate",
+   "title": "key-health 断供→恢复 SLA 哨兵腿：新建 tools/key-health-recon-gate.py（判据=资源负载均衡与调度域-SOTA宪章-v1.md:198 R-14；现势实例 kimi-for-coding 401 断供约 2 天无升级行）",
+   "debt": "D-158",
+   "async": false,
+   "channel": "local-api",
+   "allowed_paths": [
+    "tools/key-health-recon-gate.py"
+   ],
+   "acceptance": [
+    "test ! -f tools/key-health-recon-gate.py → rc=0",
+    "grep -q 'D-158' 账本/阶段欠账台账.md → rc=0",
+    "test -d tools → rc=0"
+   ],
+   "merge_policy": "单件直推（新建 tools/ 单件；合线前 tools/ 既有门不劣化）",
+   "ledger": "账本/阶段欠账台账.md D-158 行",
+   "env_precondition": "施工须知（施工后验收，非 08b 干跑项）：完工时执行 python3 -I tools/key-health-recon-gate.py --selftest → rc=0（首报 25h 未恢复→rc=1，已恢复→rc=0），并对现势 kimi 面真跑留 rc 读数（如实红）于 PR 证据面。",
+   "mem_budget_g": 1,
+   "depends_on": [],
+   "state": "queued"
+  },
+  {
+   "task_id": "w14-d159-ticket-loadproof-gate",
+   "title": "GPU 票据链第 5 腿（跑批演练读数）验收门：新建 tools/ticket-loadproof-recon-gate.py（证据锚=fg-readings.md:218 遗留项3；判据=宪章资源域 R-19 票据链；缺席⇒明记「门口级在役、负载级未证」）",
+   "debt": "D-159",
+   "async": false,
+   "channel": "local-api",
+   "allowed_paths": [
+    "tools/ticket-loadproof-recon-gate.py"
+   ],
+   "acceptance": [
+    "test ! -f tools/ticket-loadproof-recon-gate.py → rc=0",
+    "grep -q 'D-159' 账本/阶段欠账台账.md → rc=0",
+    "test -d tools → rc=0"
+   ],
+   "merge_policy": "单件直推（新建 tools/ 单件；合线前 tools/ 既有门不劣化）",
+   "ledger": "账本/阶段欠账台账.md D-159 行",
+   "env_precondition": "施工须知（施工后验收，非 08b 干跑项）：完工时执行 python3 -I tools/ticket-loadproof-recon-gate.py --selftest → rc=0，并对现势票据面真跑（读数件缺席⇒输出「门口级在役、负载级未证」）留 rc 读数于 PR 证据面；launcher start→unit 真启→产物指纹→收权全链留痕。",
+   "mem_budget_g": 1,
+   "depends_on": [],
+   "state": "queued"
+  },
+  {
+   "task_id": "w14-d147-rotation-drill-gate",
+   "title": "轮换演练三件读数验收门（并存窗/零中断探针/旧钥停用负控，缺一即不过）：新建 tools/rotation-drill-recon-gate.py（判据=资源负载均衡与调度域-SOTA宪章-v1.md:198 R-14①②③；读数件带 expiry 过期待重演）",
+   "debt": "D-147",
+   "async": true,
+   "channel": "bot-lane",
+   "allowed_paths": [
+    "tools/rotation-drill-recon-gate.py"
+   ],
+   "acceptance": [
+    "test ! -f tools/rotation-drill-recon-gate.py → rc=0",
+    "grep -q 'D-147' 账本/阶段欠账台账.md → rc=0",
+    "test -d tools → rc=0"
+   ],
+   "merge_policy": "单件直推（bot-lane 沙箱产 PR；新建单件，不触既有门禁/判据件）",
+   "ledger": "账本/阶段欠账台账.md D-147 行",
+   "env_precondition": "施工须知（施工后验收，非 08b 干跑项）：完工时执行 python3 -I tools/rotation-drill-recon-gate.py --selftest → rc=0（三件齐→rc=0、缺任一→rc=1 点名、读数件过期→rc=1 待重演），并以 meters 腿现役三件读数真跑留 rc 读数于 PR 证据面。",
+   "mem_budget_g": 0,
+   "depends_on": [],
+   "state": "queued"
+  },
+  {
+   "task_id": "w14-d164-token-fileset-gate",
+   "title": "token 文件全集对账门（约定目录集枚举≡清册，差集逐条点名⇒红）：新建 tools/token-fileset-recon-gate.py（现势实例=/etc/opch-gov/bao-issuer.token 清册外第 8 件，opch-gov-bao-renew.timer 6h 续期）",
+   "debt": "D-164",
+   "async": true,
+   "channel": "bot-lane",
+   "allowed_paths": [
+    "tools/token-fileset-recon-gate.py"
+   ],
+   "acceptance": [
+    "test ! -f tools/token-fileset-recon-gate.py → rc=0",
+    "grep -q 'D-164' 账本/阶段欠账台账.md → rc=0",
+    "test -d tools → rc=0"
+   ],
+   "merge_policy": "单件直推（bot-lane 沙箱产 PR；新建单件，不触既有门禁/判据件）",
+   "ledger": "账本/阶段欠账台账.md D-164 行",
+   "env_precondition": "施工须知（施工后验收，非 08b 干跑项）：完工时执行 python3 -I tools/token-fileset-recon-gate.py --selftest → rc=0（差集→rc=1 逐条点名、一致→rc=0），并对现势目录集真跑留 rc 读数（如实红，清册补登后转绿）；与 ESC-12/D-150 TTL 门串联时只做全集入扫不并吞其判定。",
+   "mem_budget_g": 0,
+   "depends_on": [],
+   "state": "queued"
+  },
+  {
+   "task_id": "w14-d166-least-privilege-gate",
+   "title": "凭据发放最小授权断言门（清册逐条增消费 API 白名单列，权限集⊄白名单⇒红；发放腿 scope 失配⇒红）：新建 tools/least-privilege-recon-gate.py（现势实例=meters 只读额度取数持全权 CNB 令牌，降权属运营者窗，本卡只落断言门本体）",
+   "debt": "D-166",
+   "async": true,
+   "channel": "bot-lane",
+   "allowed_paths": [
+    "tools/least-privilege-recon-gate.py"
+   ],
+   "acceptance": [
+    "test ! -f tools/least-privilege-recon-gate.py → rc=0",
+    "grep -q 'D-166' 账本/阶段欠账台账.md → rc=0",
+    "test -d tools → rc=0"
+   ],
+   "merge_policy": "单件直推（bot-lane 沙箱产 PR；新建单件，不触既有门禁/判据件）",
+   "ledger": "账本/阶段欠账台账.md D-166 行",
+   "env_precondition": "施工须知（施工后验收，非 08b 干跑项）：完工时执行 python3 -I tools/least-privilege-recon-gate.py --selftest → rc=0（权限⊆白名单→rc=0、⊄→rc=1、发放 scope 失配→rc=1），并对现势清册真跑留 rc 读数（如实红）；卡面禁复述任何令牌明文/指纹全文（只记件名与位置）。",
+   "mem_budget_g": 0,
+   "depends_on": [],
+   "state": "queued"
+  }
+ ],
+ "next_wave_seed": [
+  "anolis/gpu runner 恢复后补派 anolis-build 全量 test/clippy 波（本波因活口缺席全让位，属排程让位非欠账闭合）。",
+  "同族待派新门锚：D-146（telemetry 新鲜度）/D-149（netmap 第三腿）/D-153（公开面全量复扫）/D-156（enforced-limit 派发腿）——按 runner 活口与部署窗排程。",
+  "再产卡前先过 D-173.1 done 锚过滤：D-172/D-173/D-174 已在波次归属与近期合线痕迹面出现，须先核 done/在飞再立项。",
+  "在飞 D-152/D-161/D-162 收卷后，本波 5 门可与凭据/台账族门串联：D-164→D-150（TTL 腿）、D-166→D-162（登记面↔盘面对账腿）。",
+  "obs-degraded（planner_quality_stale 2102s）与 gh 投影滞后若持续，下一波 preflight 增「质量回评新鲜度」观测项（仍只进 advisory，禁当门）。"
+ ]
+}
