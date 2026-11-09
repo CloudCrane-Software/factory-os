@@ -1,0 +1,158 @@
+{
+  "schema": "af.night-brief-index.v1",
+  "issue": 83,
+  "title": "[晨报] 2026-11-07 夜间战报索引",
+  "card_kind": "report-index",
+  "not_a_dev_card": true,
+  "debt": null,
+  "source_tag": "issue-body+comments-2026-11-09",
+  "sections": {
+    "adjudication_A": [
+      {
+        "id_tag": "H1 fork-PR 执行面",
+        "code_tag": "部分确认",
+        "summary": "三仓公开且 gates 对 PR 头树无容器隔离直跑宿主；选项=审批制/runner 迁低权账户/文档口径+P2"
+      },
+      {
+        "id_tag": "M2 公开仓泄密＋真实私钥 blob",
+        "code_tag": "确认",
+        "summary": "公开镜像仓敏感材料在案；必办=吊销/换钥（删文件不足）"
+      },
+      {
+        "id_tag": "M3 keepalive 主日志被删",
+        "code_tag": "部分确认",
+        "summary": "旧日志体丢失成立；建议以施工收口（日志迁出临时盘+删除告警码）"
+      },
+      {
+        "id_tag": "L1 任务/订单/工厂面全量无鉴权公开",
+        "code_tag": "确认",
+        "summary": "全公开=设计决定；建议最小去敏三样（模型名/配额余量/到期时间戳）"
+      }
+    ],
+    "construction_cards_B": [
+      {
+        "issue": 77,
+        "debt": "D-109",
+        "severity": "high",
+        "summary": "安灯出带批（H2+M7+M9）",
+        "dispatch": "待派/夜轨B 面子项"
+      },
+      {
+        "issue": 78,
+        "debt": "D-110",
+        "severity": "high",
+        "summary": "配额闸停用令消费腿（H5+H6）",
+        "dispatch": "已收卷"
+      },
+      {
+        "issue": 79,
+        "debt": "D-111",
+        "severity": "medium",
+        "summary": "门户写端点鉴权+HEAD 语义收口（M1+M4）",
+        "dispatch": "待派/夜轨B"
+      },
+      {
+        "issue": 80,
+        "debt": "D-112",
+        "severity": "high",
+        "summary": "bench 臂退役态显式化（H4）",
+        "dispatch": "已收卷"
+      },
+      {
+        "issue": 81,
+        "debt": "D-113",
+        "severity": "high",
+        "summary": "/data 水位恢复动作腿（H3）",
+        "dispatch": "已收卷"
+      },
+      {
+        "issue": 82,
+        "debt": "D-114",
+        "severity": "medium",
+        "summary": "观测补遗批（M5+M6+M8）",
+        "dispatch": "待派/夜轨B"
+      }
+    ],
+    "overnight_done": [
+      "planner 五缺口 G1-G5 补件 9 件 staging 全自测（零 GitHub 写）",
+      "D-107 bench 沙箱环闭环 verdict=RESOLVED",
+      "批一/批二连接压测三批真实执行",
+      "wave-07 夜间 5 PR 合线",
+      "可观测中心上公网（schema af.factory-obs.v1）"
+    ],
+    "adr_poc": {
+      "status": "待运营者在场",
+      "steps": "PoC-1..PoC-21 全部标待在场",
+      "executed_tonight": 0
+    },
+    "morning_added": [
+      {
+        "id_tag": "判分校准",
+        "debt": "D-117",
+        "summary": "P2P 唯一失配=参数化 ID 渲染形态差；属判据面，只许 ADR 正路"
+      },
+      {
+        "id_tag": "D-98 停车归档",
+        "debt": "D-98",
+        "summary": "af 自家判据器拦 caller 形态；与 D-99 同窗裁"
+      },
+      {
+        "id_tag": "cnb 核数",
+        "debt": null,
+        "summary": "runner.cpus 声明对系统档未生效；待裁三选"
+      }
+    ],
+    "dispatch_preview": [
+      "先裁 A 档（原 4 + 晨间新增）",
+      "再派 B 档待派卡 #77/#79/#82/#84（已收卷勿重复派 #78/#80/#81）",
+      "最高优先：planner D-1 给第一批真锚",
+      "在场件：ADR PoC 21 步"
+    ]
+  },
+  "comments": [
+    {
+      "kind": "final-draft",
+      "created_at": "2026-11-06T21:58:38Z",
+      "chars": 3047
+    },
+    {
+      "kind": "morning-register",
+      "created_at": "2026-11-06T22:20:50Z",
+      "chars": 1217
+    },
+    {
+      "kind": "nine-oclock-line",
+      "created_at": "2026-11-06T23:06:35Z",
+      "chars": 3925
+    },
+    {
+      "kind": "dispatch-note",
+      "created_at": "2026-11-09T05:22:04Z",
+      "chars": 72
+    }
+  ],
+  "counts": {
+    "a_items": 4,
+    "b_cards": 6,
+    "overnight": 5,
+    "morning_added": 3,
+    "comments": 4,
+    "pending_dispatch": 4,
+    "closed_merged": 3
+  },
+  "honesty": {
+    "ledger_anchor": "burn1",
+    "ledger_anchor_hits": 0,
+    "full_text_in_tree": false,
+    "claimed_fulltext_dirs": [
+      "30-工件/夜轨C2-20261107",
+      "30-工件/夜轨D-20261107",
+      "30-工件/夜轨E-20261107"
+    ],
+    "pre_state": {
+      "grep_burn1_rc": 1,
+      "target_dir_ls_rc": 2,
+      "tool_exists_rc": 1
+    }
+  }
+}
