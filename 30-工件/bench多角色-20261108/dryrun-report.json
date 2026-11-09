@@ -1,0 +1,54 @@
+{
+  "report": "dryrun-report（needs-env-dryrun 卡面预检项回执）",
+  "card": {
+    "issue": 264,
+    "task": "w19-d169-bench-layout-recon",
+    "debt": "D-169",
+    "wave": "wave-19",
+    "branch": "task/264-w19",
+    "pinned_base": "1331b3d05f2233e36b55653f295ce8827fe0bc2d",
+    "allowed_paths": ["30-工件/bench多角色-20261108"]
+  },
+  "expected_env": {
+    "what": "卡面期望件目录 30-工件/bench多角色-20261108（既有件：SPEC.md 布局表＋编排器脚本实盘名）",
+    "repo_probe": {
+      "test_-d_dir_rc": 1,
+      "test_-f_SPEC_rc": 1,
+      "sha256sum_SPEC_rc": 1,
+      "grep_D-169_ledger_rc": 0
+    },
+    "verdict": "absent（factory-os 仓 pinned base 1331b3d 与全 refs/全历史均无该目录；ls-remote 226 refs 逐一核 + git log --all -S 零命中）⇒ 不判 invalid，按卡面转沙箱开工自检"
+  },
+  "env_location": {
+    "where_short": "工厂主工作区/30-工件/bench多角色-20261108（沙箱内实盘坐标；全路径按出仓词形纪律不落档）",
+    "evidence": "retrospective.md/impl-notes.md/SPEC 交叉引用与 actor 留痕面（sess_dwf-dwfrun-916d661f-*）互证为 2026-11-08 bench 多角色真跑落档树",
+    "integrity": "镜像前实盘 SPEC.md sha256 = c76726d9d08802780c36360383b2ec1d80d3c7d965ec13f1b399ffc1253ce5a1；judge/judge.json 与 judge/judge-rejudge.json cmp 逐字节同（rc=0）"
+  },
+  "mirror": {
+    "scope": "24 运行工件（根 9 件 + judge/ 15 件）；施工暂存树 .build/ 与 .tester-scratch/ 不镜像（SPEC §二 v1.1 声明忽略面）",
+    "method": "逐件 cp 后按出仓词形纪律做私路径字面向化（见 redaction_ledger）；向化只替换环境坐标字面，不改读数/指纹/判词语义"
+  },
+  "redaction_ledger": {
+    "rule": "禁私路径字面：家目录前缀族（斜杠家目录形，用户名不落档）不出现（出仓词形避让·ESC-43 教训）；anolis /data/bench/** 为仓内在档坐标形（swev项目制 SPEC §〇 先例），保留",
+    "replacements": [
+      "<家目录>/swev-venv/bin/python3.14 -> <venv-python3.14>",
+      "<家目录>/workspace/工厂主目录 -> <工厂主工作区>",
+      "<家目录>/.cache -> <本侧缓存面>"
+    ],
+    "files": [
+      {"path": "test-report.md", "live_sha256": "c0ecbae50b7b0c3aaf22fa2223627f0e47f0022e5a4f96ce02534c502f11a0a5", "repo_sha256": "3faca5a7a0fc8a2bc426b039aeb09e29055a267fe64a6ba58b889110c58abceb", "hits": 1},
+      {"path": "A3-test-readings.md", "live_sha256": "c0ecbae50b7b0c3aaf22fa2223627f0e47f0022e5a4f96ce02534c502f11a0a5", "repo_sha256": "3faca5a7a0fc8a2bc426b039aeb09e29055a267fe64a6ba58b889110c58abceb", "hits": 1},
+      {"path": "A3-test-readings.json", "live_sha256": "d283a1005e7a955d1b91ef6cdf157fc35d20fd6a0f206b75e6f8bc1c7bcc11b7", "repo_sha256": "7deb0f536408ab93ce39cb97b0dd78c65189e77fe25703741c166e7fb0e6e653", "hits": 1},
+      {"path": "diagnosis.md", "live_sha256": "30455a2460bcf523199f3e7c957f0b3b2963a1eece1ac35ae0305c590ed70d05", "repo_sha256": "ecd0bd320d9034df002fccac38de8699be98689c15d9d0dbdb5b3831cdd0269d", "hits": 1},
+      {"path": "judge/prejudge-gate-r1.log", "live_sha256": "bb143ad62f502e46f2f4cf20ddb6f93184681c0b7bb016250c781439d380c08c", "repo_sha256": "1c311866b821cd4d48d54cbe7d97dfa1f48908022534b512b7865399cad7b93c", "hits": 8},
+      {"path": "judge/prejudge-gate-r1-rejudge.log", "live_sha256": "bb143ad62f502e46f2f4cf20ddb6f93184681c0b7bb016250c781439d380c08c", "repo_sha256": "1c311866b821cd4d48d54cbe7d97dfa1f48908022534b512b7865399cad7b93c", "hits": 8}
+    ],
+    "note": "原值（未向化）留沙箱实盘坐标在档可复算；review.md §〇 key_for 所引 A1/A2/A3 指纹 = live_sha256（原值），仓内镜像件因向化与原值不同——对账以本 ledger 双 sha 为准"
+  },
+  "selfcheck_face": [
+    "① layout-recon.py layout（SPEC §二 v1.1 清单 ↔ 盘面双向）",
+    "② layout-recon.py judge-unique（judge-producer-site 计数==1 ∧ 模板零判分相签名）",
+    "③ SPEC 改前 .bak（v1.0 字节原样）＋改前后 sha256 对账（读数见 d169-recon-readings.md）"
+  ],
+  "operator": "glm53-worker（板面施工 · 2026-11-09）"
+}

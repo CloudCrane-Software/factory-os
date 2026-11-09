@@ -1,0 +1,89 @@
+{
+  "schema": "af.env-report.v1",
+  "sandbox_label": "grok-build",
+  "card_issue": 15,
+  "attempt": 1,
+  "probed_at": "2026-11-09T05:24:11Z",
+  "host": {
+    "platform_name": "Grok Build",
+    "os": "Ubuntu 26.04.1 LTS",
+    "kernel": "7.0.0-38-generic",
+    "arch": "x86_64",
+    "cpu_cores": 16,
+    "cpu_model": "11th Gen Intel(R) Core(TM) i7-11800H @ 2.30GHz",
+    "mem_total": "14 GiB",
+    "disk_avail": "92G avail on /"
+  },
+  "network": {
+    "github.com": {
+      "ok": true,
+      "http_code": 200,
+      "time_total_s": 0.46775
+    },
+    "api.github.com": {
+      "ok": true,
+      "http_code": 200,
+      "time_total_s": 0.467036
+    },
+    "raw.githubusercontent.com": {
+      "ok": true,
+      "http_code": 200,
+      "time_total_s": 0.677492
+    },
+    "open.bigmodel.cn": {
+      "ok": true,
+      "http_code": 200,
+      "time_total_s": 0.155062
+    },
+    "proxy_http_env": "set",
+    "proxy_https_env": "set",
+    "proxy_url_sha256_12": "f1410cd719dc"
+  },
+  "toolchain": {
+    "git": "git version 2.53.0",
+    "python3": "Python 3.14.4",
+    "node": "v22.16.0",
+    "rustc": "absent",
+    "cargo": "absent",
+    "docker": "Docker version 29.9.0, build f415da8",
+    "gh": "gh version 2.102.0 (2026-09-30)"
+  },
+  "capability": {
+    "long_process": {
+      "ok": true,
+      "evidence": "slept 3s"
+    },
+    "filesystem_write": {
+      "ok": true,
+      "evidence": "probe"
+    },
+    "browser": {
+      "present": true,
+      "detail": "/usr/bin/firefox"
+    },
+    "gpu": {
+      "present": true,
+      "detail": "GPU 0: NVIDIA GeForce RTX 3070 Laptop GPU (UUID: GPU-4742726c-d4c3-27ca-a4df-8c647185683a)"
+    },
+    "context_window_self_report": {
+      "model": "Grok 4.6",
+      "context_window": "unspecified"
+    }
+  },
+  "time": {
+    "timezone": "CST+0800",
+    "utc_now": "2026-11-09T05:24:11Z",
+    "github_date_header": "date: Mon, 09 Nov 2026 05:23:58 GMT",
+    "skew_s": 13,
+    "ntp_synchronized": "yes"
+  },
+  "honesty": {
+    "not_run": [
+      {
+        "item": "P8e.context_window",
+        "reason": "session did not pin a numeric context window; model name self-reported, window size not fabricated"
+      }
+    ],
+    "notes": "P10 card command (lowercase http_proxy/https_proxy) read unset sha12=e3b0c44298fc (empty-string fingerprint); live egress uses uppercase HTTP_PROXY/HTTPS_PROXY (set, fingerprint f1410cd719dc). JSON records live egress. Values not written. rustc/cargo: rustup present, no default toolchain, command nonzero then absent per card. ledger grep burn1: 0 hits. P8b temp file removed."
+  }
+}
