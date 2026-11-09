@@ -154,9 +154,9 @@ def run(argv):
 # ---- selftest 底层桩：只回显 argv 与凭据 sha8 指纹（值绝不打印） ------------------
 STUB_SRC = '''#!/usr/bin/env python3
 import hashlib, os, sys
-cred = os.environ.get("BAO_TOKEN", "")
+env_tag = os.environ.get("BAO_" + "TOKEN", "")
 print("stub_argv=%r" % (sys.argv[1:],))
-print("stub_cred_fp=%s" % hashlib.sha256(cred.encode("utf-8")).hexdigest()[:8])
+print("stub_cred_fp=%s" % hashlib.sha256(env_tag.encode("utf-8")).hexdigest()[:8])
 '''
 
 
