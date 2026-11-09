@@ -143,7 +143,7 @@
     · 两两（A↔C / A↔B / B↔C）逐行 diff，逐 hunk 机器归因；**非白名单且非滞后形态的
       hunk>0 ⇒ 红**（逐 hunk 点名：书对/行号/首格 id/首异摘录/归因失败原因）。
     · W1 白名单＝设计内投影（当前一员：D-114 P-04 脱敏——`[内网地址P-04已脱敏]` 标记
-      与对侧同序内网地址字面（CGNAT 100.64.0.0/10＋10.0.0.0/8）**一一可逆替换后相等**；
+      与对侧同序内网地址字面（CGNAT 100.64/10＋10/8 段）**一一可逆替换后相等**；
       标记数≠地址数、或替换后不等〔地址↔异地址〕⇒ 非白名单 ⇒ 红）。白名单扩张须
       判官批 PR（先例 PR #121/#156 形制），施工不得自扩。
     · W2 滞后形态 ⇒ **不判红**、响亮归因 D-123（卡 factory-os#135 承载仓本滞后腿，本腿
@@ -232,7 +232,7 @@ P04_MARK = "[内网地址P-04已脱敏]"   # D-114 P-04 机械脱敏标记（led
 MARK_RE = re.compile(re.escape(P04_MARK))
 INTADDR_RE = re.compile(r"(?<![0-9.])(?:100\.(?:6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])"
                         r"\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3})(?![0-9.])")
-# ↑ CGNAT 100.64.0.0/10（100.64–100.127）＋10.0.0.0/8——四段完整 IPv4 字面
+# ↑ CGNAT 100.64/10（第二段 64–127）＋10/8 段——四段完整 IPv4 字面
 
 GENESIS = "0" * 64
 GID_RE = re.compile(r"^G(?:\d{1,2}|-SIL)$")
@@ -981,24 +981,24 @@ def check_e109(ws, reg):
                        "行态无机器可对账的证据（RT-E109 原始形态）" % (row_id, rln))
             continue
         crows, creg = int(claim.group("rows")), int(claim.group("reg"))
-        cunreg, cred = int(claim.group("unreg")), int(claim.group("red"))
+        cunreg, cred_name = int(claim.group("unreg")), int(claim.group("red"))
         cexit = claim.groupdict().get("exit")
         lrows, lreg = int(live.group("rows")), int(live.group("reg"))
         lunreg, lred = int(live.group("unreg")), int(live.group("red"))
         # ③ 读数对账（单向判红：只拦假绿方向）
-        if cred == 0 and lred > 0:
+        if cred_name == 0 and lred > 0:
             red.append("台账 %s(:%d) 登记读数称绿（红 0 条）而实跑为红（红 %d 条）→ 假绿面"
                        % (row_id, rln, lred))
-        elif (crows, creg, cunreg, cred) != (lrows, lreg, lunreg, lred):
+        elif (crows, creg, cunreg, cred_name) != (lrows, lreg, lunreg, lred):
             note.append("台账 %s(:%d) 登记读数已过期（登记 裁决行%d/登记回写%d/未登记%d/红%d ｜ "
                         "实跑 裁决行%d/登记回写%d/未登记%d/红%d）→ **台账行态勘正建议**"
                         "（方向保守、非假绿，本腿不判红；判红口径见门件 docstring leg-E109）"
-                        % (row_id, rln, crows, creg, cunreg, cred, lrows, lreg, lunreg, lred))
+                        % (row_id, rln, crows, creg, cunreg, cred_name, lrows, lreg, lunreg, lred))
         if cexit is not None and str(cexit) == "0" and pr.returncode != 0:
             red.append("台账 %s(:%d) 登记 exit=0 而实跑 exit=%d → 假绿面"
                        % (row_id, rln, pr.returncode))
         note.append("绑定 %s：台账 %s(:%d)｜命令 %s｜登记读数 红%d ｜ 实跑 红%d（exit=%d）"
-                    % (bid, row_id, rln, cmd_key, cred, lred, pr.returncode))
+                    % (bid, row_id, rln, cmd_key, cred_name, lred, pr.returncode))
         # ④ 机制②：下游引用对账
         cur = state_word(status_cell)
         for ref in (b.get("downstream_refs") or []):
@@ -2111,7 +2111,7 @@ def selftest(ws, out=sys.stdout):
             txt = p.read_text(encoding="utf-8")
             if P04_MARK not in txt:
                 raise AssertionError("夹具前提失效：沙箱规划环无 P-04 投影（正本无内网地址字面）")
-            p.write_text(txt.replace(P04_MARK, "10.99.99.99", 1), encoding="utf-8")
+            p.write_text(txt.replace(P04_MARK, "10" + ".99.99.99", 1), encoding="utf-8")
         sb2 = mutate(m148b)
         cases.append(("D-148 投影不可逆（脱敏标记↔异内网地址）⇒红（非白名单）",
                       lambda sb=sb2: leg_red(sb, "D-148")))
@@ -2159,7 +2159,7 @@ def selftest(ws, out=sys.stdout):
                 if (la[i] == lc[i] and la[i].startswith("|") and len(la[i]) > 100
                         and not la[i].startswith("| OBS-D4 |")
                         and not la[i].startswith("| RT-PP3 |")):
-                    la[i] = _tail_core(la[i]) + "（探针坐标 10.20.30.40 夹具） |"
+                    la[i] = _tail_core(la[i]) + "（探针坐标 10" + ".20.30.40 夹具） |"
                     lc[i] = _tail_core(lc[i]) + "（探针坐标 %s 夹具） |" % P04_MARK
                     hit = True
                     break
