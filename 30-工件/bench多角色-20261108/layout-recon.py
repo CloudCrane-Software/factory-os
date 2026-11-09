@@ -176,8 +176,8 @@ def cmd_judge_unique(root, json_out=None):
             text = fh.read()
         refs += [(os.path.basename(t), m.group(1)) for m in JUDGE_REF_RE.finditer(text)]
         enum = KIND_ENUM_RE.search(text)
-        enum_tokens = enum.group(1) if enum else ""
-        for bad in (t for t in JUDGEY if t in enum_tokens):
+        enum_names = enum.group(1) if enum else ""
+        for bad in (t for t in JUDGEY if t in enum_names):
             problems.append(f"模板 {os.path.basename(t)} PhaseKind 枚举含判分相签名「{bad}」")
         for m in KIND_VALUE_RE.finditer(text):
             if any(b in m.group(1).lower() for b in ("judge", "rejudge")):
