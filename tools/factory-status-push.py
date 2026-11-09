@@ -93,6 +93,78 @@ def mm_gate_ok(mq):
     return bool(mq.get("go")) and p5 > MM_HOLD_FLOOR_PCT and pwk > MM_WEEKLY_HOLD_FLOOR_PCT
 
 
+# ---- step 系执行闸判据（D-145 / ESC-20 · 2026-11-09 判定同源化）----------------
+# 修前缺陷（RT 确证，与 11-03「8/8 vs 15/20」同型复发换到 step 道）：执行侧就地
+# 硬编码 step_ok=到期>3600s 且 remaining>2e8（原 derive_gate 内联），派发侧吃
+# quota.json 的 step.go（quota-governor.py:250，remaining>0 即真）——分歧带
+# （0<remaining≤2e8 或到期≤3600s）内派发照写、执行逐条拒收 → 队列积压；且
+# 2e8/3600 是 REG-3 数字清单之外的无登记正本配额数。
+# 修法（最小、不弱化）：双阈不再就地自持，改从资源规则注册表声明行取——
+# 账本/resource-rules.jsonl 的 step 规则（af.resource-rule.v1；唯一机读正本）。
+# 两侧同取注册表值（判据=资源负载均衡与调度域-SOTA宪章-v1.md:171 R-10②③④；
+# 对账门=tools/test-quota-gate-criteria-parity.py S 段）。只许变严：注册表取值
+# 禁低于修前 2e8/3600（宪章 :172 护栏，S1 段钉住）。
+def _step_gate_floors():
+    """取注册表 账本/resource-rules.jsonl 的 step 执行闸双阈（唯一机读正本）。
+
+    返回 (remaining_floor, seconds_to_expiry_floor_s)。取不到（文件缺席/坏行/
+    未认 schema/无 step 规则行/多行歧义/双阈缺一或非数值）即 (None, None) →
+    step_gate_ok 恒 False（fail-closed：宁可不烧，也绝不静默回落到任何就地阈值）。"""
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "账本", "resource-rules.jsonl")
+    try:
+        rules, step_rules = [], []
+        with open(path, encoding="utf-8") as f:
+            for ln, line in enumerate(f, 1):
+                s = line.strip()
+                if not s:
+                    continue
+                obj = json.loads(s)                # 坏行即抛 → fail-closed
+                if not isinstance(obj, dict):
+                    raise ValueError(f"非对象行 L{ln}")
+                if obj.get("event"):               # 行政行（rules-open 等）跳过
+                    continue
+                if obj.get("schema") != "af.resource-rule.v1":
+                    raise ValueError(f"未认 schema 行 L{ln}")
+                rules.append(obj)
+                if obj.get("account") == "step" and obj.get("resource") == "llm:step-plan":
+                    step_rules.append(obj)
+        if not rules or len(step_rules) != 1:      # 空/缺/歧义多行 → 取不到阈
+            return None, None
+        # 剩余阈：windows 内 unit==credits 且带 floor 的窗口须恰一个（多窗歧义 → fail-closed）
+        floors = [w.get("limit", {}).get("floor") for w in (step_rules[0].get("windows") or [])
+                  if (w.get("limit") or {}).get("unit") == "credits" and "floor" in (w.get("limit") or {})]
+        if len(floors) != 1:
+            return None, None
+        rem_floor = floors[0]
+        exp_floor = (step_rules[0].get("renewal") or {}).get("seconds_to_expiry_floor_s")
+        for v in (rem_floor, exp_floor):
+            if isinstance(v, bool) or not isinstance(v, (int, float)):
+                return None, None
+        return float(rem_floor), float(exp_floor)
+    except Exception:  # noqa: BLE001
+        return None, None
+
+
+STEP_REMAINING_FLOOR, STEP_SECONDS_TO_EXPIRY_FLOOR_S = _step_gate_floors()
+
+
+def step_gate_ok(sq):
+    """step 系执行闸判据（与派发侧同源=同取注册表 step 双阈；D-145 判定同源化）。
+
+    fail-closed：注册表取不到阈 / 读数缺失或非数值类型 / 任一低于阈 → 一律不放行。
+    读数类型从严：只认 int/float（bool 除外）——修前非数值形态是抛异常=不裁决，
+    数值字符串宽松化属新增放行面，禁（只许变严）。"""
+    if STEP_REMAINING_FLOOR is None or STEP_SECONDS_TO_EXPIRY_FLOOR_S is None:
+        return False
+    rem, exp = sq.get("remaining"), sq.get("seconds_to_expiry")
+    for v in (rem, exp):
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            return False
+    return (float(rem) > STEP_REMAINING_FLOOR
+            and float(exp) > STEP_SECONDS_TO_EXPIRY_FLOOR_S)
+
+
 # ---------------------------------------------------------------- 源读数新鲜度（2026-11-03 OBS 回头·派生闸）
 # 缺陷（确证）：源读数新鲜度纪律只在派发侧落地（tools/factory-scheduler.py:read_quota()
 # —— ts = st.get("ts") or 0; age_ms = time.time()*1000 - ts; q["stale"] = age_ms > QUOTA_STALE*1000，
@@ -131,7 +203,7 @@ def derive_gate(q, now_ms=None):
     src_ts = q.get("ts") or 0
     src_age_s = max(0, (now_ms - src_ts) // 1000) if src_ts else None
     src_stale = (not src_ts) or (src_age_s > QUOTA_SRC_STALE_S)
-    gate = {"step_ok": (sq.get("seconds_to_expiry") or 0) > 3600 and (sq.get("remaining") or 0) > 200_000_000,
+    gate = {"step_ok": step_gate_ok(sq),
             "mm_ok": mm_gate_ok(mq),
             "mm_floor_pct": MM_HOLD_FLOOR_PCT, "mm_weekly_floor_pct": MM_WEEKLY_HOLD_FLOOR_PCT,
             "remaining": sq.get("remaining"), "seconds_to_expiry": sq.get("seconds_to_expiry"),

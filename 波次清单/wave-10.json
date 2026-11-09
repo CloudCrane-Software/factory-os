@@ -1,0 +1,103 @@
+{
+ "schema": "af.wave-manifest.v1",
+ "wave": "wave-10",
+ "created": "2026-11-08T08:41:12+0800",
+ "policy": "30-工件/波次自转器-20261106/制度-v1.md",
+ "budgets": {
+  "anolis_mem_cap_g": 45,
+  "local_mem_cap_g": 3,
+  "anolis_concurrency": 4
+ },
+ "base_sha": "d5e6b1c1372d7a6f68136f4541823d6b102c18eb",
+ "preflight": [
+  "占用核：本波三锚 D-68 / OBS-D7 / RT-E228-M 均未出现在板面 open 卡（occupied_debt_anchors=[]）与历史非终态卡清单（RT-E138/RT-E117/RT-E94/RT-E32/D-104/D-98/D-99/D-109/D-111/D-114/D-116/D-115/D-118）中；在飞 task_id=portal 不重复立项",
+  "台账坐标核：三张卡 debt/ledger 均取自输入 open_anchors 与 ledger_summary，无新增或编造债号；D-123（板 #135）、D-78（板 #14）等已带 open Issue 的锚不在本波立项，避免双解",
+  "基线钉桩：base_sha 取 allowed_base_shas 唯一值 d5e6b1c1372d7a6f68136f4541823d6b102c18eb；判官/门禁/判据件（all-gates.sh、gate-pins.list、CODEOWNERS 锁定路径）零触碰",
+  "观测面消化：factory_obs 的 amber 级告警已逐条过账——与运行机水位相关的告警留观测项（本波不派 anolis-build 重载卡，扩容/清理走 owner 窗）；planner 跑批稳定性告警留观测项、不立卡；回评件滞后已转 w10-obsd7-quality-backfill 卡（advisory 输入，禁入机检闸面）",
+  "外部依赖登记（不立项，入 next_wave_seed）：板 #2 镜像豁免到期复审、板 #15 普查卡、板 #83 晨报索引、板 #138/#139 SOTA 宪章 v1 登记——均无可用台账锚，占用闸 fail-closed，禁以编造债号立项",
+  "安全：本波全部字符串字段经凭据形态自检，无 sk-/ghp_/github_pat_/AKIA/PRIVATE KEY/JWT 形态命中"
+ ],
+ "cards": [
+  {
+   "task_id": "w10-d68-wave04-recon",
+   "title": "D-68 悬挂锚只读对账：wave-04 清单缺场核＋台账行真值取证（不标 ✅、不改台账）",
+   "debt": "D-68",
+   "async": false,
+   "channel": "local-api",
+   "allowed_paths": [
+    "账本/阶段欠账台账.md"
+   ],
+   "acceptance": [
+    "grep -n 'D-68' 账本/阶段欠账台账.md → rc=0",
+    "sha256sum 账本/阶段欠账台账.md → rc=0",
+    "wc -l 账本/阶段欠账台账.md → rc=0",
+    "git log --oneline -1 -- 账本/阶段欠账台账.md → rc=0"
+   ],
+   "merge_policy": "no-merge（只读对账：结论与证据坐标落 Issue 评论，不改台账、不标终态）",
+   "ledger": "账本/阶段欠账台账.md · D-68 行",
+   "mem_budget_g": 1,
+   "repo": "CloudCrane-Software/factory-os",
+   "env_precondition": "本机 API 轨：禁 cargo；仅 grep/wc/sha256sum/git 轻载，Σmem ≤3G",
+   "fast_tests": null,
+   "depends_on": [],
+   "state": "queued"
+  },
+  {
+   "task_id": "w10-obsd7-quality-backfill",
+   "title": "OBS-D7 观测面处置：波次回评件补评（advisory 只增不改，禁进 required checks）",
+   "debt": "OBS-D7",
+   "async": true,
+   "channel": "bot-lane",
+   "allowed_paths": [
+    "波次清单/"
+   ],
+   "acceptance": [
+    "jq -e '.cards_scored >= 1' 波次清单/wave-06.quality.json → rc=0",
+    "jq -e '.cards_total_lines > 0' 波次清单/wave-06.quality.json → rc=0",
+    "sha256sum 波次清单/wave-06.quality.json → rc=0",
+    "test -f 波次清单/wave-09.json → rc=0"
+   ],
+   "merge_policy": "merge-check 范式（显式 refspec 取回；波次清单/ 下 .quality.json 只增不改，既有 manifest 一字不动）",
+   "ledger": "波次清单/wave-06.quality.json · 回评段（planner_quality_recent source_files 之一）",
+   "mem_budget_g": 0,
+   "repo": "CloudCrane-Software/factory-os",
+   "env_precondition": "外部沙箱 bot-lane：python3+jq 可用；产出经 bot-bridge 回收，本地零内存占用；沙箱内允许 cargo 但本卡不需要",
+   "fast_tests": null,
+   "depends_on": [],
+   "state": "queued"
+  },
+  {
+   "task_id": "w10-rte228m-ledger-close",
+   "title": "RT-E228-M 整改项收卷对账：消费者侧证据核→台账行收卷（证据不足则不标 ✅ 并登记缺口）",
+   "debt": "RT-E228-M",
+   "async": false,
+   "channel": "local-api",
+   "allowed_paths": [
+    "账本/阶段欠账台账.md"
+   ],
+   "acceptance": [
+    "grep -n 'RT-E228-M' 账本/阶段欠账台账.md → rc=0",
+    "sha256sum 账本/阶段欠账台账.md → rc=0",
+    "git log --oneline -1 -- 账本/阶段欠账台账.md → rc=0"
+   ],
+   "merge_policy": "单件直推（台账行收卷；改前 .bak＋钉桩重锚，禁改历史、禁 force push）",
+   "ledger": "账本/阶段欠账台账.md · RT-E228-M 行",
+   "mem_budget_g": 1,
+   "repo": "CloudCrane-Software/factory-os",
+   "env_precondition": "本机 API 轨：禁 cargo；改台账前先 .bak 备份并重锚钉桩，Σmem ≤3G",
+   "fast_tests": null,
+   "depends_on": [
+    "w10-d68-wave04-recon"
+   ],
+   "state": "queued"
+  }
+ ],
+ "next_wave_seed": [
+  "板 #135 D-123 欠账台账双正本清偿：ticket:needs-human＋owner 窗，需先裁定再立项，本波按双解规则回避",
+  "板 #14 D-78 neutrality S1 三处处置：D-78 不在 open_anchors，立项前须先产 register-debt 登记卡取得台账行",
+  "板 #2 mirror-scan-allowlist 74+10 条豁免 2026-12-05 到期复审：不回审=gates 整体回红，建议 11 月下旬波次优先占窗",
+  "板 #138/#139 SOTA 宪章 v1 共识稿登记：documentation 型，需核产能与锚登记后入波",
+  "运行机水位与 planner 跑批稳定性两条 amber 观测项：若下一拍升级为 red，转立项走 owner 窗（本波只留观测，不复述读数）",
+  "wave-08 五张无 task_id 卡的收卷边界缺口（D-109/D-111/D-114/D-115 已占）：须走原卡收卷或作废，禁在 wave-11 重锚同名卡"
+ ]
+}

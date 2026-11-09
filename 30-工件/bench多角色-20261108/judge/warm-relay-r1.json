@@ -1,0 +1,74 @@
+{
+ "tool": "tools/swev-warm-relay.sh",
+ "task_file": "30-工件/bench多角色-20261108/judge/task.json",
+ "remote": "anolis",
+ "remote_dir": "/data/bench/swev-judge-cache",
+ "fail_step": null,
+ "all_ok": true,
+ "instances": {
+  "astropy__astropy-8872": [
+   {
+    "instance": "astropy__astropy-8872",
+    "step": "1-warm-local",
+    "ok": true,
+    "elapsed_ms": 1871,
+    "detail": {
+     "warm": true,
+     "instance_id": "astropy__astropy-8872",
+     "urls_fetched": [],
+     "urls_cached": 0,
+     "error": null,
+     "hermetic": false
+    }
+   },
+   {
+    "instance": "astropy__astropy-8872",
+    "step": "2-judge-attest",
+    "ok": true,
+    "elapsed_ms": 3579,
+    "detail": {
+     "action": "attested",
+     "sha": "4a7156dd5e45197f7d8ab39be236eb9bb7a0ce7af220bca2395f863d71133389"
+    }
+   },
+   {
+    "instance": "astropy__astropy-8872",
+    "step": "3-cache-relay",
+    "ok": true,
+    "elapsed_ms": 3224,
+    "detail": {
+     "entries_before": 12,
+     "entries_after": 12
+    }
+   },
+   {
+    "instance": "astropy__astropy-8872",
+    "step": "4-task-push",
+    "ok": true,
+    "elapsed_ms": 1724,
+    "detail": {
+     "path": "/data/bench/swev-judge-cache/tasks/astropy__astropy-8872.json"
+    }
+   },
+   {
+    "instance": "astropy__astropy-8872",
+    "step": "5-remote-verify",
+    "ok": true,
+    "elapsed_ms": 3418,
+    "detail": {
+     "spec_ok": true,
+     "instance_id": "astropy__astropy-8872",
+     "source": "cache",
+     "elapsed_ms": 0,
+     "live_http": [],
+     "blocked_urls": [],
+     "judge_sha256": "4a7156dd5e45197f7d8ab39be236eb9bb7a0ce7af220bca2395f863d71133389",
+     "eval_script_sha256": "53d61fbde8b8eabda9fa34f4232402bec96a0edb075cfc3d5dc6f87efbe94e5e",
+     "swebench_version": "4.1.0",
+     "allow_live": false,
+     "error": null
+    }
+   }
+  ]
+ }
+}

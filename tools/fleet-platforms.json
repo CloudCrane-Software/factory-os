@@ -1,0 +1,130 @@
+{
+  "_meta": {
+    "schema": "af.fleet-platforms.v1",
+    "anchor": "D-183+D-188",
+    "date": "2026-11-08",
+    "purpose": "六通道沙箱能力目录（机读）：规划侧 choose_model/派发路由按本表选通道；每平台五字段 + 安全边界注记",
+    "fields": {
+      "can_pull": "沙箱侧可否主动拉取任务对象（合规拉取式 worker）",
+      "can_report": "沙箱侧可否主动回传结果/心跳到自有 relay",
+      "session_persistent": "同会话续聊（续聊=同一沙箱、上下文与临时文件延续）是否成立",
+      "cost_model": "消耗计费模型与接口在位状态（interface=ok/partial/todo-discover）",
+      "sandbox_persistence": "沙箱文件系统持久性边界"
+    },
+    "sources": "多账号舰队系统报告 §2.1–§2.4 与多平台沙箱反向通道报告（运营者 2026-11-08 交付，全部为当日实测结论）；security_notes 另含 2026-11-08 下午 D-183 五通道冒烟实测增量（读数见运营者工作区 30-工件/舰队融入-20261108/smoke.md；kimi 通道=报告 §2.4 二次更新（2026-11-08 晚，kimi_dispatch.py＋沙箱外连 relay 双探针实证）"
+  },
+  "stepfun": {
+    "can_pull": false,
+    "can_report": false,
+    "session_persistent": true,
+    "cost_model": {
+      "unit": "quota%（5小时窗口+周窗口+订阅信用）",
+      "interface": "QueryStudioRateLimit（双层解读：free>0 免费层；free=0 且订阅>0 为 Pro 层激活；皆 0 即 exhausted）",
+      "status": "ok",
+      "todo_discover": null
+    },
+    "sandbox_persistence": "跨会话持久（/workspace = 阿里云 OSS）",
+    "security_notes": [
+      "聊天即命令：派发走 StartStudioWorkspaceRun API 直发，无需沙箱内回拉，未走 C2 路径",
+      "API 重放门槛：仅 Cookie 不够，须补齐 oasis-webid/appid/platform/language 与 connect-protocol-version 头（否则 oasis-token is embezzled）",
+      "令牌生命周期：访问 JWT 30 分钟 + 刷新 JWT 30 天（HttpOnly 双段）——调度侧须从浏览器 profile 定期刷新 cookie",
+      "登录态文件须写入 /workspace/.agent-state/ 且开场指令显式要求恢复（沙箱不会自动读取）",
+      "冒烟实测：访问 JWT 过期后直读 profile 仍为旧值——须经 SPA 加载触发令牌刷新后再读 cookie（刷新后回放即通）"
+    ]
+  },
+  "codao": {
+    "can_pull": true,
+    "can_report": true,
+    "session_persistent": true,
+    "cost_model": {
+      "unit": "积分/任务（智速模式实测 2.51 与 3.7）",
+      "interface": "任务完成页「共消耗积分」文案解析",
+      "status": "partial",
+      "todo_discover": "余额总账接口待人工抓包（工作台/账户页）"
+    },
+    "sandbox_persistence": "同会话持久（/tmp 跨消息保留）",
+    "security_notes": [
+      "C2 形态（心跳+拉命令+任意执行+回传）必拒，平台给出合规路径",
+      "合规路径实测三件套：归属自证（relay 放归属核验文件，agent 主动 GET 核验一次性令牌）+ 硬编码 URL 白名单（仅自有域名 /agent-relay/*）+ agent 侧内网段/元数据地址校验（防 SSRF）",
+      "任务对象 = 任务规格（如 http_get 的 url 参数），非 shell 命令",
+      "拉取式 worker 双向实证：enqueue → 沙箱拉取执行（连通 200、取回归属令牌）→ report 入库",
+      "冒烟实测：SSO 会话失效后拉取式通道整体不可达（enqueue 任务滞留队列、无沙箱可拉）——登录态是本通道单点前提，恢复须人工短信重登",
+      "冒烟实测：fleet 登录核验 marker「新建任务」在登出落地页同样在场（弱判据）——登录标记需换强标记（如账号昵称在位）"
+    ]
+  },
+  "workbuddy": {
+    "can_pull": false,
+    "can_report": true,
+    "session_persistent": true,
+    "cost_model": {
+      "unit": "未知（额度体系待逆向）",
+      "interface": null,
+      "status": "todo-discover",
+      "todo_discover": "余额/消耗接口未抓包——人工 15 分钟抓包窗口"
+    },
+    "sandbox_persistence": "同会话持久（/tmp 跨消息保留）",
+    "security_notes": [
+      "比码道更严：任何「拉取远端任务并执行」都拒（白名单/归属声明也不放）",
+      "明确许可「本地健康指标采集 + 回传自有域名」——外连形态定为心跳+指标上报",
+      "从首页新开任务 = 全新沙箱（上下文清零）；必须回原会话续聊（导航方式教训，非平台特性）",
+      "输入框为 slate 虚拟编辑器：DOM 含多个 contenteditable 幽灵节点，只认视口内可见者，insert_text 后校验字符数再发送",
+      "冒烟实测：全新续聊会话对 checkin 信标一律拒止，relay 预置一次性令牌的 verify.txt 被判「循环证明」——agent 点名的强核验=其生成 nonce 的 HMAC 挑战 / DNS TXT / 签名自有端点；本轮 relay 回传未成，读态与本地健康采集正常"
+    ]
+  },
+  "cnb": {
+    "can_pull": true,
+    "can_report": true,
+    "session_persistent": false,
+    "cost_model": {
+      "unit": "dev 池核时/月免费配额（每 org 各 1600）+ AI token 按 NPC 口径实测 0 扣费",
+      "interface": "配额/用量 API（dev 池免费与已用读数）",
+      "status": "ok",
+      "todo_discover": null
+    },
+    "sandbox_persistence": "任务级临时沙箱（默认 8 核/16G，任务结束回收，无跨任务持久）",
+    "security_notes": [
+      "派发 = 建 issue + work_mode 评论（任务规格面），平台侧无 C2 语义",
+      "沙箱出网白名单：上游源码站可达；沙箱内 commit.gpgsign=true 需显式关闭",
+      "交卷 = 推 results 分支（分支内补丁件）+ 评论回复；多卷语义取末卷为正本",
+      "派发限速与防重：状态件记录已派任务，幂等跳过",
+      "冒烟实测：触发契约实证——评论须以 @CodeBuddy 前缀开头才拉起 NPC（缺前缀静默不触发）；按「永不编辑已发评论」契约应追加新评论重触发；NPC 响应时延约 90 秒"
+    ]
+  },
+  "local": {
+    "can_pull": false,
+    "can_report": true,
+    "session_persistent": true,
+    "cost_model": {
+      "unit": "本机算力（无平台计费）",
+      "interface": "无外部计费接口，cost 恒 0",
+      "status": "ok",
+      "todo_discover": null
+    },
+    "sandbox_persistence": "宿主文件系统（受工作区 /tmp 分流纪律约束：运行时件与短命件）",
+    "security_notes": [
+      "本机信任面：派发 = 意图登记 + 工人简报生成，执行者与派发面同机",
+      "回传留痕 = 状态件 report 段 + 简报件 sha256 指纹链",
+      "凭据零打印纪律同样约束本通道（简报正文禁夹带任何令牌）"
+    ]
+  },
+  "kimi": {
+    "can_pull": false,
+    "can_report": false,
+    "session_persistent": true,
+    "cost_model": {
+      "unit": "ratio%（订阅主额度 amountUsedRatio ＋ Code 独立限流 5h/7d 双窗 ratelimitCode*）",
+      "interface": "GetSubscriptionStats（/apiv2/kimi.gateway.membership.v2.MembershipService，Bearer 页内 fetch）——credits.py 五层解读已在位；首测点：主 35.25%、Code 7d 98.79%（逼近耗尽→重施工暂缓，额度窗复位后启用）",
+      "status": "partial",
+      "todo_discover": "credits 读数接线入 fleet-dispatch pricing.observe（v1 记 todo-discover 事件）"
+    },
+    "sandbox_persistence": "同会话持久（chat_id+parent_id 续聊；沙箱实测阿里云系 Linux k21 内核）",
+    "security_notes": [
+      "派发走 kimi.gateway.chat.v1.ChatService/Chat 自定义 RPC 帧（connect+json），页内 fetch 现取 token——零落地零 argv",
+      "令牌生命周期：access ~1h / refresh ~90d 且在 localStorage 非 Cookie——扩展采集器补 localStorage 采集已列升级项（采集缺口期 token 依赖 fleet 槽页面在场）",
+      "x-msh-shield-data 风控闭包单次有效：页内 fetch 实测不强制；失效路径=从真实请求捕获附带（未启用）",
+      "模型面纪律：仅 k28-agent-preview/k3d1-agent（SCENARIO_OK_COMPUTER）可承载施工派发；k28-instant 无沙箱禁派任务；SWARM（蜂群批量）/is_goal（持续任务）语义按需启用",
+      "C2 型持久 beacon 拒止未测（探针均良性单命令）——接入施工派发前预置合规形态（归属自证+白名单+SSRF 校验，同 codao worker 三件套口径）",
+      "冒烟实证（运营者侧 18:11/18:13）：kimi-probe-1/2 经 relay 回连注册成功——沙箱外连链路闭环"
+    ]
+  }
+}

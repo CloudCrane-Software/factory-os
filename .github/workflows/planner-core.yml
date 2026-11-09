@@ -958,6 +958,22 @@ jobs:
 
           # 欠账台账行级启发式摘要（单元格内含 | ，不做结构化切分；判双解以板+波次状态机为准）
           anchors, rows_total, done_rows = [], 0, 0
+          # ── D-174（factory-os#211）：第 6 格〔锚补全〕块扩读（输入面 · append-only ·
+          #    形制先例=PR #144 M-6 输入面修正）——preflight run 42439499002 实证：开放锚
+          #    「仅有锚号，无台账行描述/file:line/验收面」——wave-13 补全块已落台账第 6 格
+          #    审计格（〔…锚补全（…）：任务内容=…；期望件路径=…；验收口径=…〕，origin/main
+          #    台账现势 32 行任务型），既有提取面不读 ⇒ 规划输入宇宙缺三要件（manifest
+          #    candidate preflight 缺口行 §六.9 实证）。本段在既有三键（id/done/waves 逐字节
+          #    不动）外解析标记块，三要件以台账契约同形键（锚补全/任务内容/期望件路径/验收
+          #    口径）并入该锚 dict；无块行／收卷报告型块（现状=… 头，无 任务内容=）不命中
+          #    ⇒ 提取输出零变化。语义只扩不缩：判定面（step 08/08b/08c/08d · M-6/SUB-5）
+          #    零改动，本步只扩 ledger summary fields（同 PR #144 输入面修正先例，非判据
+          #    修正）；承载格=第 6 格审计格（规范承载格，行内任意格命中等同——显式契约标记
+          #    不会被 prose 子串误伤，同 PR #144 SUB-5 切格口径；块行单行无换行，字段值内
+          #    全角分号不撞字段锚〔实测 32/32 全配·收卷型 0 误配〕）。
+          COMPLETION_RE = re.compile(
+              r"〔[^〕]*锚补全（[^〕]*）：任务内容=(?P<task>.*?)；期望件路径=(?P<paths>.*?)"
+              r"；验收口径=(?P<acc>[^〕]*)〕")
           if os.path.exists(ledger_path):
               with open(ledger_path, encoding="utf-8") as f:
                   for line in f:
@@ -968,10 +984,18 @@ jobs:
                       done = "\u2705" in line   # 台账完成态标记
                       if done:
                           done_rows += 1
-                      anchors.append({"id": m.group(1), "done": done,
-                                      "waves": sorted(set(re.findall(r"wave-\d+", line)))})
+                      a = {"id": m.group(1), "done": done,
+                                      "waves": sorted(set(re.findall(r"wave-\d+", line)))}
+                      comp = COMPLETION_RE.search(line)
+                      if comp:
+                          a["锚补全"] = {"任务内容": comp.group("task").strip(),
+                                      "期望件路径": comp.group("paths").strip(),
+                                      "验收口径": comp.group("acc").strip()}
+                      anchors.append(a)
           else:
               warnings.append("欠账台账不在场：%s" % os.environ["LEDGER_FILE"])
+          print("ledger-completion: rows=%d · completion_rows=%d"
+                % (rows_total, sum(1 for a in anchors if "锚补全" in a)))
 
           open_anchors = [a["id"] for a in anchors if not a["done"]]
           # ── M-6 锚宇宙全量化（宪章裁定 2026-11-07 · 裁决日志第 4 条）：
@@ -1298,6 +1322,94 @@ jobs:
           model = os.environ["LLM_MODEL"]
           with open("governance/planner/planner-prompt.md", encoding="utf-8") as f:
               prompt = f.read()
+          # ── D-171（factory-os#191）：closeout 卡验收命令模板好例区（生成面 · append-only）──
+          # 08b 干跑在钉桩基线树实跑 acceptance——收卷卡验收命令若断言「卡自己要产出的
+          # 终态」（台账行 grep '✅' 类），钉桩树上必 rc=1 ⇒ cmd-red invalid fail-closed
+          # （wave-10 w10-d135/w10-d136-ledger-close 实证，run 42417721683/42419314047，
+          # 干跑读数在 /tmp 旁证与 run 日志：板面 gh issue view 系绿、台账行 ✅ 断言红）。
+          # 正确模板=板面 #159（w09-d118-closeout）验收命令集形制。判定面零改动：
+          # 08/08b/08c 校验一字不动，本段只进提示词（软指引，§四.4 同族；母本
+          # planner-prompt.md 在治理仓，不在本卡 allowed_paths ⇒ 在组装面注入）。
+          prompt += (
+              "\n\n## 七、closeout（收卷）卡验收命令模板好例区（D-171 · factory-os#191；"
+              "先例=板面 #159 w09-d118-closeout 的验收命令集）\n"
+              "\n"
+              "收卷对账类卡（task_id 含 closeout，或任务为「收卷对账/台账收卷」）的验收命令集\n"
+              "限定以下可证形态——每条都必须在钉桩基线树上、开工前即成立（step 08b 干跑就在\n"
+              "pinned base 树实跑）：\n"
+              "1. 板面事实系（被收卷实施卡已带合线标签＝派发时点已成立的事实）：\n"
+              "   gh issue view <实施卡Issue号> --json labels -q '.labels[].name' | grep -qx 'state:merged' → rc=0\n"
+              "   （<实施卡Issue号> 只许取输入里的真号，禁编造；期望标签按卡面实况取。）\n"
+              "2. 台账行存在系（证「行在」，不证「行已收卷」）：\n"
+              "   grep -n '<债号>' 账本/阶段欠账台账.md → rc=0\n"
+              "   sha256sum 账本/阶段欠账台账.md → rc=0\n"
+              "3. 禁「终态先行」断言：收卷卡的活就是把台账行标 ✅——acceptance 禁写\n"
+              "   grep '<债号>' 账本/阶段欠账台账.md | grep -q '✅' 这类把施工后终态当施工前\n"
+              "   可证状态的命令（钉桩树上该行还没有 ✅ ⇒ rc=1 ⇒ 08b cmd-red 整波作废）。\n"
+              "   上一拍红案：w10-d135-ledger-close / w10-d136-ledger-close（run 42417721683）。\n"
+              "4. 「→ rc=N」尾标硬形制与 §3.2/M-1 不变；本区是模板好例（软指引），禁当新\n"
+              "   机检项——step 08/08b/08c 校验集零改动。\n"
+          )
+
+          # ── D-173（factory-os#205）：生成面三纪律段（done 锚过滤 · 禁独立 closeout
+          # 卡 · 台账卡 depends_on）——append-only 注入（D-171 同形：母本
+          # planner-prompt.md 在治理仓不在本卡 allowed_paths ⇒ 组装面注入）。
+          # 红案=run 42435229215（2026-11-08T01:40Z）08c 实质质量门 red：SUB-2
+          # w11-d172-anchor-recon 为 D-172 再产卡（factory-os#198 近 7 天已合线，
+          # 其 debt 锚=done）；SUB-3 台账路径（账本/阶段欠账台账.md）与在飞
+          # #199/#201 交集非空且未声明续作。门拦得对（判定面零改动），修生成面：
+          # 让 planner 不再产这类卡。台账回填正形=PR #161 先例（施工工人随合线
+          # PR 同树 append 收卷对账段，diff 单件）。判定面零改动：08/08b/08c
+          # 校验集一字不动，本段只进提示词（软指引，§四.4/D-171 同族，禁当新
+          # 机检项）。
+          prompt += (
+              "\n\n## 八·补、allowed_paths 命名纪律（D-186·2026-11-08）"
+              "\n- allowed_paths 文件名禁含判官关键词族（judge/判官/判据/judge-paths 族——M-4 按名 fail-closed 拦截，实证 run 42470976474 card[2] tools/judge-negtest-suite.py）"
+              "\n- 期望件涉判官测试/判据校验类工具：以非判官族命名（negtest-/verify- 前缀）＋卡面注明「涉判官邻接，合线前需判官面复核」"
+              "\n- 门禁关键词（gates/CODEOWNERS 面）命名同理避让"
+              "\n"
+              "\n\n## 八·补二、创建卡验收命令纪律（D-189·2026-11-08）"
+              "\n- 判别：卡 allowed_paths 目标在钉桩基线树上缺席＝创建卡（本卡要新建该件）。"
+              "\n- 创建卡 acceptance 集限定「开工前可证形态」：每条必须是基线树上现在就能绿的命令——"
+              "\n  正形＝`test ! -f <allowed_path> → rc=0`（证目标确系待建、路径无撞）＋其他基线事实系命令；"
+              "\n- 禁「终态先行」（D-171 同族红案 w10-d135/136）：施工后才可能绿的命令"
+              "\n  （`python3 -I <待建件> --selftest → rc=0`／`--fixture …`／grep 新接线名 → rc=0 等）"
+              "\n  一律禁入 acceptance——08b 干跑在基线树实跑，待建件缺席 ⇒ rc=2≠期望 ⇒ cmd-red 整波作废"
+              "\n  （实证 run 312 五卡：w13-d146/d152/d158/d159/d161 全 cmd-red）；"
+              "\n- 施工后验收（selftest/fixture/check 族）写入卡面施工须知段：工人完工时须执行并在 PR 证据面留逐条 rc 读数，收卷评分消费之；"
+              "\n- 锚面（台账锚补全块）验收口径含 selftest 类命令时，若目标件树上缺席，按本纪律转形——"
+              "\n  本段优先于锚面机械照抄；判定面（08/08b/08c）零改动，软指引同 §四.4/D-171 族。\n"
+              "\n\n## 八·补三、扫描器词形禁复述（D-190·2026-11-08）"
+              "\n- manifest 任何字符串字段（含 preflight/preflight 说明/cards 各字段）禁出现凭据扫描器的"
+              "\n  模式词形本体：『sk-』『ghp_』『github_pat_』『AKIA』『BEGIN … PRIVATE KEY』『JWT/eyJ』"
+              "\n  等词形一律不复述、不举例、不自证——**提及即命中**（保证句本身会触发它所保证的对象）。"
+              "\n- 红案（run 320 step08 凭据形态扫描红）：preflight 写「安全扫描：本波全部字符串都无凭据形态"
+              "\n  （私钥块起手词/各平台令牌前缀等模式名连写）」——自证清白句复述模式词形被扫中，整波作废。"
+              "\n- 正形：preflight 只陈述业务事实（选锚理由/占用核/缺口说明），安全面由 step08 机检自证——"
+              "\n  无需也不许在生成面预保证。判定面零改动，软指引同 D-171 族。\n"
+              "\n\n## 八、生成面三纪律：done 锚过滤 · 禁独立 closeout 卡 · 台账卡 "
+              "depends_on（D-173 · factory-os#205；台账回填先例=PR #161 收卷对账段）\n"
+              "\n"
+              "组 manifest 前对每张候选卡逐条过下列三纪律，违者该卡不产；候选全违\n"
+              "⇒ 空波合法（cards=[] 须附 preflight 缺口说明，既有形制不变）：\n"
+              "1. done 锚过滤：近 7 天已合线（state:merged）卡的 debt 锚一律视为\n"
+              "   done——禁为其再产任何形态卡（含 closeout/收卷/recon/复盘/backfill/\n"
+              "   台账回填/观察类）。台账行状态列滞后不是新卡理由。红案：run\n"
+              "   42435229215 08c SUB-2（w11-d172-anchor-recon 为 D-172 再产卡，\n"
+              "   factory-os#198 近 7 天已合线）。\n"
+              "2. 禁独立 closeout 卡：账本/阶段欠账台账.md 的行回填/收卷对账，由施\n"
+              "   工工人随自己卡的合线 PR 同树完成（先例=PR #161：diff 单件，仅台账\n"
+              "   行 append 收卷对账段，不另开卡）。planner 禁产 task_id 含\n"
+              "   closeout/ledger-close/收卷 类的独立卡。\n"
+              "3. 台账卡 depends_on 纪律：allowed_paths 含 账本/阶段欠账台账.md 的\n"
+              "   卡，同波 manifest 至多一张；确需多张时，每张须在 depends_on 显式\n"
+              "   声明链（三形之一：repo#issue 号／台账锚号／同波 task_id）。红案：\n"
+              "   run 42435229215 08c SUB-3（台账路径与在飞 #199/#201 交集非空且未\n"
+              "   声明续作）。\n"
+              "4. 本段是生成面软指引（§四.4/D-171 同族），禁当新机检项——step\n"
+              "   08/08b/08c 判定面零改动（SUB-2/SUB-3 拦得对，本纪律是让生成端少\n"
+              "   产违卡、不是放松门）；manifest M-1 形制与既有字段集零增减。\n"
+          )
           with open("planner-inputs.json", encoding="utf-8") as f:
               inputs = json.load(f)
 
@@ -3839,6 +3951,7 @@ jobs:
         if: steps.quota.outputs.plan_allowed == 'true' && steps.validate.outputs.outcome == 'plan' && !inputs.dry_run
         env:
           WAVE: ${{ steps.validate.outputs.wave }}
+          PLANNER_MERGE_PAT: ${{ secrets.MERGE_PAT }}   # 建卡腿 PAT（D-172）：POST /issues 鉴权（声明名 MERGE_PAT ⇐ repo secret PLANNER_MERGE_PAT，同 09b 合并腿一源；禁回落 GITHUB_TOKEN）
         run: |
           set -euo pipefail
           mkdir -p issues-out
@@ -3936,12 +4049,45 @@ jobs:
             fi
           done
 
+          # ── 建卡腿鉴权面（D-172 · 2026-11-08）：POST /issues 改走 repo
+          #    secret PLANNER_MERGE_PAT（feasy898 repo-only PAT，openBao 同源），
+          #    headerfile 形态=裁 10 09b 段同款：PAT 进 600 临时文件、curl
+          #    -H @file、用后 shred——禁 argv/回显/残留。PAT 缺席 ⇒ fail-closed
+          #    （禁回落 GITHUB_TOKEN）；http 非 201 ⇒ fail-loud 留运营者（禁假绿）。
+          #    待建=0 时零写 API，无需钥匙即诚实绿（板已在飞跳过语义不受影响）。
+          #    证据：run 42430785779 待建 3 → 已建 0 且 success——jq 顶层数组
+          #    直索引错误发生在 process substitution 内被吞，循环空转零建
+          #    （fail-open 本体）；下方 created<待建 硬红即兜此链。──
+          todo_n=$(jq 'length' issues-todo.json)
           : > issues-created.log
-          while IFS=$'\t' read -r tid ttl bf; do
-            url=$(gh issue create --repo "${ORG}/${BOARD_REPO}" --title "$ttl" --body-file "$bf" \
-                    --label wave --label state:queued)
-            echo -e "${tid}\t${url}" >> issues-created.log
-          done < <(jq -r '[.task_id, .title, .body_file] | @tsv' issues-todo.json)
+          if [ "${todo_n}" -gt 0 ]; then
+            if [ -z "${PLANNER_MERGE_PAT:-}" ]; then
+              echo "PLANNER_MERGE_PAT 缺席而待建=${todo_n}——建卡鉴权无从配置，fail-closed 判红（禁回落 GITHUB_TOKEN）" >&2
+              exit 12
+            fi
+            IC_HDR="$(mktemp)"; chmod 600 "$IC_HDR"
+            IC_RESP="$(mktemp)"; chmod 600 "$IC_RESP"
+            trap 'shred -u "$IC_HDR" "$IC_RESP" 2>/dev/null || rm -f "$IC_HDR" "$IC_RESP"' EXIT
+            printf 'Authorization: token %s\nAccept: application/vnd.github+JSON\nX-GitHub-Api-Version: 2022-11-28\n' \
+              "$PLANNER_MERGE_PAT" > "$IC_HDR"
+            # jq 顶层数组须显式 .[] 迭代（run 42430785779 实证直索引报错被吞）
+            while IFS=$'\t' read -r tid ttl bf; do
+              # gh -f 表单语义 ⇏ curl——jq -n 织 JSON（禁手拼转义）；同 09b
+              issue_json=$(jq -n --arg title "$ttl" --arg body "$(cat "$bf")" \
+                            '{title:$title,body:$body,labels:["wave","state:queued"]}')
+              ic_code=$(curl -s -o "$IC_RESP" -w '%{http_code}' -X POST -H "@$IC_HDR" \
+                        -H 'Content-Type: application/json' --data-binary "$issue_json" \
+                        "https://api.github.com/repos/${ORG}/${BOARD_REPO}/issues")
+              if [ "$ic_code" != "201" ]; then
+                echo "建卡失败（task_id=${tid}）http=${ic_code}——fail-loud 留运营者处置（禁假绿）" >&2
+                head -c 300 "$IC_RESP" >&2; echo >&2
+                exit 13
+              fi
+              echo -e "${tid}\t$(jq -r '.html_url' "$IC_RESP")" >> issues-created.log
+            done < <(jq -r '.[] | [.task_id, .title, .body_file] | @tsv' issues-todo.json)
+          else
+            echo "待建=0——零写 API，无建卡动作（诚实绿）"
+          fi
 
           python3 -I - <<'PY'
           import json, os
@@ -3955,6 +4101,14 @@ jobs:
               json.dump(created, f, ensure_ascii=False, indent=1)
           print("已建 Issue：%d" % len(created))
           PY
+
+          # 零假绿硬红（D-172）：created<待建 ⇒ 建卡腿未全成 ⇒ 本步判红。
+          # run 42430785779「待建 3 → 已建 0 且 success」即本检查要堵的假绿。
+          created_n=$(grep -c . issues-created.log || true)
+          if [ "${created_n}" -lt "${todo_n}" ]; then
+            echo "已建=${created_n} < 待建=${todo_n}——建卡腿未全成，硬红（零假绿）" >&2
+            exit 15
+          fi
 
       # ── 运行摘要：进 Actions Summary + artifact（禁含密钥）──
       - name: '11 · run 摘要（Actions Summary）'
