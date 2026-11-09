@@ -1,0 +1,8 @@
+........................................................................ [ 95%]
+........................................................................ [ 98%]
+...................                                                      [100%]
+=========================== short test summary info ============================
+FAILED astropy/units/tests/test_quantity.py::test_quantity_from_table - Attri...
+FAILED astropy/units/tests/test_quantity.py::test_assign_slice_with_quantity_like
+FAILED astropy/units/tests/test_quantity.py::TestQuantityMatplotlib::test_scatter
+3 failed, 1879 passed, 3 skipped, 6 xfailed in 7.92s
