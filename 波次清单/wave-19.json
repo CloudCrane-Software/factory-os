@@ -1,0 +1,60 @@
+{
+ "schema": "af.wave-manifest.v1",
+ "wave": "wave-19",
+ "created": "2026-11-09T09:10:23+0800",
+ "policy": "30-工件/波次自转器-20261106/制度-v1.md",
+ "budgets": {
+  "anolis_mem_cap_g": 45,
+  "local_mem_cap_g": 3,
+  "anolis_concurrency": 4
+ },
+ "base_sha": "1331b3d05f2233e36b55653f295ce8827fe0bc2d",
+ "preflight": [
+  "占用核：D-169 不在 occupied_debt_anchors（D-143/D-148）、不在 non_terminal_cards（wave-01..wave-18 在册非终态卡）、不在 in_flight_task_ids（portal / w17-d148-ledger-threeway-leg / w18-d143-bao-shim-failloud）中——本波唯一选锚，无防双解冲突。",
+  "活口核：board 现 15 个 open issue（state:queued 6、state:verifying 2），wave-11..wave-18 在册 queued 卡密集；本波只补 1 张不与在册锚重叠的卡，避免堆卡加剧施工队列积压。",
+  "缺口说明（为何只 1 张）：open_anchors 内带锚补全的其余候选逐条受阻——D-124/D-171 期望件落在 .github/workflows 门禁面（仓级 CODEOWNERS 锁，禁产修改类卡）；D-144/D-170 的 allowed_paths 命中保护关键词族（M-4 按名 fail-closed 拦截）；D-127 锚面明示随门户批顺带、勿单开且期望件仓内缺位；D-168 涉 mirror 豁免册与扫描门本体（改行须判据面复核）；D-175 期望件为卡 id 占位符不可钉桩。其余 open_anchors（D-120..D-141、D-176..D-188 等）输入无锚补全（无期望件路径/验收口径），立项即编造，按 §六.9 不产卡。",
+  "factory_obs 消化：red 两条皆为 runner-offline（anolis/benji-obs 哨兵自报 gpu Runner.Listener 连续 198/199 轮缺席、runner_containers=0）⇒ 本波不派 anolis-build 通道卡，唯一卡走 local-api；amber 项（anolis / 86%>80%、egress-gw 7890 认证探活失败、planner run failure streak=2、planner 近 5 跑 4 败、planner_quality_stale 2701s）留观测项待运营者窗处置，不复述为卡面结论、不入机检闸面。",
+  "台账纪律核：本波唯一卡 allowed_paths 不含 账本/阶段欠账台账.md，同波无台账路径相交；不产 closeout/收卷/ledger-close 类独立卡，D-169 台账行由施工工人随合线 PR 同树回填（D-173 #2/#3）。",
+  "基线/环境核：base_sha 取 allowed_base_shas 唯一值 1331b3d05f2233e36b55653f295ce8827fe0bc2d（不沿用 wave-18 的 a78fe3aa 旧基线）；local-api 机禁 cargo、单卡 ≤2G（本卡 1G），无 GPU 与外部服务依赖。"
+ ],
+ "cards": [
+  {
+   "task_id": "w19-d169-bench-layout-recon",
+   "title": "[wave-19] w19-d169-bench-layout-recon · D-169 bench 多角色编排层契约收敛（复盘 F1/F2）：判分相二选一收敛（测试员腿全链 vs 编排器独立判分相复跑，两轮产物逐字节同——留一删一）＋SPEC §二 冻结布局表 20 项与编排器实盘名逐项对账（现势 6 缺+5 同物异名清零）；证据锚=账本/阶段欠账台账.md D-169 行锚补全段；施工须知=完工跑①布局对账扫描（20 项逐项命中实盘名→rc=0，缺名/异名→rc=1 点名）②判分产物产生点唯一性断言（产生点=1→rc=0，冗余墙钟 ~5m 消解）③改前后 SPEC sha256 对账，逐条 rc 读数留 PR 证据面，收卷评分消费",
+   "debt": "D-169",
+   "async": false,
+   "channel": "local-api",
+   "allowed_paths": [
+    "30-工件/bench多角色-20261108"
+   ],
+   "acceptance": [
+    "test -d \"30-工件/bench多角色-20261108\" → rc=0",
+    "test -f \"30-工件/bench多角色-20261108/SPEC.md\" → rc=0",
+    "sha256sum \"30-工件/bench多角色-20261108/SPEC.md\" → rc=0",
+    "grep -n 'D-169' 账本/阶段欠账台账.md → rc=0"
+   ],
+   "merge_policy": "单件直推（30-工件 目录内 SPEC/编排脚本：改前 .bak＋改前后 sha256 对账；不触门禁面与判据件）",
+   "ledger": {
+    "rows": [
+     {
+      "file": "账本/阶段欠账台账.md",
+      "row_key": "D-169",
+      "evidence": "锚补全段：任务内容=bench 多角色编排层契约收敛（复盘 F1/F2）；期望件=30-工件/bench多角色-20261108/SPEC.md 布局表＋编排器脚本实盘名（编排脚本坐标以 impl-notes.md 实盘为准，卡面点名）"
+     }
+    ]
+   },
+   "mem_budget_g": 1,
+   "depends_on": [],
+   "state": "queued",
+   "repo": "CloudCrane-Software/factory-os",
+   "env_precondition": "本机 14G（local-api 轨）：禁 cargo；仅文本/脚本核对与改写；无 GPU、无外部服务依赖",
+   "fast_tests": []
+  }
+ ],
+ "next_wave_seed": [
+  "wave-20 候选：D-169 合线后复查 SPEC §二 布局表与实盘名仍同源（对账扫描真跑一次并留读数）；D-170 bench 派发面泄题事前提门待 allowed_paths 命名避让方案明确后再立项",
+  "wave-20 候选：open_anchors 内 D-120..D-141/D-176..D-188 须先补锚补全（期望件路径＋验收口径）方可立项，否则一律不产卡",
+  "wave-20 候选：待 anolis gpu Runner.Listener 恢复（factory_obs red 两条连续 198/199 轮缺席）后，wave-11..wave-18 在册 queued 卡按原锚推进，不重立项、不换锚",
+  "factory_obs amber 项（anolis / 86%>80% 磁盘、egress-gw 探活失败、planner 近 5 跑 4 败）需运营者窗处置；planner_quality_stale 读数待质量回评腿恢复后复评"
+ ]
+}

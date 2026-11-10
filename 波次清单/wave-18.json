@@ -1,0 +1,51 @@
+{
+ "schema": "af.wave-manifest.v1",
+ "wave": "wave-18",
+ "created": "2026-11-09T06:25:00+0800",
+ "policy": "30-工件/波次自转器-20261106/制度-v1.md",
+ "budgets": {
+  "anolis_mem_cap_g": 45,
+  "local_mem_cap_g": 3,
+  "anolis_concurrency": 4
+ },
+ "base_sha": "a78fe3aa1d224440767037f384827f65d21af38b",
+ "preflight": [
+  "占用核：D-143 在 open_anchors 内且不在 occupied_debt_anchors（D-145/D-148）与非终态卡债务集中；候选 task_id 与 in_flight_task_ids（portal / w16-d145-step-leg-parity / w17-d148-ledger-threeway-leg）无交集，波内 task_id 与 debt 各仅一条",
+  "观测面（factory_obs，advisory）：red 两条=哨兵 anolis 与 benji-obs 自报 Runner.Listener 缺席 gpu（连续 165/164 轮，容器态 runner_containers=0）⇒ 本波不派 anolis-build 卡，只留 local-api 1G 件；板面 #224 [ALERT] runner-offline 同源留运营者窗",
+  "观测面 amber 登记留观：anolis 根盘 86%＞80%、egress-gw 7890 认证探活失败、planner run 连续 3 败（run#361）、GitHub 投影多仓 http_403、wave 卡近似静默＞240min——均属基础设施/运营者窗，无对应台账锚行，本波不立项",
+  "非终态积压：40 张（35 queued，wave-05..wave-17）覆盖 D-68 / D-111 / D-114 / D-115 / D-116 / D-118 / D-128 / D-142 / D-145..D-167 等开放锚 ⇒ 按 §3.5.1 不重复立项；D-104(portal) 在飞不重产",
+  "done 过滤（生成面纪律一）：D-160 / D-169 / D-170 / D-171 / D-172 / D-173 / D-174 在 wave-12..wave-15 已出场且不在非终态卡集 ⇒ 视为近 7 天已合线，本波不产任何形态卡（含收卷/复盘/回填/观察类）",
+  "保护面回避：D-124（gates.yml 内联兜底块抽 composite action）与 D-144（judge-deploy-recon-gate deep 腿扩列）与 D-168（mirror-disclose 扫描门双判升级）命中门禁/判官/判据件 ⇒ 只读核或运营者窗，本波不产修改类卡；D-127 按锚面明注「随门户批 D-111 卡 #79 顺带勿单开」不单开；D-175（swev 官方判官判分）验收依赖外部服务不可基线复跑，不立项",
+  "缺口：零补全锚 D-120..D-141（除已在非终态卡者）、D-176..D-185、D-188 与 RT-C4 / RT-C7 / RT-E31 / RT-E32-ADMIT / RT-E204-M1 / OPS-1 / OBS-D5 / DEB-8 在输入内无任务内容、期望件路径与验收线索，禁编造（§六.2），留待锚面补全后再立项",
+  "legacy_backlog 为空数组（warnings：legacy-backlog.json 缺场）⇒ 无低风险遗留清偿候选可补位"
+ ],
+ "cards": [
+  {
+   "task_id": "w18-d143-bao-shim-failloud",
+   "title": "D-143 bao 垫片 fail-loud 仓内镜像件：新建 tools/bao-shim.py（BAO_TOKEN 缺失⇒显式报错退出、禁静默兜底 root 身份；VAULT_TOKEN 须显式映射或显式拒绝）；证据锚=台账 D-143 行锚补全段（gov 宿主 /usr/local/bin/bao 为部署窗活体面，仓内正本缺位如实注记，本卡只落仓内镜像件不触碰活体）；施工须知=完工跑 python3 -I tools/bao-shim.py --selftest 三例夹具（BAO_TOKEN 缺失 / 正常 / VAULT_TOKEN 未映射）并把逐条退出码读数留 PR 证据面，收卷评分消费",
+   "debt": "D-143",
+   "async": false,
+   "channel": "local-api",
+   "allowed_paths": [
+    "tools/bao-shim.py"
+   ],
+   "acceptance": [
+    "test ! -f tools/bao-shim.py → rc=0",
+    "grep -n 'D-143' 账本/阶段欠账台账.md → rc=0",
+    "sha256sum 账本/阶段欠账台账.md → rc=0"
+   ],
+   "merge_policy": "单件直推（tools/ 新建件：仓内镜像件落仓，gov 宿主活体面与部署窗不在本卡作用域）",
+   "ledger": "台账 D-143 行（锚补全：gov 宿主 bao 垫片 fail-loud 化，镜像件腿）",
+   "mem_budget_g": 1,
+   "depends_on": [],
+   "state": "queued",
+   "env_precondition": "本机 python3 标准库即可；gov 宿主 /usr/local/bin/bao 活体手术与部署窗不在本卡作用域",
+   "fast_tests": []
+  }
+ ],
+ "next_wave_seed": [
+  "D-124 / D-144 / D-168 三门禁-判官邻接锚需运营者授权窗后按只读核或合流形制立项，禁在本环产修改类卡",
+  "非终态积压 40 张（35 queued）建议由运营者批量裁撤/重派消化，先清积压再扩新锚",
+  "D-143 的 gov 活体腿（宿主 /usr/local/bin/bao 垫片本体）待部署窗；factory_obs 根盘 86% 与 runner gpu 离线两条 red/amber 亦待运营者窗处置"
+ ]
+}

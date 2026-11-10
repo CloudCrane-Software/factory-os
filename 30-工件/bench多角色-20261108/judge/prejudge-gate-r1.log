@@ -1,0 +1,20 @@
+=== 判官件部署面对账门（Q10 修·部署漂移＋缓存记录面双 sha 硬校验）===
+注册表：<工厂主工作区>/repos/.github/docs/judge-paths.md
+factory-os 根：<工厂主工作区>/repos/factory-os
+扫描根：（无——L2 不跑）
+缓存面：<本侧缓存面>/swev-judge-v2
+注册表登记 9 行（active 5／historical-frozen 4）
+  [INFO] pre-judge 模式：L2 完备性扫描不跑（归巡检 cron）
+--- L1 部署面对账
+  [PASS] J1 活跃面对账：<工厂主工作区>/repos/factory-os/tools/swev-judge-v2.py ≡ 4a7156dd5e45…
+  [INFO] J2 不在本机：/data/bench/swev-judge-cache/swev-judge-v2.py（active，跨机登记行）
+  [INFO] J3 不在本机：/data/gh-runner-fos-work/factory-os/factory-os/tools/swev-judge-v2.py（active，跨机登记行）
+  [INFO] J4 不在本机：/data/bench/D-117/swev-judge-v2.py（active，跨机登记行）
+  [PASS] J5 活跃面对账：<工厂主工作区>/tools/swev-judge-v2.py ≡ 4a7156dd5e45…
+  [INFO] H1 不在本机：/data/bench/D-86/swev-judge-v2.py（historical-frozen，跨机登记行）
+  [INFO] H2 不在本机：/data/bench/D-106/swev-judge-v2.py（historical-frozen，跨机登记行）
+  [INFO] H3 不在本机：/data/bench/D-107/swev-judge-v2.py（historical-frozen，跨机登记行）
+  [PASS] H4 历史冻结对账：<工厂主工作区>/30-工件/D-86-bench试跑-20261106/swev-judge-v2.py ≡ 3f958c929eb5…
+--- L3 记录面双 sha 硬校验
+  [INFO] 缓存 tasks/ 零配对记录（记录面空）
+结论：绿（pre-judge 放行：部署面＋记录面全绿）
