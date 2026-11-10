@@ -1,0 +1,52 @@
+{
+ "schema": "af.wave-manifest.v1",
+ "wave": "wave-20",
+ "created": "2026-11-10T11:45:00+0800",
+ "policy": "30-工件/波次自转器-20261106/制度-v1.md",
+ "budgets": {
+  "anolis_mem_cap_g": 45,
+  "local_mem_cap_g": 3,
+  "anolis_concurrency": 4
+ },
+ "base_sha": "aa331158c850f1446a1809cb73f9795dd71d22f3",
+ "preflight": [
+  "占用核：D-72 不在台账锚宇宙（anchors 无此行；板面 #2 自述「待主代理落账」），且 occupied_debt_anchors 为空、non_terminal_cards 无 D-72 ⇒ 按 §3.5.3 先产 register-debt 登记卡；本波不重复占用任何在飞锚与前波 queued 锚（41 张非终态卡逐一比对）。",
+  "观测面处置（advisory）：factory_obs 的 runner-offline red（哨兵 anolis/benji-obs 自报，对应板面 #224 在档）⇒ 本波不派 anolis-build 卡（无可用 runner，派即空转）；根盘触线 amber、egress 探活 amber、GitHub 投影滞后 amber 一并留观测项，不转卡（主机与外部面运维动作，非仓内可施工件）。",
+  "planner-blind 应答：连续空波 + open_anchors=86 + in_flight=0 —— 空波根因是多数可用锚已被前波 queued 卡占满且 anolis runner 离线；本波以 1 张登记卡破解 D-72 硬期限（mirror-scan-allowlist 74+10 条豁免 expires=2026-12-05 到期即 SCRUB 步整体回红、该仓 PR 全阻断），不凑卡不造假。",
+  "选锚理由：D-72 = 板面 #2 定时炸弹卡（legacy），风险面唯一带硬日期的开放缺口；本波只做登记（债行入账），复审实施卡留 wave-21 以 depends_on 跟进，禁在判据面改判使其变绿。",
+  "本波明确不选锚及理由：D-144/D-170 期望件含判官族名（M-4 按名 fail-closed 拦截）；D-171 期望件为 .github/workflows/planner-core.yml（门禁/判官面，禁产修改类卡，只许 content-only）；D-124 需同批改 gates.yml（同面）；D-127/D-175 期望件在钉桩基线树缺席或验收口径非确定性可执行命令，按 D-189 创建卡纪律降级，待锚面补全后再立。",
+  "判据面零改动声明：本波全部卡 allowed_paths 不含 all-gates/gate-pins/CODEOWNERS/workflows 面；台账登记卡走 append-only，既有行零改动。",
+  "质量回评回流自检：对照 planner_quality_recent.top_failure_modes 逐条自查本波卡——acceptance 每条带「→ rc=N」尾标、allowed_paths 非空、depends_on 无悬引用、台账坐标取自输入（本条为组卡自检，非机检项）。"
+ ],
+ "cards": [
+  {
+   "task_id": "register-debt-d72-allowlist-expiry",
+   "title": "D-72 登记卡：mirror-scan-allowlist 74+10 条豁免 2026-12-05 到期复审债入账（仅登记，复审实施卡次波跟进）",
+   "debt": "D-72",
+   "async": false,
+   "channel": "local-api",
+   "allowed_paths": [
+    "账本/阶段欠账台账.md"
+   ],
+   "acceptance": [
+    "test -f 账本/阶段欠账台账.md → rc=0",
+    "test -f tools/mirror-scan-allowlist.json → rc=0",
+    "python3 -m json.tool tools/mirror-scan-allowlist.json > /dev/null → rc=0",
+    "grep -c '2026-12-05' tools/mirror-scan-allowlist.json → rc=0",
+    "bash -n tools/mirror-disclose.sh → rc=0",
+    "grep -n 'load_exempt' tools/mirror-disclose.sh → rc=0"
+   ],
+   "merge_policy": "单件直推（仅于 账本/阶段欠账台账.md 行尾 append D-72 登记段与依据句；append-only，既有行零改动；判官面/门禁面零改动；不含任何改判据动作）",
+   "ledger": "账本/阶段欠账台账.md D-72 新登记段（append-only，落账行号由占用闸登记时定；债源=板面 #2 定时卡与 tools/mirror-scan-allowlist.json 存量条目，均在输入与只读调查面可核）",
+   "mem_budget_g": 1,
+   "depends_on": [],
+   "state": "queued"
+  }
+ ],
+ "next_wave_seed": [
+  "wave-21：D-72 复审实施卡（depends_on=本波 register-debt 合线；74+10 条逐条复核续期/剔条目、复跑清洗闸确认 verdict=clean；判据面只许变严，禁以放宽判定求绿）",
+  "runner-offline（板面 #224）消除后恢复 anolis-build 通道：前波 queued 卡按波次序重派，禁重复立项；派前先核占用闸 ALLOW",
+  "D-172/D-173/D-174 已多波入波且存在近 7 天合线先例，按 §八.1 done 锚过滤退役，不再为其产任何形态卡（含 recon/backfill）",
+  "台账路径 账本/阶段欠账台账.md 同波至多一张的纪律保持不变：后续台账类卡须显式 depends_on 声明链"
+ ]
+}
