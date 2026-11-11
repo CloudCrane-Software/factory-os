@@ -1,0 +1,59 @@
+{
+ "schema": "af.wave-manifest.v1",
+ "wave": "wave-21",
+ "created": "2026-11-11T12:40:23+0800",
+ "policy": "30-工件/波次自转器-20261106/制度-v1.md",
+ "budgets": {
+  "anolis_mem_cap_g": 45,
+  "local_mem_cap_g": 3,
+  "anolis_concurrency": 4
+ },
+ "base_sha": "5169ee609fda1f0cdf21b4b26695a4d9c08ba4a1",
+ "preflight": [
+  "占用核：输入 non_terminal_cards 计 45 张（wave-08..wave-20，state 以 queued 为主）占住 45 个债锚；板 open 卡 #135 占 D-123（ticket:needs-human）；本波零重复立项、零双解。",
+  "选锚：唯一可产锚为 D-170（输入锚补全给全任务内容/期望件路径/验收口径；done=false；board 与历史波次非终态卡均未占）。不产锚与理由：D-124 涉 .github/workflows 门禁件改写（§3.6.2 只许只读）；D-127 锚补全自述随门户批 D-111 顺带勿单开；D-144 涉判据册与判官门工具扩列（判官面保护）；D-168 扫描豁免册 schema 变更受 issue #2 到期复审（2026-12-05）牵制；D-171 planner 工作流属治理面且 closeout 模板已在提示词在役；D-175 期望件名依赖未给定的 bench 实例卡 id。",
+  "缺口说明：其余开放锚（RT-C4/RT-C7/OPS-1/OBS-D5/DEB-8/RT-E31/RT-E32-ADMIT/RT-E204-M1/D-120..D-122/D-129..D-141/D-160/D-172..D-174/D-176..D-188/EXAM-E1..E3）在输入面均无任务内容（无锚补全、无对应 Issue 正文），且 legacy_backlog 缺场（warnings 已记）；按其组卡即为编造期望件与验收命令，按 §六.2 禁产。",
+  "红告警登记（factory_obs）：哨兵 anolis 与 benji-obs 报 runner-offline（连续 816/817 轮、容器态 runner_containers=0；board #224）⇒ 本波零 anolis-build 卡（派发只会继续积压），处置属宿主运维/owner 窗，非规划卡可解。",
+  "黄告警登记（factory_obs）：planner run#695 连续失败 streak=2；planner 质量投影 stale 902s；anolis 根盘使用率 86% 超 80% 线；egress-gw 7890 探活失败；gh 投影降级（剩余配额 ≤12，匿名帽 13:10:03 重置）——均基础设施/配额面，不进本波卡。",
+  "planner-blind 判读：open_anchors=87、in_flight=0、连续空波=4；根因判读为 dispatch 面停摆（runner 离线）叠加既有 45 张 queued 卡未被消费，非规划面缺卡；本波仅出 1 张低风险可派卡，避免加积压。",
+  "D-170 施工须知（08b 干跑只验基线事实）：完工时须在 PR 证据面留三读数——含泄题样例字段的卡面被拦截 rc=1、干净卡面放行 rc=0、留痕件 dispatch-trace.json 在场；活体判官/评估件零触碰，留痕件落点按 D-186 命名纪律避让判官关键词族。"
+ ],
+ "cards": [
+  {
+   "task_id": "w21-d170-bench-dispatch-leakcheck",
+   "title": "[D-170] bench 派发相泄题事前机检＋dispatch-trace.json 留痕件（落 30-工件/bench多角色-20261108）",
+   "debt": "D-170",
+   "async": false,
+   "channel": "local-api",
+   "allowed_paths": [
+    "30-工件/bench多角色-20261108/",
+    "账本/阶段欠账台账.md"
+   ],
+   "acceptance": [
+    "test -d 30-工件/bench多角色-20261108 → rc=0",
+    "test ! -f 30-工件/bench多角色-20261108/dispatch-trace.json → rc=0",
+    "grep -n 'D-170' 账本/阶段欠账台账.md → rc=0"
+   ],
+   "merge_policy": "单件直推（30-工件 bench 面：改前 .bak＋钉桩重锚；涉判官邻接面，合线前需判官面复核）",
+   "ledger": {
+    "rows": [
+     {
+      "file": "账本/阶段欠账台账.md",
+      "row_key": "D-170",
+      "evidence": "锚补全段（任务内容：编排模板派发相机检；期望件路径：30-工件/bench多角色-20261108 派发相段＋留痕件；验收口径：泄题样例卡面拦截且留痕在场）"
+     }
+    ]
+   },
+   "mem_budget_g": 1,
+   "env_precondition": "pinned 树含 30-工件/bench多角色-20261108/（SPEC.md 与编排模板为既有件）；python3 可用；本地禁 cargo 不涉",
+   "state": "queued",
+   "depends_on": []
+  }
+ ],
+ "next_wave_seed": [
+  "runner 恢复（board #224 关闭）后先消费既有 45 张 queued 卡（wave-08..wave-20），不为同锚再产卡。",
+  "D-168 复评条件：issue #2 豁免到期复审（2026-12-05）结论落定且维护窗开启，再出 schema/双判升级卡。",
+  "D-175 复评条件：补登 bench 实例卡 id 与补丁期望件名（输入面缺口修复）后重出卡。",
+  "D-124 复评条件：owner 授权 .github/workflows 门禁面改动（CODEOWNERS 面）后走 PR 流，不进波次卡。"
+ ]
+}
